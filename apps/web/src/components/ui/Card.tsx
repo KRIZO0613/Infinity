@@ -1,6 +1,7 @@
 "use client";
 
-import type { PropsWithChildren, HTMLAttributes } from "react";
+import type { CSSProperties, HTMLAttributes, PropsWithChildren } from "react";
+import { neonStyle, tokens } from "@/lib/tokens";
 
 type CardProps = PropsWithChildren<
   {
@@ -16,11 +17,18 @@ export default function Card({
   ...props
 }: CardProps) {
   const tone = muted ? "text-muted" : "text-fg";
+  const glowReset = neonStyle(tokens.color.accent);
+  const baseStyle: CSSProperties = {
+    borderRadius: tokens.radius.xl,
+    boxShadow: tokens.shadow.soft,
+    transition: tokens.transition.normal,
+    textShadow: glowReset.textShadow ? "none" : undefined,
+  };
 
   return (
     <div
       className={`card halo-animated ${tone} p-6 transition-colors ${className}`}
-      style={style}
+      style={{ ...baseStyle, ...style }}
       {...props}
     >
       {children}

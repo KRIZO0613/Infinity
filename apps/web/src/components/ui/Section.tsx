@@ -1,5 +1,7 @@
-import type { PropsWithChildren, ReactNode } from "react";
-import { tokens } from "@/lib/ui/tokens";
+import type { CSSProperties, PropsWithChildren, ReactNode } from "react";
+import { neonStyle, tokens } from "@/lib/tokens";
+
+const SECTION_SCROLL_MARGIN = "2.5rem";
 
 type SectionProps = PropsWithChildren<{
   title: string;
@@ -8,11 +10,24 @@ type SectionProps = PropsWithChildren<{
 }>;
 
 export default function Section({ title, description, actions, children }: SectionProps) {
+  const sectionStyle: CSSProperties = {
+    scrollMarginTop: SECTION_SCROLL_MARGIN,
+    borderRadius: tokens.radius.xl,
+    transition: tokens.transition.normal,
+  };
+
+  const headingTone: CSSProperties = {
+    ...neonStyle(tokens.color.fg),
+    color: "inherit",
+    textShadow: "none",
+    boxShadow: "none",
+  };
+
   return (
-    <section className="flex flex-col gap-6" style={{ scrollMarginTop: tokens.spacing.section }}>
+    <section className="flex flex-col gap-6" style={sectionStyle}>
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="title-strong text-xl font-semibold tracking-tight">
+          <h2 className="title-strong text-xl font-semibold tracking-tight" style={headingTone}>
             {title}
           </h2>
           {description ? (

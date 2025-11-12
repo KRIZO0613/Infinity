@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { neonStyle, tokens } from "@/lib/tokens";
 
 type Theme = "light" | "dark" | "neon";
 
@@ -50,6 +51,8 @@ export default function ModeOrb() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => (typeof window === "undefined" ? "dark" : resolveTheme()));
   const [mounted, setMounted] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -109,17 +112,14 @@ export default function ModeOrb() {
     {
       value: "light" as const,
       label: "Mode clair",
-      description: "Interface lumineuse et épurée",
     },
     {
       value: "dark" as const,
       label: "Mode sombre",
-      description: "Ambiance futuriste confortable",
     },
     {
       value: "neon" as const,
       label: "Mode néon",
-      description: "Contrastes vifs et halos lumineux",
     },
   ];
 
@@ -133,19 +133,59 @@ export default function ModeOrb() {
     setTheme(nextTheme);
   };
 
+  useEffect(() => {
+    if (!menuOpen || typeof window === "undefined") {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (panelRef.current?.contains(target)) {
+        return;
+      }
+
+      if (triggerRef.current?.contains(target)) {
+        return;
+      }
+
+      setMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [menuOpen]);
+
   return (
     <>
       <button
         type="button"
         aria-label="Ouvrir le panneau"
         onClick={() => setMenuOpen(true)}
+        ref={triggerRef}
         className="orb-trigger relative h-10 w-10 overflow-hidden rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+        style={{ borderRadius: tokens.radius.pill, transition: tokens.transition.normal }}
       >
         <motion.span
           className="absolute inset-0 rounded-full"
+          style={{ color: tokens.color.accent }}
           initial={{ boxShadow: "0 0 0px rgba(99,102,241,0.0)" }}
           animate={{
-            boxShadow: "0 0 16px rgba(168,85,247,0.55), inset 0 0 12px rgba(99,102,241,0.25)",
+            boxShadow: `${tokens.shadow.neon}, inset 0 0 12px rgba(99,102,241,0.25)`,
           }}
           transition={{ duration: 0.6, repeat: Infinity, repeatType: "reverse" }}
         />
@@ -188,6 +228,12 @@ export default function ModeOrb() {
               exit={{ x: 360, opacity: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 28 }}
               onClick={(event) => event.stopPropagation()}
+              ref={panelRef}
+              style={{
+                borderTopLeftRadius: tokens.radius.xl,
+                borderBottomLeftRadius: tokens.radius.xl,
+                boxShadow: tokens.shadow.soft,
+              }}
             >
               <div className="sticky top-0 flex items-center justify-between border-b border-muted bg-surface px-4 py-3 backdrop-blur">
                 <div className="font-semibold text-fg">Panneau</div>
@@ -215,15 +261,16 @@ export default function ModeOrb() {
                           className={`hover-outline-accent flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)] ${
                             isActive ? "border-[color:var(--accent)] bg-surface shadow-elevated" : "border-muted bg-surface"
                           }`}
+                          style={{ borderRadius: tokens.radius.xl, transition: tokens.transition.normal }}
                         >
                           <div className="flex flex-col">
                             <span className="font-medium text-fg">{option.label}</span>
-                            <span className="paragraph-soft text-xs">{option.description}</span>
                           </div>
                           <span
                             className={`h-2 w-2 rounded-full ${
                               isActive ? "bg-[color:var(--accent)]" : "bg-[color:var(--muted-2)]"
                             }`}
+                            style={isActive ? neonStyle(tokens.color.accent) : undefined}
                           />
                         </button>
                       );
@@ -233,10 +280,16 @@ export default function ModeOrb() {
 
                 <section className="space-y-2">
                   <div className="text-muted">Rapides</div>
-                  <button className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]">
+                  <button
+                    className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                    style={{ borderRadius: tokens.radius.lg, transition: tokens.transition.normal }}
+                  >
                     Épingler au dashboard
                   </button>
-                  <button className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]">
+                  <button
+                    className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                    style={{ borderRadius: tokens.radius.lg, transition: tokens.transition.normal }}
+                  >
                     Préférences d’affichage
                   </button>
                 </section>

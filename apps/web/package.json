@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "dev:web": "pnpm -w --filter ./apps/web dev",
+    "build:web": "pnpm -w --filter ./apps/web build",
+    "start:web": "pnpm -w --filter ./apps/web start"
   },
   "dependencies": {
     "framer-motion": "^12.23.24",
