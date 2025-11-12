@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/layout/Header";
 
+const themeScript = `(function(){var key='infinity.theme';var fallbacks=['dark','light','neon'];try{var root=document.documentElement;var stored=localStorage.getItem(key);var prefersDark=window.matchMedia('(prefers-color-scheme: dark)').matches;var theme=fallbacks.indexOf(stored)>=0?stored:(prefersDark?'dark':'light');root.classList.remove('dark','light','neon');root.classList.add(theme);root.style.colorScheme=theme==='light'?'light':'dark';if(stored!==theme){localStorage.setItem(key,theme);}}catch(_){}})();`;
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -24,11 +26,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-100">
-  <Header />
-  {children}
-</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
+      <body className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}>
+        <Header />
+        <main className="pt-24">{children}</main>
+      </body>
     </html>
   );
 }
