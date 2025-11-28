@@ -6,6 +6,7 @@ import { Reorder, motion } from "framer-motion";
 
 type WidgetType = "event" | "task" | "note" | "project";
 type ResizeDirection = "se";
+
 type Widget = {
   id: string;
   title: string;
@@ -68,6 +69,8 @@ const INITIAL_WIDGETS: Widget[] = [
   },
 ];
 
+const STORAGE_KEY = "infinity_dashboard_widgets_v1";
+
 type ViewMode = "grid" | "list" | "float3d";
 
 /* ------------------------------------------------------------------ */
@@ -85,29 +88,67 @@ function clamp(value: number, min: number, max: number) {
 export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [widgets, setWidgets] = useState<Widget[]>(INITIAL_WIDGETS);
-
-  // Hauteur du “tableau” en mode Galerie
   const [boardHeight, setBoardHeight] = useState<number>(800);
+  const [hasLoaded, setHasLoaded] = useState(false);
+
   const freeMoveContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Chargement depuis localStorage (une seule fois après mount)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      setHasLoaded(true);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map((w: any, index: number) => ({
+          ...w,
+          scale: typeof w.scale === "number" ? w.scale : 1,
+          x: typeof w.x === "number" ? w.x : INITIAL_WIDGETS[index]?.x ?? 80,
+          y: typeof w.y === "number" ? w.y : INITIAL_WIDGETS[index]?.y ?? 80,
+        })) as Widget[];
+
+        setWidgets(normalized);
+      }
+    } catch (err) {
+      console.error("Erreur de lecture widgets depuis localStorage", err);
+    } finally {
+      setHasLoaded(true);
+    }
+  }, []);
+
+  // Sauvegarde dans localStorage après chargement initial
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasLoaded) return;
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets));
+  }, [widgets, hasLoaded]);
+
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20">
+    <div className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20 text-fg transition-colors" style={{ background: "var(--bg)" }}>
       {/* Header */}
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-muted">
             Tableau
           </p>
-          <h1 className="text-2xl font-semibold text-white sm:text-3xl">
+          <h1 className="text-2xl font-semibold text-fg sm:text-3xl">
             Dashboard Infinity
           </h1>
-          <p className="mt-1 max-w-xl text-xs text-zinc-400 sm:text-sm">
+          <p className="mt-1 max-w-xl text-xs text-muted sm:text-sm">
             Organise tes rendez-vous, tâches et idées épinglées comme tu veux.
           </p>
         </div>
 
         {/* Switch vues */}
-        <div className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/40 px-1 py-1 text-xs backdrop-blur">
+        <div className="inline-flex items-center gap-1 rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/80 px-1 py-1 text-xs backdrop-blur shadow-[0_10px_24px_rgba(0,0,0,0.2)]">
           <ViewModeButton
             label="Galerie"
             active={viewMode === "grid"}
@@ -138,7 +179,7 @@ export default function DashboardPage() {
         <div className="mx-auto mt-4 w-full max-w-6xl">
           <div
             ref={freeMoveContainerRef}
-            className="relative w-full overflow-hidden rounded-xl border border-white/10 bg-black/40"
+            className="relative w-full overflow-hidden rounded-xl border border-[color:var(--muted-2)] bg-[color:var(--surface)]/90 shadow-[0_25px_60px_rgba(0,0,0,0.35)]"
             style={{ height: boardHeight }}
           >
             {widgets.map((w) => (
@@ -152,18 +193,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Hauteur de la zone */}
-          <div className="mt-3 flex items-center justify-center gap-3 text-xs text-zinc-400">
-            <button
-              type="button"
-              onClick={() => setBoardHeight((h) => Math.max(400, h - 200))}
-              className="rounded-full border border-white/20 px-3 py-1 hover:bg-white/10 hover:text-white"
-            >
-              ⤴︎ Réduire la zone
-            </button>
+          <div className="mt-3 flex items-center justify-center gap-3 text-xs text-muted">
             <button
               type="button"
               onClick={() => setBoardHeight((h) => Math.min(2400, h + 200))}
-              className="rounded-full border border-white/20 px-3 py-1 hover:bg-white/10 hover:text-white"
+              className="rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/70 px-3 py-1 text-sm text-fg hover:bg-[color:var(--surface)]/90"
             >
               ⤵︎ Agrandir la zone
             </button>
@@ -201,10 +235,6 @@ export default function DashboardPage() {
 /* Widget libre (mode Galerie / whiteboard)                           */
 /* ------------------------------------------------------------------ */
 
-/* ------------------------------------------------------------------ */
-/* Widget libre (mode Galerie / whiteboard)                           */
-/* ------------------------------------------------------------------ */
-
 type FreeWidgetProps = {
   widget: Widget;
   containerRef: React.RefObject<HTMLDivElement | null>;
@@ -214,11 +244,8 @@ type FreeWidgetProps = {
 const CARD_BASE_WIDTH = 340;
 const CARD_BASE_HEIGHT = 200;
 
-
-
 function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
   const [isResizing, setIsResizing] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
 
   const scale = widget.scale ?? 1;
 
@@ -228,9 +255,7 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
   /* -------------------- DRAG (déplacement) -------------------- */
 
   const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
-    // clic gauche uniquement
     if (e.button !== 0) return;
-    // si on est en resize, on ne drag pas
     if (isResizing) return;
 
     e.preventDefault();
@@ -251,8 +276,6 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
     const margin = 8;
     const cardW = CARD_BASE_WIDTH * scale;
     const cardH = CARD_BASE_HEIGHT * scale;
-
-    setIsDragging(true);
 
     const handleMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
@@ -275,7 +298,6 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
     };
 
     const handleUp = () => {
-      setIsDragging(false);
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
     };
@@ -309,7 +331,6 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
       const cardX = widget.x ?? 80;
       const cardY = widget.y ?? 80;
 
-      // max scale pour rester dans le conteneur
       const maxScaleX = (cw - margin - cardX) / baseW;
       const maxScaleY = (ch - margin - cardY) / baseH;
       const hardMaxScale = Math.max(0.6, Math.min(1.6, maxScaleX, maxScaleY));
@@ -343,6 +364,7 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
 
   return (
     <div
+      suppressHydrationWarning
       className="group absolute cursor-grab active:cursor-grabbing"
       style={{
         left: currentX,
@@ -366,8 +388,9 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
     </div>
   );
 }
+
 /* ------------------------------------------------------------------ */
-/* Coverflow 3D façon iPhoto                                          */
+/* Coverflow 3D façon affiche géante au centre                        */
 /* ------------------------------------------------------------------ */
 
 function Coverflow3D({ items }: { items: Widget[] }) {
@@ -389,7 +412,7 @@ function Coverflow3D({ items }: { items: Widget[] }) {
   function handleWheel(e: React.WheelEvent<HTMLDivElement>) {
     e.preventDefault();
     const now = Date.now();
-    if (now - lastWheelTime.current < 180) return;
+    if (now - lastWheelTime.current < 350) return;
     lastWheelTime.current = now;
 
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
@@ -425,16 +448,27 @@ function Coverflow3D({ items }: { items: Widget[] }) {
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="relative flex h-[320px] w-full items-center justify-center overflow-visible touch-pan-x [touch-action:pan-x]"
+        className="relative flex h-[360px] w-full items-center justify-center overflow-visible touch-pan-x [touch-action:pan-x]"
       >
         {items.map((item, index) => {
           const offset = index - activeIndex;
           const isActive = offset === 0;
 
-          const baseTranslateX = 220;
-          const x = offset * baseTranslateX;
-          const rotateY = offset * -20;
-          const zIndex = items.length - Math.abs(offset);
+          const clamped = Math.max(-3, Math.min(3, offset));
+
+          const baseTranslateX = 260;
+          const x = clamped * baseTranslateX;
+
+          const y = Math.abs(clamped) * 28;
+
+          const rotateY = clamped * -18;
+
+          const opacity = isActive ? 1 : 0.45;
+
+          const scaleX = isActive ? 2.2 : 0.9;
+          const scaleY = isActive ? 3.0 : 0.9;
+
+          const zIndex = isActive ? 50 : 40 - Math.abs(clamped) * 2;
 
           return (
             <motion.div
@@ -445,13 +479,15 @@ function Coverflow3D({ items }: { items: Widget[] }) {
               initial={false}
               animate={{
                 x,
+                y,
                 rotateY,
-                scale: isActive ? 1.45 : 0.85,
-                opacity: isActive ? 1 : 0.45,
+                scaleX,
+                scaleY,
+                opacity,
               }}
               transition={{
                 type: "tween",
-                duration: isActive ? 0.18 : 0.12,
+                duration: isActive ? 0.22 : 0.16,
                 ease: "easeOut",
               }}
             >
@@ -461,11 +497,11 @@ function Coverflow3D({ items }: { items: Widget[] }) {
         })}
       </div>
 
-      <div className="mt-4 flex items-center justify-center gap-4 text-xs text-zinc-400">
+      <div className="mt-8 flex items-center justify-center gap-4 text-xs text-muted">
         <button
           type="button"
           onClick={goLeft}
-          className="rounded-full border border-white/20 px-3 py-1 hover:bg-white/10 hover:text-white"
+          className="rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/70 px-3 py-1 text-sm text-fg hover:bg-[color:var(--surface)]/90"
         >
           ◀
         </button>
@@ -475,7 +511,7 @@ function Coverflow3D({ items }: { items: Widget[] }) {
         <button
           type="button"
           onClick={goRight}
-          className="rounded-full border border-white/20 px-3 py-1 hover:bg-white/10 hover:text-white"
+          className="rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/70 px-3 py-1 text-sm text-fg hover:bg-[color:var(--surface)]/90"
         >
           ▶
         </button>
@@ -515,8 +551,7 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
       ? "shadow-[0_0_32px_rgba(34,211,238,0.7)]"
       : "shadow-[0_0_32px_rgba(244,114,182,0.7)]";
 
-  const baseClasses =
-    "relative overflow-hidden rounded-3xl border bg-[radial-gradient(circle_at_top,_#020617_0,_#020617_45%,_#020617_80%)]/95 backdrop-blur";
+  const baseClasses = "relative overflow-hidden rounded-3xl border backdrop-blur";
 
   const padding =
     variant === "list"
@@ -528,6 +563,7 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
   return (
     <div
       className={`${baseClasses} ${borderColor} ${shadowColor} ${padding} transition-all`}
+      style={{ background: "color-mix(in oklab, var(--surface) 96%, transparent)" }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2">
@@ -539,21 +575,19 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
           </span>
         </div>
         {(widget.time || widget.date) && (
-          <div className="text-right text-[10px] text-zinc-400">
+          <div className="text-right text-[10px] text-muted">
             {widget.date && <div>{widget.date}</div>}
-            {widget.time && (
-              <div className="font-medium text-zinc-200">{widget.time}</div>
-            )}
+            {widget.time && <div className="font-medium text-fg">{widget.time}</div>}
           </div>
         )}
       </div>
 
-      <h2 className="mt-3 text-sm font-semibold text-white sm:text-base">
+      <h2 className="mt-3 text-sm font-semibold text-fg sm:text-base">
         {widget.title}
       </h2>
 
       {widget.description && (
-        <p className="mt-2 text-[11px] leading-snug text-zinc-400 sm:text-[12px]">
+        <p className="mt-2 text-[11px] leading-snug text-muted sm:text-[12px]">
           {widget.description}
         </p>
       )}
@@ -575,7 +609,7 @@ function ViewModeButton({ label, active, onClick }: ViewModeButtonProps) {
       className={`rounded-full px-3 py-1 text-[11px] transition-all ${
         active
           ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_14px_rgba(56,189,248,0.7)]"
-          : "text-zinc-400 hover:text-zinc-100"
+          : "text-muted hover:text-fg"
       }`}
     >
       {label}
