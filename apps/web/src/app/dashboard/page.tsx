@@ -551,7 +551,8 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
       ? "shadow-[0_0_32px_rgba(34,211,238,0.7)]"
       : "shadow-[0_0_32px_rgba(244,114,182,0.7)]";
 
-  const baseClasses = "relative overflow-hidden rounded-3xl border backdrop-blur";
+  const baseClasses =
+    "relative overflow-hidden rounded-3xl border backdrop-blur";
 
   const padding =
     variant === "list"
@@ -563,7 +564,6 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
   return (
     <div
       className={`${baseClasses} ${borderColor} ${shadowColor} ${padding} transition-all`}
-      style={{ background: "color-mix(in oklab, var(--surface) 96%, transparent)" }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2">
