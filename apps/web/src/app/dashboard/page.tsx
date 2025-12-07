@@ -1,77 +1,19 @@
 "use client";
 
-import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Reorder, motion } from "framer-motion";
-
-type WidgetType = "event" | "task" | "note" | "project";
-type ResizeDirection = "se";
-
-type Widget = {
-  id: string;
-  title: string;
-  type: WidgetType;
-  color: "indigo" | "cyan" | "rose";
-  time?: string;
-  date?: string;
-  description?: string;
-  x?: number;
-  y?: number;
-  scale?: number; // taille de la carte en mode Galerie
-};
-
-const INITIAL_WIDGETS: Widget[] = [
-  {
-    id: "1",
-    title: "Appel client important",
-    type: "event",
-    color: "indigo",
-    time: "09:30",
-    date: "Aujourd’hui",
-    description: "Préparer l’offre Infinity + démo rapide.",
-    x: 80,
-    y: 80,
-    scale: 1,
-  },
-  {
-    id: "2",
-    title: "Session dev Boardk",
-    type: "task",
-    color: "cyan",
-    time: "14:00",
-    date: "Aujourd’hui",
-    description: "UI Dashboard + intégration calendrier.",
-    x: 420,
-    y: 80,
-    scale: 1,
-  },
-  {
-    id: "3",
-    title: "Idée univers Moko",
-    type: "note",
-    color: "rose",
-    description: "Nouvelle scène d’intro + gimmick antenne.",
-    x: 80,
-    y: 340,
-    scale: 1,
-  },
-  {
-    id: "4",
-    title: "Entraînement U12",
-    type: "event",
-    color: "indigo",
-    time: "18:00",
-    date: "Demain",
-    description: "Focus passes + pressing coordonné.",
-    x: 420,
-    y: 340,
-    scale: 1,
-  },
-];
-
-const STORAGE_KEY = "infinity_dashboard_widgets_v1";
+import { useCalendarStore, type CalendarItem } from "@/store/calendarStore";
 
 type ViewMode = "grid" | "list" | "float3d";
+
+type WidgetMeta = {
+  id: string; // = CalendarItem.id
+  x: number;
+  y: number;
+  scale: number;
+};
+
+const STORAGE_KEY = "infinity_dashboard_pinned_layout_v1";
 
 /* ------------------------------------------------------------------ */
 /* Utils                                                              */
@@ -81,58 +23,148 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function formatDateLabel(dateStr: string) {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+
+  const now = new Date();
+  const today = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const d = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  ).getTime();
+
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  if (d === today) return "Aujourd’hui";
+  if (d === today + oneDay) return "Demain";
+
+  return date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /* PAGE DASHBOARD                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [widgets, setWidgets] = useState<Widget[]>(INITIAL_WIDGETS);
   const [boardHeight, setBoardHeight] = useState<number>(800);
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const [hasLoadedLayout, setHasLoadedLayout] = useState(false);
 
+  // ✅ On récupère tous les items du store (snapshot stable)
+  const allItems = useCalendarStore((s) => s.items);
+
+  // ✅ On filtre en local, mémoïsé → plus d’erreur getSnapshot
+  const pinnedItems = useMemo(
+    () => allItems.filter((i) => i.pinned),
+    [allItems],
+  );
+
+  const [metas, setMetas] = useState<WidgetMeta[]>([]);
   const freeMoveContainerRef = useRef<HTMLDivElement | null>(null);
+  // ... (le reste du fichier reste comme je te l’ai envoyé juste avant)
+  /* ---------- Chargement layout depuis localStorage ---------- */
 
-  // Chargement depuis localStorage (une seule fois après mount)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      setHasLoaded(true);
+      setHasLoadedLayout(true);
       return;
     }
 
     try {
       const parsed = JSON.parse(raw);
-
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const normalized = parsed.map((w: any, index: number) => ({
-          ...w,
-          scale: typeof w.scale === "number" ? w.scale : 1,
-          x: typeof w.x === "number" ? w.x : INITIAL_WIDGETS[index]?.x ?? 80,
-          y: typeof w.y === "number" ? w.y : INITIAL_WIDGETS[index]?.y ?? 80,
-        })) as Widget[];
-
-        setWidgets(normalized);
+      if (Array.isArray(parsed)) {
+        const normalized: WidgetMeta[] = parsed
+          .filter((m: any) => m && typeof m.id === "string")
+          .map((m: any) => ({
+            id: m.id,
+            x: typeof m.x === "number" ? m.x : 80,
+            y: typeof m.y === "number" ? m.y : 80,
+            scale: typeof m.scale === "number" ? m.scale : 1,
+          }));
+        setMetas(normalized);
       }
     } catch (err) {
-      console.error("Erreur de lecture widgets depuis localStorage", err);
+      console.error("Erreur de lecture layout dashboard", err);
     } finally {
-      setHasLoaded(true);
+      setHasLoadedLayout(true);
     }
   }, []);
 
-  // Sauvegarde dans localStorage après chargement initial
+  /* ---------- Sauvegarde layout dans localStorage ---------- */
+
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!hasLoaded) return;
+    if (!hasLoadedLayout) return;
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets));
-  }, [widgets, hasLoaded]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(metas));
+  }, [metas, hasLoadedLayout]);
+
+  /* ---------- Sync des metas avec les éléments épinglés ---------- */
+
+  useEffect(() => {
+    // Positionne automatiquement un layout pour chaque nouvel item épinglé
+    setMetas((prev) => {
+      const existingIds = new Set(prev.map((m) => m.id));
+      const next: WidgetMeta[] = [...prev];
+
+      let indexBase = next.length;
+
+      pinnedItems.forEach((item, idx) => {
+        if (!existingIds.has(item.id)) {
+          const i = indexBase + idx;
+          const col = i % 2;
+          const row = Math.floor(i / 2);
+
+          next.push({
+            id: item.id,
+            x: 80 + col * 360,
+            y: 80 + row * 260,
+            scale: 1,
+          });
+        }
+      });
+
+      // Supprime les metas dont l'item n'est plus épinglé
+      const pinnedIds = new Set(pinnedItems.map((i) => i.id));
+      return next.filter((m) => pinnedIds.has(m.id));
+    });
+  }, [pinnedItems]);
+
+  /* ---------- Jointure metas + items ---------- */
+
+  const widgets = useMemo(
+    () =>
+      metas
+        .map((meta) => {
+          const item = pinnedItems.find((i) => i.id === meta.id);
+          if (!item) return null;
+          return { meta, item };
+        })
+        .filter(
+          (w): w is { meta: WidgetMeta; item: CalendarItem } => w !== null,
+        ),
+    [metas, pinnedItems],
+  );
+
+  const isEmpty = widgets.length === 0;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20 text-fg transition-colors" style={{ background: "var(--bg)" }}>
+    <div
+      className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20 text-fg transition-colors"
+      style={{ background: "var(--bg)" }}
+    >
       {/* Header */}
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
         <div>
@@ -142,9 +174,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold text-fg sm:text-3xl">
             Dashboard Infinity
           </h1>
-          <p className="mt-1 max-w-xl text-xs text-muted sm:text-sm">
-            Organise tes rendez-vous, tâches et idées épinglées comme tu veux.
-          </p>
+        
         </div>
 
         {/* Switch vues */}
@@ -167,27 +197,45 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* État vide */}
+      {isEmpty && (
+        <div className="mx-auto mt-8 flex w-full max-w-6xl items-center justify-center">
+          <div className="rounded-2xl border border-dashed border-[color:var(--muted-2)] bg-[color:var(--surface)]/60 px-6 py-8 text-center text-xs text-muted">
+            <p className="text-[13px] font-medium text-fg">
+              Aucun élément épinglé pour l&apos;instant.
+            </p>
+            <p className="mt-2 text-[11px]">
+              Ouvre le calendrier ou la TimeLine, clique sur l&apos;icône 📌
+              pour mettre un événement ou une tâche en avant.
+              <br />
+              Ils apparaîtront automatiquement ici.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* MODE 3D */}
-      {viewMode === "float3d" && (
+      {!isEmpty && viewMode === "float3d" && (
         <div className="mt-4 w-full">
           <Coverflow3D items={widgets} />
         </div>
       )}
 
       {/* MODE GALERIE = whiteboard libre */}
-      {viewMode === "grid" && (
-        <div className="mx-auto mt-4 w-full max-w-6xl">
-          <div
-            ref={freeMoveContainerRef}
-            className="relative w-full overflow-hidden rounded-xl border border-[color:var(--muted-2)] bg-[color:var(--surface)]/90 shadow-[0_25px_60px_rgba(0,0,0,0.35)]"
-            style={{ height: boardHeight }}
-          >
-            {widgets.map((w) => (
+    {!isEmpty && viewMode === "grid" && (
+  <div className="mt-4 w-full">
+    <div
+      ref={freeMoveContainerRef}
+      className="relative w-full overflow-hidden rounded-xl border border-[color:var(--muted-2)] bg-[color:var(--surface)]/90 shadow-[0_25px_60px_rgba(0,0,0,0.35)]"
+      style={{ height: boardHeight }}
+    >
+            {widgets.map(({ meta, item }) => (
               <FreeWidget
-                key={w.id}
-                widget={w}
+                key={meta.id}
+                meta={meta}
+                item={item}
                 containerRef={freeMoveContainerRef}
-                setWidgets={setWidgets}
+                setMetas={setMetas}
               />
             ))}
           </div>
@@ -206,22 +254,22 @@ export default function DashboardPage() {
       )}
 
       {/* MODE LISTE */}
-      {viewMode === "list" && (
+      {!isEmpty && viewMode === "list" && (
         <div className="mx-auto mt-4 w-full max-w-6xl">
           <Reorder.Group
             axis="y"
-            values={widgets}
-            onReorder={setWidgets}
+            values={metas}
+            onReorder={setMetas}
             className="flex flex-col gap-3"
           >
-            {widgets.map((w) => (
+            {widgets.map(({ meta, item }) => (
               <Reorder.Item
-                key={w.id}
-                value={w}
+                key={meta.id}
+                value={meta}
                 whileDrag={{ scale: 1.03, zIndex: 20 }}
                 className="cursor-grab active:cursor-grabbing"
               >
-                <WidgetCard widget={w} variant="list" />
+                <WidgetCard item={item} variant="list" />
               </Reorder.Item>
             ))}
           </Reorder.Group>
@@ -236,21 +284,21 @@ export default function DashboardPage() {
 /* ------------------------------------------------------------------ */
 
 type FreeWidgetProps = {
-  widget: Widget;
+  meta: WidgetMeta;
+  item: CalendarItem;
   containerRef: React.RefObject<HTMLDivElement | null>;
-  setWidgets: React.Dispatch<React.SetStateAction<Widget[]>>;
+  setMetas: React.Dispatch<React.SetStateAction<WidgetMeta[]>>;
 };
 
-const CARD_BASE_WIDTH = 340;
+const CARD_BASE_WIDTH = 300;
 const CARD_BASE_HEIGHT = 200;
 
-function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
+function FreeWidget({ meta, item, containerRef, setMetas }: FreeWidgetProps) {
   const [isResizing, setIsResizing] = useState(false);
-
-  const scale = widget.scale ?? 1;
-
-  const currentX = widget.x ?? 80;
-  const currentY = widget.y ?? 80;
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const scale = meta.scale ?? 1;
+  const currentX = meta.x ?? 80;
+  const currentY = meta.y ?? 80;
 
   /* -------------------- DRAG (déplacement) -------------------- */
 
@@ -273,9 +321,12 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
     const startXPos = currentX;
     const startYPos = currentY;
 
-    const margin = 8;
-    const cardW = CARD_BASE_WIDTH * scale;
-    const cardH = CARD_BASE_HEIGHT * scale;
+     const margin = 0;
+
+    // On mesure la vraie taille visuelle de la carte
+    const rect = cardRef.current?.getBoundingClientRect();
+    const cardW = rect?.width ?? CARD_BASE_WIDTH * scale;
+    const cardH = rect?.height ?? CARD_BASE_HEIGHT * scale;
 
     const handleMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
@@ -290,9 +341,9 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
       nextX = clamp(nextX, margin, Math.max(margin, maxX));
       nextY = clamp(nextY, margin, Math.max(margin, maxY));
 
-      setWidgets((prev) =>
-        prev.map((item) =>
-          item.id === widget.id ? { ...item, x: nextX, y: nextY } : item,
+      setMetas((prev) =>
+        prev.map((m) =>
+          m.id === meta.id ? { ...m, x: nextX, y: nextY } : m,
         ),
       );
     };
@@ -308,57 +359,55 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
 
   /* -------------------- RESIZE (flèche ↘) -------------------- */
 
-  const startResize =
-    (_direction: ResizeDirection) =>
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.stopPropagation();
-      e.preventDefault();
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
 
-      const container = containerRef.current;
-      if (!container) return;
+    const container = containerRef.current;
+    if (!container) return;
 
-      const cw = container.clientWidth;
-      const ch = container.clientHeight;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
 
-      const startX = e.clientX;
-      const baseScale = scale;
+    const startX = e.clientX;
+    const baseScale = scale;
 
-      const margin = 8;
+    const margin = 0;
 
-      const baseW = CARD_BASE_WIDTH;
-      const baseH = CARD_BASE_HEIGHT;
+    const baseW = CARD_BASE_WIDTH;
+    const baseH = CARD_BASE_HEIGHT;
 
-      const cardX = widget.x ?? 80;
-      const cardY = widget.y ?? 80;
+    const cardX = meta.x ?? 80;
+    const cardY = meta.y ?? 80;
 
-      const maxScaleX = (cw - margin - cardX) / baseW;
-      const maxScaleY = (ch - margin - cardY) / baseH;
-      const hardMaxScale = Math.max(0.6, Math.min(1.6, maxScaleX, maxScaleY));
-      const minScale = 0.6;
+    const maxScaleX = (cw - margin - cardX) / baseW;
+    const maxScaleY = (ch - margin - cardY) / baseH;
+    const hardMaxScale = Math.max(0.6, Math.min(1.6, maxScaleX, maxScaleY));
+    const minScale = 0.6;
 
-      setIsResizing(true);
+    setIsResizing(true);
 
-      const handleMove = (ev: PointerEvent) => {
-        const dx = ev.clientX - startX;
-        const deltaScale = dx / 260;
-        const nextScale = clamp(baseScale + deltaScale, minScale, hardMaxScale);
+    const handleMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const deltaScale = dx / 260;
+      const nextScale = clamp(baseScale + deltaScale, minScale, hardMaxScale);
 
-        setWidgets((prev) =>
-          prev.map((item) =>
-            item.id === widget.id ? { ...item, scale: nextScale } : item,
-          ),
-        );
-      };
-
-      const handleUp = () => {
-        setIsResizing(false);
-        window.removeEventListener("pointermove", handleMove);
-        window.removeEventListener("pointerup", handleUp);
-      };
-
-      window.addEventListener("pointermove", handleMove);
-      window.addEventListener("pointerup", handleUp);
+      setMetas((prev) =>
+        prev.map((m) =>
+          m.id === meta.id ? { ...m, scale: nextScale } : m,
+        ),
+      );
     };
+
+    const handleUp = () => {
+      setIsResizing(false);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+  };
 
   /* -------------------- RENDER -------------------- */
 
@@ -374,12 +423,12 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
       }}
       onPointerDown={startDrag}
     >
-      <div className="relative inline-block">
-        <WidgetCard widget={widget} variant="grid" />
+           <div ref={cardRef} className="relative inline-block">
+        <WidgetCard item={item} variant="grid" />
 
         {/* Poignée de resize (coin bas droit) */}
         <div
-          onPointerDown={startResize("se")}
+          onPointerDown={startResize}
           className="pointer-events-auto absolute -right-1 -bottom-1 flex h-4 w-4 cursor-nwse-resize items-center justify-center rounded-full border border-white/80 bg-black/80 text-[9px] text-white shadow-[0_0_8px_rgba(255,255,255,0.8)] opacity-0 group-hover:opacity-100 transition-opacity duration-150"
         >
           ↘
@@ -393,7 +442,11 @@ function FreeWidget({ widget, containerRef, setWidgets }: FreeWidgetProps) {
 /* Coverflow 3D façon affiche géante au centre                        */
 /* ------------------------------------------------------------------ */
 
-function Coverflow3D({ items }: { items: Widget[] }) {
+function Coverflow3D({
+  items,
+}: {
+  items: { meta: WidgetMeta; item: CalendarItem }[];
+}) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastWheelTime = useRef(0);
@@ -450,7 +503,7 @@ function Coverflow3D({ items }: { items: Widget[] }) {
         onTouchEnd={handleTouchEnd}
         className="relative flex h-[360px] w-full items-center justify-center overflow-visible touch-pan-x [touch-action:pan-x]"
       >
-        {items.map((item, index) => {
+        {items.map(({ item }, index) => {
           const offset = index - activeIndex;
           const isActive = offset === 0;
 
@@ -491,7 +544,7 @@ function Coverflow3D({ items }: { items: Widget[] }) {
                 ease: "easeOut",
               }}
             >
-              <WidgetCard widget={item} variant="float3d" />
+              <WidgetCard item={item} variant="float3d" />
             </motion.div>
           );
         })}
@@ -525,31 +578,27 @@ function Coverflow3D({ items }: { items: Widget[] }) {
 /* ------------------------------------------------------------------ */
 
 type WidgetCardProps = {
-  widget: Widget;
+  item: CalendarItem;
   variant: ViewMode;
 };
 
-function WidgetCard({ widget, variant }: WidgetCardProps) {
+function WidgetCard({ item, variant }: WidgetCardProps) {
+  const colorKey = item.type === "event" ? "indigo" : "cyan";
+
   const baseColor =
-    widget.color === "indigo"
+    colorKey === "indigo"
       ? "from-indigo-500/80 to-sky-400/70"
-      : widget.color === "cyan"
-      ? "from-cyan-400/80 to-sky-300/80"
-      : "from-pink-500/80 to-violet-400/70";
+      : "from-cyan-400/80 to-sky-300/80";
 
   const borderColor =
-    widget.color === "indigo"
+    colorKey === "indigo"
       ? "border-indigo-400/60"
-      : widget.color === "cyan"
-      ? "border-cyan-400/60"
-      : "border-pink-400/60";
+      : "border-cyan-400/60";
 
   const shadowColor =
-    widget.color === "indigo"
+    colorKey === "indigo"
       ? "shadow-[0_0_32px_rgba(79,70,229,0.7)]"
-      : widget.color === "cyan"
-      ? "shadow-[0_0_32px_rgba(34,211,238,0.7)]"
-      : "shadow-[0_0_32px_rgba(244,114,182,0.7)]";
+      : "shadow-[0_0_32px_rgba(34,211,238,0.7)]";
 
   const baseClasses =
     "relative overflow-hidden rounded-3xl border backdrop-blur";
@@ -561,6 +610,9 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
       ? "px-7 py-6"
       : "px-4 py-4";
 
+  const dateLabel = formatDateLabel(item.date);
+  const hasTime = item.type === "event" && item.time;
+
   return (
     <div
       className={`${baseClasses} ${borderColor} ${shadowColor} ${padding} transition-all`}
@@ -570,25 +622,32 @@ function WidgetCard({ widget, variant }: WidgetCardProps) {
           <span
             className={`inline-flex items-center justify-center rounded-full bg-gradient-to-r ${baseColor} px-2.5 py-[3px] text-[10px] font-semibold text-white`}
           >
-            {iconForType(widget.type)}
-            <span className="ml-1 capitalize">{labelForType(widget.type)}</span>
+            {iconForType(item.type)}
+            <span className="ml-1 capitalize">
+              {labelForType(item.type)}
+            </span>
           </span>
         </div>
-        {(widget.time || widget.date) && (
+        {(dateLabel || hasTime) && (
           <div className="text-right text-[10px] text-muted">
-            {widget.date && <div>{widget.date}</div>}
-            {widget.time && <div className="font-medium text-fg">{widget.time}</div>}
+            {dateLabel && <div>{dateLabel}</div>}
+            {hasTime && (
+              <div className="font-medium text-fg">
+                {item.time}
+                {item.endTime ? `–${item.endTime}` : ""}
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <h2 className="mt-3 text-sm font-semibold text-fg sm:text-base">
-        {widget.title}
+        {item.title}
       </h2>
 
-      {widget.description && (
+      {item.description && (
         <p className="mt-2 text-[11px] leading-snug text-muted sm:text-[12px]">
-          {widget.description}
+          {item.description}
         </p>
       )}
     </div>
@@ -619,28 +678,24 @@ function ViewModeButton({ label, active, onClick }: ViewModeButtonProps) {
 
 /* Helpers */
 
-function labelForType(type: WidgetType) {
+function labelForType(type: CalendarItem["type"]) {
   switch (type) {
     case "event":
       return "Événement";
     case "task":
       return "Tâche";
-    case "note":
-      return "Note";
-    case "project":
-      return "Projet";
+    default:
+      return type;
   }
 }
 
-function iconForType(type: WidgetType) {
+function iconForType(type: CalendarItem["type"]) {
   switch (type) {
     case "event":
       return "📅";
     case "task":
       return "✅";
-    case "note":
+    default:
       return "📝";
-    case "project":
-      return "📊";
   }
 }
