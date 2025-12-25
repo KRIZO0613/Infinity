@@ -9,11 +9,11 @@ export default function DashboardIcon() {
       <Link
         href="/dashboard"
         aria-label="Dashboard"
-        className="group flex h-14 w-14 items-center justify-center rounded-2xl bg-[rgba(10,12,24,0.95)] border border-white/10 shadow-[0_0_25px_rgba(148,163,253,0.45)] backdrop-blur-md transition-all hover:shadow-[0_0_40px_rgba(129,140,248,0.8)] active:scale-95"
+        className="group dock-item flex h-14 w-14 items-center justify-center backdrop-blur-md"
       >
-        <div className="relative h-9 w-9 rounded-[22px] bg-[radial-gradient(circle_at_top,rgba(129,140,248,0.55),rgba(15,23,42,1))] border border-white/10 overflow-hidden">
+        <div className="relative h-9 w-9 rounded-[22px] bg-[radial-gradient(circle_at_top,rgba(129,140,248,0.45),rgba(255,255,255,0.82))] border border-white/30 overflow-hidden">
           {/* Glow interne */}
-          <div className="absolute inset-0 rounded-[22px] bg-[radial-gradient(circle_at_bottom,rgba(56,189,248,0.45),transparent_65%)] opacity-80" />
+          <div className="absolute inset-0 rounded-[22px] bg-[radial-gradient(circle_at_bottom,rgba(56,189,248,0.3),transparent_70%)] opacity-80 blur-[8px]" />
 
           {/* Contenu : petites barres de stats */}
           <div className="relative flex h-full w-full items-end justify-center gap-[3px] px-2 pb-1.5">
@@ -24,7 +24,7 @@ export default function DashboardIcon() {
           </div>
 
           {/* Halo de sélection */}
-          <div className="pointer-events-none absolute inset-0 rounded-[22px] ring-0 ring-indigo-400/0 group-hover:ring-2 group-hover:ring-indigo-400/70 group-hover:shadow-[0_0_25px_rgba(129,140,248,0.9)] transition-all" />
+          <div className="pointer-events-none absolute inset-0 rounded-[22px] ring-0 ring-indigo-400/0 group-hover:ring-2 group-hover:ring-indigo-400/40 group-hover:shadow-[0_0_30px_rgba(129,140,248,0.35)] transition-all" />
         </div>
       </Link>
     </div>

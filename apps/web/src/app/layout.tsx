@@ -5,6 +5,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import Header from "@/components/layout/Header";
+import AppShell from "@/components/app/AppShell";
 import Dock from "../components/layout/Dock";
 
 const geistSans = Geist({
@@ -38,12 +39,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased`}
       >
-        <Header />
+        <AppShell>
+          <Header />
 
-        <main className="pt-24 pb-24">{children}</main>
+          <main className="app-page pt-28 pb-24">{children}</main>
 
-        {/* 🔻 Dock flottant en bas */}
-        <Dock />
+          {/* 🔻 Dock flottant en bas */}
+          <Dock />
+        </AppShell>
       </body>
     </html>
   );

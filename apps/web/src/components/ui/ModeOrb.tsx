@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { neonStyle, tokens } from "@/lib/tokens";
+import { tokens } from "@/lib/tokens";
 
 type Theme = "light" | "dark" | "neon";
 
@@ -47,6 +47,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
+// Do not touch the orb trigger visuals; panel styling can evolve.
 export default function ModeOrb() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => (typeof window === "undefined" ? "dark" : resolveTheme()));
@@ -109,18 +110,9 @@ export default function ModeOrb() {
   }, [theme, mounted]);
 
   const themeOptions = [
-    {
-      value: "light" as const,
-      label: "Mode clair",
-    },
-    {
-      value: "dark" as const,
-      label: "Mode sombre",
-    },
-    {
-      value: "neon" as const,
-      label: "Mode néon",
-    },
+    { value: "light" as const, label: "Mode clair" },
+    { value: "dark" as const, label: "Mode sombre" },
+    { value: "neon" as const, label: "Mode néon" },
   ];
 
   const handleThemeChange = (nextTheme: Theme) => {
@@ -214,42 +206,85 @@ export default function ModeOrb() {
         {menuOpen && (
           <>
             <motion.div
-              className="overlay-backdrop fixed inset-0 z-[210]"
+              className="fixed inset-0 z-[210]"
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
+              animate={{ opacity: 0 }}
               exit={{ opacity: 0 }}
+              style={{ background: "transparent", backdropFilter: "none" }}
               onClick={() => setMenuOpen(false)}
             />
 
             <motion.aside
-              className="bg-surface text-fg shadow-elevated fixed right-0 top-0 z-[211] h-full w-[340px] border-l border-muted backdrop-blur-xl"
-              initial={{ x: 360, opacity: 0 }}
+              className="panel-glass fixed z-[211] flex w-[min(88vw,260px)] max-w-[300px] flex-col"
+              initial={{ x: 0, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 360, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 260, damping: 28 }}
+              exit={{ x: 0, opacity: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
               onClick={(event) => event.stopPropagation()}
               ref={panelRef}
               style={{
-                borderTopLeftRadius: tokens.radius.xl,
-                borderBottomLeftRadius: tokens.radius.xl,
-                boxShadow: tokens.shadow.soft,
+                top: "0px",
+                right: "0px",
+                borderRadius: tokens.radius.xl,
               }}
             >
-              <div className="sticky top-0 flex items-center justify-between border-b border-muted bg-surface px-4 py-3 backdrop-blur">
-                <div className="font-semibold text-fg">Panneau</div>
-                <button
-                  type="button"
-                  onClick={() => setMenuOpen(false)}
-                  className="border-muted hover-outline-accent rounded border px-2 py-1 text-xs transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-                >
-                  ✕
-                </button>
-              </div>
+              <div className="relative flex flex-col px-3.5 py-3 text-sm text-slate-800 gap-2.5">
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen(false)}
+                    className="btn-plain flex h-8 w-8 items-center justify-center rounded-full"
+                    style={{
+                      background: "rgba(255,255,255,0.9)",
+                      boxShadow: "var(--shadow-inset)",
+                      border: "none",
+                    }}
+                    aria-label="Fermer le panneau"
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        position: "relative",
+                        display: "block",
+                        width: "12px",
+                        height: "12px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          background: "currentColor",
+                          height: "2px",
+                          width: "100%",
+                          top: "50%",
+                          left: 0,
+                          transform: "translateY(-50%) rotate(45deg)",
+                          borderRadius: "999px",
+                        }}
+                      />
+                      <span
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          background: "currentColor",
+                          height: "2px",
+                          width: "100%",
+                          top: "50%",
+                          left: 0,
+                          transform: "translateY(-50%) rotate(-45deg)",
+                          borderRadius: "999px",
+                        }}
+                      />
+                    </span>
+                  </button>
+                </div>
 
-              <div className="p-4 space-y-6 text-sm">
-                <section>
-                  <div className="mb-2 text-muted">Apparence</div>
-                  <div className="space-y-2">
+                <div className="h-px w-full" style={{ background: "rgba(15,23,42,0.04)" }} />
+
+                <section className="space-y-1">
+                  <div className="text-slate-500">Apparence</div>
+                  <div className="space-y-1">
                     {themeOptions.map((option) => {
                       const isActive = option.value === theme;
                       return (
@@ -258,19 +293,26 @@ export default function ModeOrb() {
                           type="button"
                           onClick={() => handleThemeChange(option.value)}
                           aria-pressed={isActive}
-                          className={`hover-outline-accent flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)] ${
-                            isActive ? "border-[color:var(--accent)] bg-surface shadow-elevated" : "border-muted bg-surface"
-                          }`}
-                          style={{ borderRadius: tokens.radius.xl, transition: tokens.transition.normal }}
+                          className="flex w-full items-center justify-between px-2.5 py-2 text-left"
+                          style={{
+                            borderRadius: tokens.radius.lg,
+                            background: "transparent",
+                            border: "none",
+                            boxShadow: "none",
+                            transition: tokens.transition.normal,
+                            color: "rgba(15,23,42,0.92)",
+                          }}
                         >
-                          <div className="flex flex-col">
-                            <span className="font-medium text-fg">{option.label}</span>
-                          </div>
+                          <span className="font-medium text-slate-900">{option.label}</span>
                           <span
-                            className={`h-2 w-2 rounded-full ${
-                              isActive ? "bg-[color:var(--accent)]" : "bg-[color:var(--muted-2)]"
-                            }`}
-                            style={isActive ? neonStyle(tokens.color.accent) : undefined}
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{
+                              marginLeft: "auto",
+                              background: isActive ? "#2f3b4a" : "rgba(255,255,255,0.70)",
+                              boxShadow: isActive
+                                ? "0 2px 6px rgba(15,23,42,0.20)"
+                                : "0 2px 5px rgba(15,23,42,0.16)",
+                            }}
                           />
                         </button>
                       );
@@ -278,17 +320,31 @@ export default function ModeOrb() {
                   </div>
                 </section>
 
-                <section className="space-y-2">
-                  <div className="text-muted">Rapides</div>
+                <div className="h-px w-full" style={{ background: "rgba(15,23,42,0.04)" }} />
+
+                <section className="space-y-1">
+                  <div className="text-slate-500">Actions</div>
                   <button
-                    className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-                    style={{ borderRadius: tokens.radius.lg, transition: tokens.transition.normal }}
+                    className="w-full px-2.5 py-2 text-left font-medium text-slate-900"
+                    style={{
+                      borderRadius: tokens.radius.lg,
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      transition: tokens.transition.normal,
+                    }}
                   >
                     Épingler au dashboard
                   </button>
                   <button
-                    className="hover-outline-accent w-full rounded-lg border border-muted bg-surface px-3 py-2 text-left transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-                    style={{ borderRadius: tokens.radius.lg, transition: tokens.transition.normal }}
+                    className="w-full px-2.5 py-2 text-left font-medium text-slate-900"
+                    style={{
+                      borderRadius: tokens.radius.lg,
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      transition: tokens.transition.normal,
+                    }}
                   >
                     Préférences d’affichage
                   </button>

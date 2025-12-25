@@ -163,7 +163,7 @@ export default function DashboardPage() {
   return (
     <div
       className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20 text-fg transition-colors"
-      style={{ background: "var(--bg)" }}
+      style={{ background: "var(--bg-canvas)" }}
     >
       {/* Header */}
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">

@@ -1,379 +1,338 @@
 @import "tailwindcss";
+
+/* ------------------------------------------------------------ */
+/* Animations                                                   */
+/* ------------------------------------------------------------ */
 @keyframes slowspin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
+/* ------------------------------------------------------------ */
+/* Root + base (LIGHT ONLY / WHITE PURE / NO BLUE)              */
+/* ------------------------------------------------------------ */
 :root {
-  --bg: #0b0b0e;
-  --fg: #e9e9f1;
-  --surface: #141419;
-  --muted: #1e1e26;
-  --muted-2: #272733;
-  --accent: #8b5cf6;
-  --accent-2: #22d3ee;
-  --ring: 0 0 18px rgba(139, 92, 246, 0.35);
-  --shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  color-scheme: light;
+
+  /* PURE WHITE CANVAS */
+  --bg: #ffffff;
+  --bg-strong: #ffffff;
+  --bg-canvas: #ffffff;
+
+  /* Text */
+  --fg: oklch(20% 0.014 255);
+  --muted: rgba(15, 23, 42, 0.58);
+  --muted-2: rgba(15, 23, 42, 0.44);
+
+  /* Surfaces */
+  --surface-a: rgba(255, 255, 255, 0.92);
+  --surface-b: rgba(248, 250, 252, 0.78);
+  --surface: rgba(255, 255, 255, 0.92);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+
+  /* Radius */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+
+  /* Borders / strokes (NEUTRAL) */
+  --hairline: rgba(15, 23, 42, 0.08);
+  --stroke-inner: rgba(255, 255, 255, 0.90);
+
+  /* Shadows (NEUTRAL, no tint) */
+  --shadow-1: 8px 22px 60px rgba(12, 18, 38, 0.12);
+  --shadow-2: 14px 40px 110px rgba(12, 18, 38, 0.16);
+  --shadow-emboss: 0 18px 38px rgba(15, 23, 42, 0.08), 0 8px 14px rgba(15, 23, 42, 0.06);
+  --shadow-float: 0 26px 60px rgba(15, 23, 42, 0.12), 0 6px 18px rgba(15, 23, 42, 0.08);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(15, 23, 42, 0.06);
+
+  /* Focus ring (NEUTRAL GRAY) */
+  --focus-ring: 0 0 0 6px rgba(15, 23, 42, 0.12);
 }
 
-.neon {
-  /* Fond beaucoup plus vivant */
-  --bg:
-    radial-gradient(circle at 10% 0%, rgba(139, 92, 246, 0.24), transparent 55%),
-    radial-gradient(circle at 90% 100%, rgba(34, 211, 238, 0.22), transparent 55%),
-    #03030a;
+* { box-sizing: border-box; }
 
-  --fg: #f5f5ff;
-  --surface: #070711;
-  --muted: rgba(142, 73, 255, 0.35);
-  --muted-2: rgba(52, 211, 235, 0.35);
+html { background: var(--bg-canvas); }
 
-  /* Couleurs plus flashy en mode néon */
-  --accent: #a855f7;
-  --accent-2: #06b6d4;
-
-  /* Glow beaucoup plus fort */
-  --ring: 0 0 45px rgba(168, 85, 247, 0.95),
-          0 0 90px rgba(6, 182, 212, 0.6);
-
-  --shadow: 0 0 70px rgba(139, 92, 246, 0.55),
-            0 0 110px rgba(6, 182, 212, 0.55);
-}
-
-.dark {
-  --bg: #0b0b0e;
-  --fg: #e9e9f1;
-  --surface: #141419;
-  --muted: #1e1e26;
-  --muted-2: #272733;
-  --accent: #8b5cf6;
-  --accent-2: #22d3ee;
-  --ring: 0 0 18px rgba(139, 92, 246, 0.35);
-  --shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-}
-
-.light {
-  --bg: #f6f7fb;
-  --fg: #0f1115;
-  --surface: #ffffff;
-  --muted: #e9eaf1;
-  --muted-2: #dfe2ec;
-  --accent: #7c3aed;
-  --accent-2: #06b6d4;
-  --ring: 0 0 14px rgba(124, 58, 237, 0.25);
-  --shadow: 0 10px 22px rgba(15, 17, 21, 0.08);
-}
-
-.inline {
-  --color-background: var(--bg);
-  --color-foreground: var(--fg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-html,
 body {
-  background: var(--bg);
+  min-height: 100vh;
+  background: var(--bg-canvas);
   color: var(--fg);
-  transition: background 0.25s ease, color 0.25s ease;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-body {
-  font-family: var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+::selection {
+  background: rgba(15, 23, 42, 0.10);
+  color: var(--fg);
+}
+
+/* ------------------------------------------------------------ */
+/* Kill ALL default blue focus (dashboard/menu etc.)            */
+/* ------------------------------------------------------------ */
+:where(a, button, input, textarea, select, summary):focus { outline: none; }
+
+:where(a, button, input, textarea, select, summary):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ------------------------------------------------------------ */
+/* App shell                                                    */
+/* ------------------------------------------------------------ */
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  background: var(--bg-canvas);
+  color: var(--fg);
+}
+
+/* ------------------------------------------------------------ */
+/* Layout utilities                                             */
+/* ------------------------------------------------------------ */
+.app-page {
+  width: 100%;
+  padding: 1.5rem clamp(1rem, 2vw, 2.5rem) 2.5rem;
+}
+
+.hairline { border: 1px solid var(--hairline); }
+
+.panel-glass {
+  border-radius: var(--radius-xl);
+  background: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  backdrop-filter: blur(6px) saturate(1.02);
+  -webkit-backdrop-filter: blur(6px) saturate(1.02);
+}
+
+.carousel-fade {
+  mask-image: none;
+  -webkit-mask-image: none;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.button-float {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 245, 248, 0.88));
+  color: #0f172a;
+  font-weight: 600;
+  border: none !important;
+  box-shadow:
+    0 18px 46px rgba(15, 23, 42, 0.16),
+    0 8px 18px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 var(--stroke-inner);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.button-float:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 24px 60px rgba(15, 23, 42, 0.18),
+    0 12px 28px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 var(--stroke-inner);
+}
+
+/* ------------------------------------------------------------ */
+/* Glass surfaces (neutral white)                               */
+/* ------------------------------------------------------------ */
+.surface,
+.mat-surface,
+.mat-elevated,
+.mat-header,
+.dock,
+.pill,
+.card {
+  background: linear-gradient(180deg, var(--surface-a), var(--surface-b));
+  border: none;
+  color: var(--fg);
+}
+
+.surface,
+.card {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-emboss), var(--shadow-inset);
 }
 
 .card {
-  background: var(--surface);
-  color: var(--fg);
-  box-shadow: var(--shadow);
-  border: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
-  border-radius: 16px;
-  transition: outline 0.25s ease, transform 0.25s ease;
   position: relative;
-  z-index: 0;
   overflow: hidden;
+  box-shadow: var(--shadow-1), var(--shadow-inset);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
 }
 
 .card:hover {
-  outline: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-2), var(--shadow-inset);
 }
 
-.btn-accent {
-  background: var(--accent);
-  color: #ffffff;
-  border-radius: 12px;
-  box-shadow: var(--ring);
+/* ------------------------------------------------------------ */
+/* Header (neutral)                                             */
+/* ------------------------------------------------------------ */
+.header-glass {
+  position: relative;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(242, 245, 248, 0.88));
+  box-shadow:
+    0 36px 120px rgba(15, 23, 42, 0.18),
+    0 18px 48px rgba(15, 23, 42, 0.16),
+    0 8px 18px rgba(15, 23, 42, 0.10),
+    inset 0 1px 0 var(--stroke-inner),
+    inset 0 -8px 18px rgba(15, 23, 42, 0.07);
+  overflow: visible;
+}
+
+.header-left {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.logo-glass {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 16px;
+}
+
+.logo-link:focus-visible { outline: none; }
+.logo-link:focus-visible .logo-glass { box-shadow: none; }
+
+/* ------------------------------------------------------------ */
+/* Dock                                                         */
+/* ------------------------------------------------------------ */
+.dock {
+  border-radius: 32px;
+  box-shadow:
+    10px 24px 60px rgba(12, 18, 38, 0.14),
+    inset 0 1px 0 var(--stroke-inner),
+    inset 0 -6px 12px rgba(12, 18, 38, 0.06);
+  padding: 0.35rem 0.55rem;
+}
+
+.dock-item {
+  background: linear-gradient(180deg, var(--surface-a), var(--surface-b));
+  border: none;
+  box-shadow: var(--shadow-1), var(--shadow-inset);
+  border-radius: 18px;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.dock-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2), var(--shadow-inset);
+}
+
+/* ------------------------------------------------------------ */
+/* Menu orb trigger (keep it, but NO BLUE)                      */
+/* ------------------------------------------------------------ */
+.orb-trigger {
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: var(--shadow-1), var(--shadow-inset);
   transition: transform 0.2s ease, box-shadow 0.25s ease;
 }
 
-.btn-accent:hover {
+.orb-trigger:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 22px rgba(139, 92, 246, 0.4);
+  box-shadow: var(--shadow-2), var(--shadow-inset);
 }
 
-.border-muted {
-  border-color: var(--muted-2);
+.orb-ring { border: 1px solid rgba(15, 23, 42, 0.10); }
+.orb-dot-primary,
+.orb-dot-secondary,
+.orb-dot-tertiary { background: rgba(15, 23, 42, 0.24); }
+
+/* ------------------------------------------------------------ */
+/* Buttons                                                      */
+/* - Neutral default (NO gradient blue)                         */
+/* - Keep your “+ Projet” clean                                 */
+/* ------------------------------------------------------------ */
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain),
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain),
+input[type="button"]:not(.btn-plain),
+input[type="submit"]:not(.btn-plain),
+input[type="reset"]:not(.btn-plain) {
+  appearance: none;
+  -webkit-appearance: none;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-md);
+
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.92));
+  color: rgba(15, 23, 42, 0.92);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  box-shadow: var(--shadow-1), var(--shadow-inset);
+
+  transition: transform 0.2s ease, box-shadow 0.25s ease;
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
 }
 
-.bg-surface {
-  background: var(--surface);
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
+input[type="button"]:not(.btn-plain):hover,
+input[type="submit"]:not(.btn-plain):hover,
+input[type="reset"]:not(.btn-plain):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2), var(--shadow-inset);
 }
 
-.text-fg {
+button:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled,
+input[type="reset"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Optional: bouton “accent/primary” (si tu veux plus tard) */
+.btn-primary {
+  background: #0f172a !important;
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.30) !important;
+}
+.btn-primary:hover { box-shadow: 0 26px 70px rgba(15, 23, 42, 0.36) !important; }
+
+.btn-plain { all: unset; }
+
+/* ------------------------------------------------------------ */
+/* Inputs                                                       */
+/* ------------------------------------------------------------ */
+.input-field {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  border-radius: var(--radius-md);
   color: var(--fg);
+  padding: 0.6rem 0.9rem;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
-.text-muted {
-  color: color-mix(in oklab, var(--fg) 65%, transparent);
+.input-field:focus-visible {
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow: var(--focus-ring);
 }
 
-.header-glass {
-  position: relative;
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
-  box-shadow: var(--shadow);
-  overflow: visible;
-}
-
-.header-glass::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(139, 92, 246, 0.25), rgba(34, 211, 238, 0.2), rgba(139, 92, 246, 0.25));
-  pointer-events: none;
-}
-
-.overlay-backdrop {
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.dark .overlay-backdrop {
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.neon .overlay-backdrop {
-  background: rgba(0, 0, 0, 0.65);
-}
-
-.hover-outline-accent:hover {
-  outline: 1px solid color-mix(in oklab, var(--accent) 25%, transparent);
-}
-
-.neon .hover-outline-accent:hover {
-  outline: 1px solid rgba(255, 255, 255, 0.55);
-  box-shadow: 0 0 15px rgba(125, 76, 255, 0.45);
-}
-
-.shadow-elevated {
-  box-shadow: var(--shadow);
-}
-
-.link-accent {
-  color: var(--accent);
-  transition: color 0.25s ease;
-}
-
-.link-accent:hover {
-  color: color-mix(in oklab, var(--accent) 80%, transparent);
-}
-
-.title-strong {
-  color: color-mix(in oklab, var(--fg) 95%, transparent);
-}
-
-.paragraph-muted {
-  color: color-mix(in oklab, var(--fg) 80%, transparent);
-}
-
-.paragraph-soft {
-  color: color-mix(in oklab, var(--fg) 70%, transparent);
-}
-
-
-@keyframes haloOrbit {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.halo-animated {
-  position: relative;
-  z-index: 0;
-}
-
-.halo-animated::before {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
-  opacity: 0;
-  pointer-events: none;
-  z-index: -1;
-  transform-origin: center;
-}
-
-.neon .card {
-  border: 1px solid rgba(153, 102, 255, 0.65);
-  box-shadow:
-    0 0 35px rgba(139, 92, 246, 0.45),
-    0 0 55px rgba(6, 182, 212, 0.35),
-    inset 0 0 40px rgba(255, 255, 255, 0.015);
-  overflow: visible;
-  background: linear-gradient(160deg, rgba(8, 8, 20, 0.9), rgba(5, 5, 13, 0.8));
-}
-
-.neon .card::after {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset 0 0 18px rgba(139, 92, 246, 0.3);
-  pointer-events: none;
-}
-
-.neon .halo-animated::before {
-  border: 2px solid transparent;
-  background:
-    radial-gradient(circle, rgba(124, 58, 237, 0.75), transparent 65%) border-box,
-    linear-gradient(120deg, rgba(124, 58, 237, 0.8), rgba(6, 182, 212, 0.8), rgba(124, 58, 237, 0.8)) border-box;
-  background-clip: padding-box, border-box;
-  -webkit-background-clip: padding-box, border-box;
-  opacity: 1;
-  filter: blur(0.5px) drop-shadow(0 0 20px rgba(124, 58, 237, 0.55));
-}
-
-.orb-trigger {
-  border: 1px solid color-mix(in oklab, #ffffff 18%, transparent);
-  background: color-mix(in oklab, #ffffff 60%, transparent);
-  transition: border-color 0.3s ease, background 0.3s ease;
-}
-
-.neon .orb-trigger {
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(10, 10, 20, 0.95);
-  box-shadow:
-    0 0 30px rgba(139, 92, 246, 0.8),
-    inset 0 0 25px rgba(6, 182, 212, 0.35);
-}
-
-.neon .btn-accent,
-.neon .glow-gradient {
-  background: linear-gradient(135deg, #6fd3ff 0%, #7b5bff 40%, #ff6bd6 100%);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow:
-    0 10px 40px rgba(111, 211, 255, 0.35),
-    0 0 25px rgba(123, 91, 255, 0.6);
-}
-
-.dark .orb-trigger {
-  border-color: color-mix(in oklab, #ffffff 12%, transparent);
-  background: color-mix(in oklab, #ffffff 8%, transparent);
-}
-
-.orb-ring {
-  border: 1px solid color-mix(in oklab, var(--accent) 42%, transparent);
-}
-
-.dark .orb-ring {
-  border-color: color-mix(in oklab, var(--accent) 48%, transparent);
-}
-
-.orb-dot-primary {
-  background: color-mix(in oklab, var(--accent) 92%, transparent);
-}
-
-.dark .orb-dot-primary {
-  background: color-mix(in oklab, var(--accent) 96%, transparent);
-}
-
-.orb-dot-secondary {
-  background: color-mix(in oklab, var(--accent-2) 80%, transparent);
-}
-
-.dark .orb-dot-secondary {
-  background: color-mix(in oklab, var(--accent-2) 88%, transparent);
-}
-
-.orb-dot-tertiary {
-  background: color-mix(in oklab, var(--accent) 65%, transparent);
-}
-
-.dark .orb-dot-tertiary {
-  background: color-mix(in oklab, var(--accent) 72%, transparent);
-}
-/* === Orbe Infinity (cercle + bouton Proget) === */
-
-.infinity-orb {
-  transition: box-shadow 0.35s ease, background 0.35s ease, border-color 0.35s ease, transform 0.35s ease;
-}
-
-/* Mode sombre : sobre, profond */
-.dark .infinity-orb {
-  box-shadow: 0 0 60px -25px rgba(79, 70, 229, 0.7);
-  border-color: rgba(148, 163, 184, 0.4);
-  background:
-    radial-gradient(circle at 50% 40%, rgba(15, 23, 42, 0.7), transparent 65%),
-    #020617;
-}
-
-/* Mode néon : vraie boule d'énergie qui pulse */
-.neon .infinity-orb {
-  box-shadow:
-    0 0 140px 0 rgba(168, 85, 247, 1),
-    0 0 320px 0 rgba(6, 182, 212, 1);
-  border-color: rgba(255, 255, 255, 0.9);
-  background:
-    radial-gradient(circle at 50% 45%, rgba(168, 85, 247, 0.7), transparent 55%),
-    radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.6), #020617 70%);
-  animation: neonPulse 3s ease-in-out infinite;
-}
-
-@keyframes neonPulse {
-  0% {
-    transform: scale(1);
-    box-shadow:
-      0 0 120px 0 rgba(168, 85, 247, 0.95),
-      0 0 260px 0 rgba(6, 182, 212, 0.9);
-  }
-  50% {
-    transform: scale(1.03);
-    box-shadow:
-      0 0 180px 0 rgba(168, 85, 247, 1),
-      0 0 360px 0 rgba(6, 182, 212, 1);
-  }
-  100% {
-    transform: scale(1);
-    box-shadow:
-      0 0 120px 0 rgba(168, 85, 247, 0.95),
-      0 0 260px 0 rgba(6, 182, 212, 0.9);
-  }
-}
-
-/* Bouton Proget */
-.infinity-orb-button {
-  transition: box-shadow 0.3s ease, transform 0.2s ease, background 0.3s ease;
-}
-
-/* sombre : propre mais contenu */
-.dark .infinity-orb-button {
-  box-shadow: 0 0 26px rgba(79, 70, 229, 0.9);
-}
-
-/* néon : bouton qui pète vraiment */
-.neon .infinity-orb-button {
-  background: linear-gradient(135deg, #6366f1, #a855f7, #22d3ee);
-  box-shadow:
-    0 0 40px rgba(129, 140, 248, 1),
-    0 0 85px rgba(56, 189, 248, 0.95);
-}
+/* ------------------------------------------------------------ */
+/* IMPORTANT: ORB CENTRAL REMOVED (NO CSS, NO glow, NO halo)     */
+/* ------------------------------------------------------------ */
+/* (tu enlèves aussi le composant côté React/JSX) */

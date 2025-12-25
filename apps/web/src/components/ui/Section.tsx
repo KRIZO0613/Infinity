@@ -1,5 +1,5 @@
 import type { CSSProperties, PropsWithChildren, ReactNode } from "react";
-import { neonStyle, tokens } from "@/lib/tokens";
+import { tokens } from "@/lib/tokens";
 
 const SECTION_SCROLL_MARGIN = "2.5rem";
 
@@ -16,22 +16,15 @@ export default function Section({ title, description, actions, children }: Secti
     transition: tokens.transition.normal,
   };
 
-  const headingTone: CSSProperties = {
-    ...neonStyle(tokens.color.fg),
-    color: "inherit",
-    textShadow: "none",
-    boxShadow: "none",
-  };
-
   return (
     <section className="flex flex-col gap-6" style={sectionStyle}>
       <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="title-strong text-xl font-semibold tracking-tight" style={headingTone}>
+          <h2 className="title-text text-xl font-semibold tracking-tight">
             {title}
           </h2>
           {description ? (
-            <p className="paragraph-muted text-sm">{description}</p>
+            <p className="paragraph-muted text-sm leading-relaxed">{description}</p>
           ) : null}
         </div>
         {actions ? <div className="flex shrink-0 gap-2">{actions}</div> : null}

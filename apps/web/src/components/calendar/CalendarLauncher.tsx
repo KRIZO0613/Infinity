@@ -1423,12 +1423,12 @@ export default function CalendarLauncher() {
         type="button"
         aria-label="Calendrier Infinity"
         onClick={handleToggleOpen}
-        className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-black/40 shadow-[0_0_25px_rgba(80,140,255,0.4)] backdrop-blur-md transition-all hover:shadow-[0_0_40px_rgba(105,160,255,0.7)] active:scale-95"
+        className="dock-item flex h-14 w-14 items-center justify-center backdrop-blur-md"
       >
         <div className="relative h-11 w-11 rounded-2xl p-[6px]">
-          <div className="absolute inset-0 rounded-2xl border border-white/10" />
-          <div className="absolute inset-[2px] rounded-2xl border border-white/5" />
-          <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_center,rgba(90,150,255,0.25),transparent_70%)] blur-[12px]" />
+          <div className="absolute inset-0 rounded-2xl border border-white/30" />
+          <div className="absolute inset-[2px] rounded-2xl border border-white/20" />
+          <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_center,rgba(90,150,255,0.22),transparent_72%)] blur-[10px]" />
           <div className="relative flex h-full w-full items-center justify-center">
             <div className="relative h-[22px] w-[22px]">
               <div className="absolute inset-x-0 top-0 h-[5px] rounded-t-[5px] bg-gradient-to-r from-sky-400 to-indigo-500" />

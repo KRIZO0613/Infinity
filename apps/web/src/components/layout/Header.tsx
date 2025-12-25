@@ -1,41 +1,72 @@
 "use client";
 
 import Link from "next/link";
-import { neonStyle, tokens } from "@/lib/tokens";
 import ModeOrb from "@/components/ui/ModeOrb";
 
 export default function Header() {
   return (
     <header
-      className="header-glass fixed top-0 left-0 z-50 flex w-full items-center justify-between border-b border-muted px-8 py-4 backdrop-blur-xl transition-colors"
-      style={{
-        borderRadius: tokens.radius.xl,
-        boxShadow: tokens.shadow.soft,
-        transition: tokens.transition.normal,
-      }}
+      className="header-glass mat-header fixed left-1/2 top-4 z-50 flex w-[min(1120px,calc(100%-2rem))] -translate-x-1/2 items-center justify-between px-5 py-3 lg:px-8 lg:py-4"
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         <Link
           href="/"
-          className="flex items-center gap-3 text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-          style={{ transition: tokens.transition.normal }}
+          className="logo-link flex items-center gap-3"
         >
-          <div
-            className="flex h-9 w-9 items-center justify-center bg-gradient-to-r from-indigo-500 to-purple-600 text-lg font-semibold"
-            style={{
-              borderRadius: tokens.radius.pill,
-              ...neonStyle(tokens.color.accent),
-              transition: tokens.transition.normal,
-            }}
-            aria-hidden
-          >
-            <span className="text-white">∞</span>
+          <div className="logo-glass flex h-11 w-11 items-center justify-center text-lg font-semibold">
+            <span className="title-text">∞</span>
           </div>
-          <span className="text-lg font-semibold tracking-wide">Infinity</span>
+          <div className="flex flex-col leading-tight">
+            <span className="title-text text-base font-semibold tracking-tight">Infinity</span>
+            <span className="muted-text text-[11px] uppercase tracking-[0.24em]">Workspace</span>
+          </div>
         </Link>
         {/* TODO: Inject main navigation (Table / Fiche / Calendrier) */}
       </div>
-      <ModeOrb />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="btn-plain flex h-10 items-center gap-1 rounded-full px-3 text-sm font-semibold text-slate-900"
+          style={{
+            background: "transparent",
+            boxShadow: "none",
+            border: "none",
+            opacity: 0.92,
+            transition: "opacity 0.2s ease",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.92")}
+        >
+          <span className="text-base leading-none">+</span>
+          <span>Projet</span>
+        </button>
+        <button
+          type="button"
+          aria-label="Rechercher"
+          className="btn-plain flex h-10 w-10 items-center justify-center rounded-full"
+          style={{
+            background: "transparent",
+            boxShadow: "none",
+            border: "none",
+          }}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="24"
+            height="24"
+            fill="none"
+            stroke="rgba(15,23,42,0.72)"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="5.5" fill="rgba(255,255,255,0.18)" />
+            <line x1="15.5" y1="15.5" x2="20.5" y2="20.5" />
+          </svg>
+        </button>
+        <ModeOrb />
+      </div>
     </header>
   );
 }
