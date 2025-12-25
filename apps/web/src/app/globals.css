@@ -113,6 +113,25 @@ body {
   background: transparent !important;
   box-shadow: none !important;
   border: none !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.2) transparent;
+}
+
+.carousel-fade::-webkit-scrollbar {
+  height: 6px;
+}
+
+.carousel-fade::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.carousel-fade::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22);
+  border-radius: 999px;
+}
+
+.carousel-fade::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.30);
 }
 
 .button-float {

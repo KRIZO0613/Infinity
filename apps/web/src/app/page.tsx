@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { Timeline } from "@/components/home/Timeline";
 
 const PLACEHOLDER_PROJECTS = Array.from({ length: 8 }, (_, index) => `Projet ${index + 1}`);
 
@@ -113,7 +114,7 @@ export default function HomePage() {
               {PLACEHOLDER_PROJECTS.map((label) => (
                 <div
                   key={label}
-                  className="group relative min-w-[260px] max-w-[300px] flex-shrink-0 rounded-2xl px-6 py-8 opacity-95 transition-all duration-200 bg-white shadow-[0_8px_16px_rgba(15,23,42,0.12),0_2px_6px_rgba(15,23,42,0.10)] hover:opacity-100 hover:-translate-y-[2px] hover:shadow-[0_10px_20px_rgba(15,23,42,0.16),0_3px_8px_rgba(15,23,42,0.12)]"
+                  className="group relative min-w-[260px] max-w-[300px] flex-shrink-0 rounded-2xl px-6 py-8 opacity-95 transition-all duration-200 bg-white shadow-[0_6px_12px_rgba(15,23,42,0.10),0_2px_4px_rgba(15,23,42,0.08)] hover:opacity-100 hover:-translate-y-[2px] hover:shadow-[0_8px_16px_rgba(15,23,42,0.14),0_3px_6px_rgba(15,23,42,0.10)]"
                 >
                   <div className="h-4 w-20 rounded-full bg-white shadow-[0_6px_14px_rgba(15,23,42,0.08)] animate-pulse" />
                   <div className="mt-3 h-5 w-32 rounded-full bg-white shadow-[0_6px_14px_rgba(15,23,42,0.08)] animate-pulse" />
@@ -135,23 +136,11 @@ export default function HomePage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-xl font-semibold text-slate-900">Timeline</h2>
-              <p className="text-sm text-slate-500">Aperçu des étapes clés à venir.</p>
+              <p className="text-sm text-slate-500">Synchronisé avec ton calendrier (tâches & événements).</p>
             </div>
           </div>
 
-          <div className="panel-glass w-full rounded-2xl px-4 py-5">
-            <div className="space-y-3">
-              {["Kickoff design", "Intégration API", "Tests QA", "Release"].map((label, index) => (
-                <div key={label} className="flex items-center gap-3">
-                  <span className="h-2.5 w-2.5 rounded-full bg-slate-900/70" />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-slate-900">{label}</div>
-                    <div className="text-xs text-slate-500">J{index * 3 + 1}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <Timeline />
         </section>
       </div>
     </div>
