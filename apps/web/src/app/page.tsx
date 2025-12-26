@@ -50,10 +50,9 @@ export default function HomePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white px-6 py-10">
+    <div className="min-h-screen px-6 py-10" style={{ background: "var(--bg)" }}>
       <div className="mx-auto flex max-w-5xl flex-col gap-8">
-        <header className="space-y-3">
-        </header>
+        <header className="space-y-3" />
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -114,7 +113,7 @@ export default function HomePage() {
               {PLACEHOLDER_PROJECTS.map((label) => (
                 <div
                   key={label}
-                  className="group relative min-w-[260px] max-w-[300px] flex-shrink-0 rounded-2xl px-6 py-8 opacity-95 transition-all duration-200 bg-white shadow-[0_6px_12px_rgba(15,23,42,0.10),0_2px_4px_rgba(15,23,42,0.08)] hover:opacity-100 hover:-translate-y-[2px] hover:shadow-[0_8px_16px_rgba(15,23,42,0.14),0_3px_6px_rgba(15,23,42,0.10)]"
+                  className="carousel-card group relative min-w-[260px] max-w-[300px] flex-shrink-0 rounded-2xl px-6 py-8 opacity-95 transition-all duration-200 hover:opacity-100 hover:-translate-y-[2px]"
                 >
                   <div className="h-4 w-20 rounded-full bg-white shadow-[0_6px_14px_rgba(15,23,42,0.08)] animate-pulse" />
                   <div className="mt-3 h-5 w-32 rounded-full bg-white shadow-[0_6px_14px_rgba(15,23,42,0.08)] animate-pulse" />

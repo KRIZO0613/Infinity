@@ -33,7 +33,7 @@ export function Timeline() {
 
   if (sorted.length === 0) {
     return (
-      <div className="rounded-2xl bg-white shadow-[0_8px_16px_rgba(15,23,42,0.12),0_2px_6px_rgba(15,23,42,0.10)] px-4 py-3 text-[12px] text-slate-600">
+      <div className="timeline-panel rounded-2xl px-4 py-3 text-[12px] text-slate-600 dark:text-[rgba(235,240,248,0.78)]">
         Aucune entrée pour l’instant. Crée un événement ou une tâche dans le calendrier.
       </div>
     );
@@ -41,10 +41,10 @@ export function Timeline() {
 
   return (
     <>
-      <div className="rounded-2xl bg-white shadow-[0_10px_22px_rgba(15,23,42,0.12),0_4px_10px_rgba(15,23,42,0.10)] p-4 text-[12px] text-slate-800 max-h-80 overflow-y-auto">
+      <div className="timeline-panel rounded-2xl p-4 text-[12px] text-[color:var(--text)] max-h-80 overflow-y-auto">
       <div className="mb-3 flex items-center justify-between">
-        <p className="text-[12px] font-semibold text-slate-900">Timeline</p>
-        <span className="text-[11px] text-slate-500">{sorted.length} élément(s)</span>
+        <p className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)]">Timeline</p>
+        <span className="text-[11px] text-slate-600 dark:text-[rgba(235,240,248,0.7)]">{sorted.length} élément(s)</span>
       </div>
 
       <div className="space-y-2">
@@ -65,10 +65,10 @@ export function Timeline() {
           return (
             <div
               key={item.id}
-              className="flex items-center gap-2 px-1 py-2 border-b border-slate-200/70 last:border-b-0 transition hover:bg-white/40 min-w-0"
+              className="timeline-row flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 px-1 py-2 last:border-b-0 transition min-w-0"
             >
               <span
-                className="text-[12px] font-semibold text-slate-900 truncate w-20 shrink-0 uppercase cursor-pointer"
+                className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)] truncate w-20 shrink-0 uppercase cursor-pointer"
                 onClick={(e) => {
                   e.stopPropagation();
                   setSelected(item);
@@ -77,7 +77,7 @@ export function Timeline() {
                 {isTask ? "TÂCHE" : "ÉVÉNEMENT"}:
               </span>
               <span
-                className="truncate font-semibold text-[#1b3a6f] text-[12px] w-36 shrink-0 cursor-pointer"
+                className="truncate font-semibold text-[#1b3a6f] dark:text-[rgba(235,240,248,0.92)] text-[12px] w-full sm:w-36 shrink-0 cursor-pointer"
                 title={displayTitle}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -86,7 +86,7 @@ export function Timeline() {
               >
                 {displayTitle}
               </span>
-              <div className="flex items-center gap-2 text-[12px] text-slate-600 min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-[rgba(235,240,248,0.78)] min-w-0 flex-1">
                 <span
                   className="truncate min-w-0"
                   title={item.description}
@@ -95,7 +95,7 @@ export function Timeline() {
                 </span>
                 {locationName && (
                   <span
-                    className="truncate flex-shrink-0 text-slate-500 flex items-center gap-1"
+                    className="truncate flex-shrink-0 flex items-center gap-1 text-slate-500 dark:text-[rgba(235,240,248,0.7)]"
                     title={locationName}
                   >
                     <svg
@@ -105,7 +105,7 @@ export function Timeline() {
                       height="12"
                       viewBox="0 0 24 24"
                       fill="none"
-                      stroke="#94a3b8"
+                      stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -123,7 +123,7 @@ export function Timeline() {
                   </span>
                 )}
               </div>
-              <span className="flex-shrink-0 text-[9px] text-slate-400 text-right w-32">
+              <span className="flex-shrink-0 text-[9px] text-slate-400 dark:text-[rgba(235,240,248,0.6)] text-right w-full sm:w-32">
                 {formattedDate} {item.time ? item.time.replace(/:/, "H") : ""}
               </span>
               <button
@@ -139,10 +139,8 @@ export function Timeline() {
                   height: "8px",
                   padding: 0,
                   appearance: "none",
-                  background: isDone ? "#10b981" : "#ffffff",
-                  boxShadow: isDone
-                    ? "none"
-                    : "0 1px 4px rgba(15,23,42,0.22), 0 0 0 4px rgba(255,255,255,0.85)",
+                  background: isDone ? "#0c98cb" : "rgba(255,255,255,0.95)",
+                  boxShadow: isDone ? "none" : "0 2px 6px rgba(0,0,0,0.28)",
                   border: "none",
                 }}
               />

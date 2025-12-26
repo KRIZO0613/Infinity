@@ -160,6 +160,9 @@ function parseTime(value: string) {
 }
 
 function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
   const { hour, minute } = parseTime(value);
 
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -182,12 +185,27 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
         <button
           type="button"
           onClick={() => setHour(hour - 1)}
-          className="mb-1 h-4 w-4 rounded-full border border-white/20 text-[9px] text-white/70 hover:bg-white/10"
+          className="mb-1 h-4 w-4 rounded-full text-[9px]"
+          style={{
+            border: "none",
+            color: "var(--text)",
+            background: "transparent",
+            boxShadow: "none",
+          }}
         >
           ▲
         </button>
 
-        <div className="relative h-32 w-12 overflow-y-auto rounded-full border border-white/15 bg-black/60">
+        <div
+          className="relative h-32 w-12 overflow-y-auto rounded-full"
+          style={{
+            border: "none",
+            background: isDark ? "var(--surface)" : "#ffffff",
+            boxShadow: isDark
+              ? "0 14px 36px rgba(0,0,0,0.55)"
+              : "0 12px 26px rgba(0,0,0,0.12)",
+          }}
+        >
           <div className="flex flex-col items-center py-1">
             {HOURS.map((h) => {
               const active = h === hour;
@@ -196,11 +214,23 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
                   key={h}
                   type="button"
                   onClick={() => setHour(h)}
-                  className={`my-[3px] h-6 w-10 rounded-full text-[11px] transition-all ${
+                  className="my-[3px] w-full px-1 py-[2px] text-[11px] text-center transition-all"
+                  style={
                     active
-                      ? "bg-cyan-500 text-black shadow-[0_0_8px_rgba(56,189,248,0.7)]"
-                      : "text-white/60 hover:bg-white/10"
-                  }`}
+                      ? {
+                        background: "transparent",
+                        color: "var(--text)",
+                        boxShadow: "none",
+                        fontWeight: 700,
+                      }
+                      : {
+                        color: isDark
+                          ? "rgba(255,255,255,0.7)"
+                          : "rgba(15,23,42,0.7)",
+                        boxShadow: "none",
+                        background: "transparent",
+                      }
+                  }
                 >
                   {pad2(h)}
                 </button>
@@ -212,7 +242,13 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
         <button
           type="button"
           onClick={() => setHour(hour + 1)}
-          className="mt-1 h-4 w-4 rounded-full border border-white/20 text-[9px] text-white/70 hover:bg-white/10"
+          className="mt-1 h-4 w-4 rounded-full text-[9px]"
+          style={{
+            border: "none",
+            color: "var(--text)",
+            background: "transparent",
+            boxShadow: "none",
+          }}
         >
           ▼
         </button>
@@ -220,8 +256,19 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
 
       {/* CERCLE CENTRAL */}
       <div className="flex items-center justify-center">
-        <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/10 bg-black/70 shadow-[0_0_20px_rgba(56,189,248,0.5)]">
-          <span className="text-[20px] font-semibold text-white">
+        <div
+          className="flex h-28 w-28 items-center justify-center rounded-full"
+          style={{
+            border: isDark
+              ? "1px solid rgba(255,255,255,0.10)"
+              : "1px solid rgba(15,23,42,0.08)",
+            background: isDark ? "var(--card)" : "#ffffff",
+            boxShadow: isDark
+              ? "0 16px 44px rgba(0,0,0,0.5)"
+              : "0 12px 30px rgba(0,0,0,0.12)",
+          }}
+        >
+          <span className="text-[20px] font-semibold text-[color:var(--text)]">
             {display}
           </span>
         </div>
@@ -235,12 +282,27 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
             const idx = MINUTES.indexOf(minute);
             setMinute(MINUTES[(idx - 1 + MINUTES.length) % MINUTES.length]);
           }}
-          className="mb-1 h-4 w-4 rounded-full border border-white/20 text-[9px] text-white/70 hover:bg-white/10"
+          className="mb-1 h-4 w-4 rounded-full text-[9px]"
+          style={{
+            border: "none",
+            color: "var(--text)",
+            background: "transparent",
+            boxShadow: "none",
+          }}
         >
           ▲
         </button>
 
-        <div className="relative h-32 w-12 overflow-y-auto rounded-full border border-white/15 bg-black/60">
+        <div
+          className="relative h-32 w-12 overflow-y-auto rounded-full"
+          style={{
+            border: "none",
+            background: isDark ? "var(--surface)" : "#ffffff",
+            boxShadow: isDark
+              ? "0 14px 36px rgba(0,0,0,0.55)"
+              : "0 12px 26px rgba(0,0,0,0.12)",
+          }}
+        >
           <div className="flex flex-col items-center py-1">
             {MINUTES.map((m) => {
               const active = m === minute;
@@ -249,11 +311,23 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
                   key={m}
                   type="button"
                   onClick={() => setMinute(m)}
-                  className={`my-[3px] h-6 w-10 rounded-full text-[11px] transition-all ${
+                  className="my-[3px] w-full px-1 py-[2px] text-[11px] text-center transition-all"
+                  style={
                     active
-                      ? "bg-cyan-500 text-black shadow-[0_0_8px_rgba(56,189,248,0.7)]"
-                      : "text-white/60 hover:bg-white/10"
-                  }`}
+                      ? {
+                        background: "transparent",
+                        color: "var(--text)",
+                        boxShadow: "none",
+                        fontWeight: 700,
+                      }
+                      : {
+                        color: isDark
+                          ? "rgba(255,255,255,0.7)"
+                          : "rgba(15,23,42,0.7)",
+                        boxShadow: "none",
+                        background: "transparent",
+                      }
+                  }
                 >
                   {pad2(m)}
                 </button>
@@ -268,7 +342,13 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
             const idx = MINUTES.indexOf(minute);
             setMinute(MINUTES[(idx + 1) % MINUTES.length]);
           }}
-          className="mt-1 h-4 w-4 rounded-full border border-white/20 text-[9px] text-white/70 hover:bg-white/10"
+          className="mt-1 h-4 w-4 rounded-full text-[9px]"
+          style={{
+            border: "none",
+            color: isDark ? "rgba(255,255,255,0.72)" : "rgba(15,23,42,0.72)",
+            background: "transparent",
+            boxShadow: "none",
+          }}
         >
           ▼
         </button>
@@ -621,6 +701,10 @@ export default function CalendarLauncher() {
   /* --------------------------------------- */
 
   function renderCalendarGrid() {
+    const isDark =
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark");
+
     const cells =
       viewMode === "month"
         ? monthMatrix
@@ -639,6 +723,7 @@ export default function CalendarLauncher() {
       <div
         className={`grid ${gridCols} gap-1.5`}
         onClick={() => setOpenedInCalendarId(null)} // clic dans la grille → ferme la mini-fiche
+        style={{ padding: "2px" }}
       >
         {cells.map((cell, i) => {
           const key = formatDateKey(cell.date);
@@ -666,13 +751,20 @@ export default function CalendarLauncher() {
               key={`${key}-${i}`}
               type="button"
               onClick={() => handleSelectDay(cell.date)}
-              className={`flex flex-col rounded-2xl border px-3 py-2 text-left text-[11px] transition-all ${cellSizeClass} ${
-                isSelected
-                  ? "border-indigo-400 bg-gradient-to-br from-indigo-600/80 to-cyan-500/80 text-white shadow-[0_0_22px_rgba(56,189,248,0.75)]"
-                  : cell.inCurrentMonth
-                  ? "border-white/10 bg-black/70 text-white/80 hover:border-indigo-400/60"
-                  : "border-transparent bg-black/40 text-white/35"
-              } ${hasOpenedItem ? "relative z-20" : ""}`}
+              className={`flex flex-col rounded-2xl border px-3 py-2 text-left text-[11px] transition-all ${cellSizeClass} ${!cell.inCurrentMonth ? "opacity-70" : ""} ${hasOpenedItem ? "relative z-20" : ""}`}
+              style={{
+                background: "transparent",
+                border: isDark
+                  ? "1px solid rgba(255,255,255,0.12)"
+                  : "1px solid rgba(15,23,42,0.12)",
+                color: "var(--text)",
+                boxShadow: "none",
+                outline: isSelected
+                  ? isDark
+                    ? "1px solid rgba(255,255,255,0.16)"
+                    : "1px solid rgba(15,23,42,0.14)"
+                  : "none",
+              }}
             >
               <div className="mb-2 flex items-center justify-between text-[11px]">
                 <span className="font-medium">{dayNumber}</span>
@@ -730,29 +822,35 @@ export default function CalendarLauncher() {
                       </div>
 
                       {/* Mini-fiche flottante */}
-                     {isOpen && (
-  <div
-    className="absolute left-0 top-5 z-30 w-[190px] rounded-2xl border border-white/20 bg-black/90 px-3 py-2 text-[10px] text-white shadow-[0_18px_45px_rgba(0,0,0,0.85)]"
-    onClick={(e) => e.stopPropagation()} // 👈 pour ne pas se fermer si on clique dans la fiche
-  >
-    {!isTask && item.location && (
-      <p className="text-white/70">📍 {item.location}</p>
-    )}
+                      {isOpen && (
+                        <div
+                          className="absolute left-0 top-5 z-30 w-[190px] rounded-2xl px-3 py-2 text-[10px]"
+                          style={{
+                            background: isDark ? "var(--card)" : "#ffffff",
+                            border: isDark ? "1px solid var(--border)" : "none",
+                            color: "var(--text)",
+                            boxShadow: isDark ? "0 18px 45px rgba(0,0,0,0.65)" : "none",
+                          }}
+                          onClick={(e) => e.stopPropagation()} // 👈 pour ne pas se fermer si on clique dans la fiche
+                        >
+                          {!isTask && item.location && (
+                            <p className="text-[color:var(--muted)]">📍 {item.location}</p>
+                          )}
 
                           {item.description && (
-                            <p className="mt-[2px] text-white/80">
+                            <p className="mt-[2px] text-[color:var(--text)]">
                               {item.description}
                             </p>
                           )}
 
                           {!isTask && item.durationLabel && (
-                            <p className="mt-[2px] text-white/60">
+                            <p className="mt-[2px] text-[color:var(--muted)]">
                               Durée : {item.durationLabel}
                             </p>
                           )}
 
                           {item.tagId && (
-                            <p className="mt-[2px] text-cyan-300">
+                            <p className="mt-[2px] text-[color:var(--text)]">
                               #{getTagForItem(item)?.name}
                             </p>
                           )}
@@ -779,6 +877,9 @@ export default function CalendarLauncher() {
 
   function renderOverlay() {
     if (!open) return null;
+    const isDark =
+      typeof document !== "undefined" &&
+      document.documentElement.classList.contains("dark");
 
     const headerDays =
       viewMode === "day"
@@ -808,26 +909,49 @@ export default function CalendarLauncher() {
         <button
           type="button"
           aria-label="Fermer le calendrier"
-          className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
           onClick={handleToggleOpen}
         />
 
         {/* bloc principal */}
-        <div className="relative z-10 flex max-h-[90vh] w-[min(980px,100%-2rem)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#020617] shadow-[0_22px_80px_rgba(15,23,42,0.95)]">
+        <div
+          className="calendar-overlay relative z-10 flex max-h-[90vh] w-[min(980px,100%-2rem)] flex-col overflow-hidden rounded-3xl"
+          style={{
+            background: "var(--bg)",
+            color: "var(--text)",
+            boxShadow: "none",
+            border: "none",
+            outline: "none",
+            filter: "none",
+          }}
+        >
           {/* header */}
-          <div className="flex items-center justify-between gap-4 border-b border-white/10 px-6 py-4">
+          <div
+            className="flex items-center justify-between gap-4 px-6 py-4"
+            style={{
+              borderBottom: isDark
+                ? "1px solid var(--border)"
+                : "none",
+            }}
+          >
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-white/40">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
                 Temps
               </p>
-              <h2 className="text-sm font-semibold text-white">
+              <h2 className="text-sm font-semibold text-[color:var(--text)]">
                 Calendrier Infinity
               </h2>
             </div>
             <button
               type="button"
               onClick={handleToggleOpen}
-              className="rounded-full border border-white/20 px-4 py-1.5 text-[11px] text-white/80 hover:bg-white/10"
+              className="rounded-full px-4 py-1.5 text-[11px]"
+              style={{
+                border: isDark ? "1px solid var(--border)" : "none",
+                background: isDark ? "var(--surface)" : "transparent",
+                color: "var(--text)",
+                boxShadow: isDark ? "0 12px 32px rgba(0,0,0,0.16)" : "none",
+              }}
             >
               Fermer
             </button>
@@ -843,27 +967,52 @@ export default function CalendarLauncher() {
             <div className="min-w-0 flex-1 overflow-y-auto pr-0 md:pr-2">
               {/* barre mois + vue */}
               <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/60 px-3 py-1.5 text-[11px]">
+                <div
+                  className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px]"
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    boxShadow: "none",
+                    filter: "none",
+                  }}
+                >
                   <button
                     type="button"
                     onClick={handlePrev}
-                    className="rounded-full px-2 py-1 text-white/70 hover:bg-white/10"
+                    className="rounded-full px-2 py-1"
+                    style={{
+                      background: "transparent",
+                      color: "var(--muted)",
+                      boxShadow: "none",
+                    }}
                   >
                     ◀
                   </button>
-                  <span className="text-[11px] font-medium text-white/90">
+                  <span className="text-[11px] font-medium text-[color:var(--text)]">
                     {currentMonthLabel}
                   </span>
                   <button
                     type="button"
                     onClick={handleNext}
-                    className="rounded-full px-2 py-1 text-white/70 hover:bg-white/10"
+                    className="rounded-full px-2 py-1"
+                    style={{
+                      background: "transparent",
+                      color: "var(--muted)",
+                      boxShadow: "none",
+                    }}
                   >
                     ▶
                   </button>
                 </div>
 
-                <div className="inline-flex items-center rounded-full bg-white/5 p-1 text-[11px]">
+                <div
+                  className="inline-flex items-center rounded-full p-1 text-[11px]"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    boxShadow: "none",
+                  }}
+                >
                   <button
                     type="button"
                     onClick={() => {
@@ -872,9 +1021,14 @@ export default function CalendarLauncher() {
                     }}
                     className={`rounded-full px-3 py-1 ${
                       viewMode === "month"
-                        ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                        : "text-white/60 hover:text-white"
+                        ? "text-[color:var(--text)]"
+                        : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     }`}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
                   >
                     Mois
                   </button>
@@ -886,9 +1040,14 @@ export default function CalendarLauncher() {
                     }}
                     className={`rounded-full px-3 py-1 ${
                       viewMode === "week"
-                        ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                        : "text-white/60 hover:text-white"
+                        ? "text-[color:var(--text)]"
+                        : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     }`}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
                   >
                     Semaine
                   </button>
@@ -900,9 +1059,14 @@ export default function CalendarLauncher() {
                     }}
                     className={`rounded-full px-3 py-1 ${
                       viewMode === "day"
-                        ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                        : "text-white/60 hover:text-white"
+                        ? "text-[color:var(--text)]"
+                        : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                     }`}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
                   >
                     Jour
                   </button>
@@ -910,7 +1074,7 @@ export default function CalendarLauncher() {
               </div>
 
               {/* en-tête jours */}
-              <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] uppercase tracking-wide text-white/40">
+              <div className="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] uppercase tracking-wide text-[color:var(--muted)]">
                 {viewMode === "day"
                   ? Array.from({ length: 7 }).map((_, idx) => (
                       <div key={idx} />
@@ -925,15 +1089,25 @@ export default function CalendarLauncher() {
 
             {/* colonne droite : détail */}
             {detailOpen && (
-              <div className="w-full flex-shrink-0 overflow-y-auto pl-0 md:w-[320px] md:pl-2">
-                <div className="rounded-2xl border border-white/12 bg-black/80 p-4">
+              <div
+                className="w-full flex-shrink-0 overflow-y-auto pl-0 md:w-[320px] md:pl-2 overflow-hidden rounded-2xl"
+                style={{ boxShadow: "none", border: "none" }}
+              >
+                <div
+                  className="rounded-2xl p-4 text-[color:var(--text)] overflow-hidden"
+                  style={{
+                    background: isDark ? "var(--card)" : "#ffffff",
+                    border: "none",
+                    boxShadow: "none",
+                  }}
+                >
                   {/* Jour sélectionné + fermer */}
-                  <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="mb-2 flex items-center justify-between gap-2 text-[color:var(--text)]">
                     <div>
-                      <p className="text-[11px] text-white/50">
+                      <p className="text-[11px] text-[color:var(--muted)]">
                         Jour sélectionné
                       </p>
-                      <p className="text-[13px] font-semibold text.white">
+                      <p className="text-[13px] font-semibold">
                         {selectedDate.getDate()}{" "}
                         {MONTHS_FR[selectedDate.getMonth()]}
                       </p>
@@ -944,22 +1118,51 @@ export default function CalendarLauncher() {
                         setDetailOpen(false);
                         resetFormForNew();
                       }}
-                      className="rounded-full border border-white/20 px-2 py-1 text-[10px] text-white/70 hover:bg-white/10"
+                      className="rounded-full px-2 py-1 text-[10px]"
+                      style={{
+                        border: isDark
+                          ? "1px solid var(--border)"
+                          : "none",
+                        background: isDark ? "var(--surface)" : "#ffffff",
+                        color: "var(--text)",
+                        boxShadow: isDark ? "0 10px 26px rgba(0,0,0,0.18)" : "none",
+                      }}
                     >
                       Fermer
                     </button>
                   </div>
 
+                  <div
+                    className="mb-3 h-px w-full"
+                    style={{
+                      background: isDark
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(15,23,42,0.08)",
+                    }}
+                  />
+
                   {/* Mode événement / tâche */}
-                  <div className="mt-2 inline-flex items-center rounded-full bg-white/5 p-1 text-[11px]">
+                  <div
+                    className="view-toggle inline-flex items-center rounded-full p-1 text-[11px]"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                    }}
+                  >
                     <button
                       type="button"
                       onClick={() => setMode("event")}
                       className={`rounded-full px-3 py-1 ${
                         mode === "event"
-                          ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                          : "text-white/60 hover:text-white"
+                          ? "text-[color:var(--text)]"
+                          : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                       }`}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        boxShadow: "none",
+                      }}
                     >
                       Événement
                     </button>
@@ -968,9 +1171,14 @@ export default function CalendarLauncher() {
                       onClick={() => setMode("task")}
                       className={`rounded-full px-3 py-1 ${
                         mode === "task"
-                          ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                          : "text-white/60 hover:text-white"
+                          ? "text-[color:var(--text)]"
+                          : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                       }`}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        boxShadow: "none",
+                      }}
                     >
                       Tâche
                     </button>
@@ -978,12 +1186,27 @@ export default function CalendarLauncher() {
 
                   {/* Statut tâche */}
                   {mode === "task" && (
-                    <label className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[11px] text-white/80">
+                    <label
+                      className="mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px]"
+                      style={{
+                        background: isDark ? "var(--surface)" : "#ffffff",
+                        border: "none",
+                        boxShadow: isDark
+                          ? "0 10px 22px rgba(0,0,0,0.28)"
+                          : "0 8px 16px rgba(15,23,42,0.10)",
+                        color: "var(--text)",
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={taskDone}
                         onChange={(e) => setTaskDone(e.target.checked)}
-                        className="h-3 w-3 rounded border border-white/60 bg.transparent"
+                        className="h-3 w-3 rounded border bg-transparent"
+                        style={{
+                          borderColor: isDark
+                            ? "var(--border)"
+                            : "rgba(15,23,42,0.20)",
+                        }}
                       />
                       <span>{taskDone ? "Tâche terminée" : "À faire"}</span>
                     </label>
@@ -999,17 +1222,24 @@ export default function CalendarLauncher() {
                       <div className="mt-4">
                         <button
                           type="button"
-                          onClick={() =>
+                        onClick={() =>
                             setShowDurationChoices((v) => !v)
                           }
-                          className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5"
-                        >
-                          <span className="text-[11px] text-white/60">
+                          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+                          style={{
+                            background: isDark ? "var(--surface)" : "#ffffff",
+                            border: "none",
+                            boxShadow: isDark
+                              ? "0 10px 22px rgba(0,0,0,0.28)"
+                              : "0 8px 16px rgba(15,23,42,0.10)",
+                          }}
+                    >
+                          <span className="text-[11px] text-[color:var(--muted)]">
                             Durée
                           </span>
 
                           {duration && (
-                            <span className="text-[11px] font-medium text-white/90">
+                            <span className="text-[11px] font-medium text-[color:var(--text)]">
                               {duration}
                             </span>
                           )}
@@ -1042,11 +1272,26 @@ export default function CalendarLauncher() {
                                     setDuration(d);
                                     setShowDurationChoices(false);
                                   }}
-                                  className={`rounded-full border px-3 py-[6px] text-[11px] transition-all ${
+                                  className={`rounded-full px-3 py-[6px] text-[11px] transition-all ${
                                     active
-                                      ? "border-cyan-400 bg-cyan-500 text-black shadow-[0_0_10px_rgba(56,189,248,0.7)]"
-                                      : "border-white/20 text-white/60 hover:bg-white/10"
+                                      ? "text-[color:var(--text)]"
+                                      : "text-[color:var(--muted)] hover:text-[color:var(--text)]"
                                   }`}
+                                  style={
+                                    active
+                                      ? {
+                                          background: isDark
+                                            ? "rgba(0,0,0,0.10)"
+                                            : "rgba(0,0,0,0.05)",
+                                          boxShadow: isDark
+                                            ? "0 8px 18px rgba(0,0,0,0.24)"
+                                            : "0 6px 12px rgba(15,23,42,0.10)",
+                                        }
+                                      : {
+                                          background: "transparent",
+                                          boxShadow: "none",
+                                        }
+                                  }
                                 >
                                   {d}
                                 </button>
@@ -1058,133 +1303,10 @@ export default function CalendarLauncher() {
                     </>
                   )}
 
-                  {/* TAGS & COULEUR */}
-                  <div className="mt-4">
-                    <p className="mb-1 text-[11px] text-white/50">
-                      Tag & couleur
-                    </p>
-
-                    <div className="mb-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setTagId(null)}
-                        className={`rounded-full border px-2 py-[3px] text-[10px] ${
-                          !tagId
-                            ? "border-cyan-400 bg-white/5 text-white"
-                            : "border-white/20 text-white/60 hover:border-white/60"
-                        }`}
-                      >
-                        Aucun
-                      </button>
-                      {tags.map((tag) => (
-                        <button
-                          key={tag.id}
-                          type="button"
-                          onClick={() => setTagId(tag.id)}
-                          className={`flex items-center gap-1 rounded-full border px-2 py-[3px] text-[10px] ${
-                            tagId === tag.id
-                              ? "border-white/80 bg-white/10 text.white"
-                              : "border-white/20 text-white/60 hover:border-white/60"
-                          }`}
-                        >
-                          <span
-                            className="h-2 w-2 rounded-full"
-                            style={{
-                              backgroundColor: tag.color,
-                              boxShadow: `0 0 6px ${tag.color}80`,
-                            }}
-                          />
-                          <span>{tag.name}</span>
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowNewTagForm((v) => !v)}
-                      className="mb-1 text-[11px] text-cyan-300 hover:text-cyan-200"
-                    >
-                      {showNewTagForm
-                        ? "Annuler le nouveau tag"
-                        : "+ Nouveau tag"}
-                    </button>
-
-                    {showNewTagForm && (
-                      <div className="mt-2 space-y-2 rounded-xl border border-white/15 bg-black/60 p-3">
-                        <div>
-                          <p className="mb-1 text-[11px] text.white/60">
-                            Nom du tag
-                          </p>
-                          <input
-                            value={newTagName}
-                            onChange={(e) => setNewTagName(e.target.value)}
-                            className="w-full rounded-lg border border-white/20 bg-black px-2 py-1.5 text-[11px] text-white outline-none placeholder:text-white/35"
-                            placeholder="Ex : RDV médical, Foot, Travail…"
-                          />
-                        </div>
-
-                        <div>
-                          <p className="mb-1 text-[11px] text-white/60">
-                            Couleur
-                          </p>
-                          <div className="mb-2 flex flex-wrap gap-1.5">
-                            {colorPresets.map((c) => (
-                              <button
-                                key={c}
-                                type="button"
-                                onClick={() => setNewTagColor(c)}
-                                className={`h-5 w-5 rounded-full border ${
-                                  newTagColor === c
-                                    ? "border-white"
-                                    : "border-white/30"
-                                }`}
-                                style={{
-                                  backgroundColor: c,
-                                  boxShadow:
-                                    newTagColor === c
-                                      ? `0 0 8px ${c}aa`
-                                      : "none",
-                                }}
-                              />
-                            ))}
-                            <label className="ml-1 inline-flex items-center gap-1 text-[10px] text-white/60">
-                              <input
-                                type="color"
-                                value={newTagColor}
-                                onChange={(e) =>
-                                  setNewTagColor(e.target.value)
-                                }
-                                className="h-5 w-8 cursor-pointer rounded border border-white/30 bg-transparent"
-                              />
-                              <span>Autre couleur</span>
-                            </label>
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={handleCreateTag}
-                          className="w-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_14px_rgba(56,189,248,0.6)]"
-                        >
-                          Créer le tag
-                        </button>
-                      </div>
-                    )}
-
-                    {currentTag && (
-                      <p className="mt-1 text-[10px] text-white/50">
-                        Tag sélectionné :{" "}
-                        <span className="font-medium text-cyan-300">
-                          {currentTag.name}
-                        </span>
-                      </p>
-                    )}
-                  </div>
-
                   {/* Titre + lieu + description */}
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 space-y-2">
                     <div>
-                      <p className="mb-1 text-[11px] text-white/50">
+                      <p className="mb-1 text-[11px] text-[color:var(--muted)]">
                         Titre{" "}
                         {mode === "event"
                           ? "de l’événement"
@@ -1193,31 +1315,57 @@ export default function CalendarLauncher() {
                       <input
                         value={title}
                         onChange={(e) => setTitle(e.target.value)}
-                        className="w-full rounded-xl border border-white/20 bg-black px-3 py-1.5 text-[11px] text-white outline-none placeholder:text-white/35"
+                        className="w-full rounded-xl px-3 py-1.5 text-[11px] outline-none"
+                        style={{
+                          background: "var(--surface)",
+                          border: "none",
+                          boxShadow: isDark
+                            ? "0 10px 22px rgba(0,0,0,0.30)"
+                            : "0 6px 12px rgba(15,23,42,0.10)",
+                          color: "var(--text)",
+                        }}
                         placeholder="Ex : Appel client, entraînement…"
                       />
                     </div>
 
                     {mode === "event" && (
                       <div>
-                        <p className="mb-1 text-[11px] text-white/50">
+                        <p className="mb-1 text-[11px] text-[color:var(--muted)]">
                           Lieu / adresse
                         </p>
                         <input
                           value={location}
                           onChange={(e) => setLocation(e.target.value)}
-                          className="w-full rounded-xl border border-white/20 bg-black px-3 py-1.5 text-[11px] text-white outline-none placeholder:text-white/35"
+                          className="w-full rounded-xl px-3 py-1.5 text-[11px] outline-none"
+                          style={{
+                            background: "var(--surface)",
+                            border: "none",
+                            boxShadow: isDark
+                              ? "0 10px 22px rgba(0,0,0,0.30)"
+                              : "0 6px 12px rgba(15,23,42,0.10)",
+                            color: "var(--text)",
+                          }}
                           placeholder="Ex : 12 rue de la Paix, Paris ou 'Stade FC26'"
                         />
 
                         {locationSuggestions.length > 0 && (
-                          <div className="mt-1 max-h-24 overflow-y-auto rounded-xl border border-white/15 bg-black/80 px-2 py-1">
+                          <div
+                            className="mt-1 max-h-24 overflow-y-auto rounded-xl px-2 py-1"
+                            style={{
+                              background: "var(--surface)",
+                              border: "none",
+                              boxShadow: isDark
+                                ? "0 12px 28px rgba(0,0,0,0.32)"
+                                : "0 8px 16px rgba(15,23,42,0.12)",
+                            }}
+                          >
                             {locationSuggestions.map((loc) => (
                               <button
                                 key={loc}
                                 type="button"
                                 onClick={() => setLocation(loc)}
-                                className="block w-full truncate rounded-lg px-2 py-1 text-left text-[10px] text-white/80 hover:bg-white/10"
+                                className="block w-full truncate rounded-lg px-2 py-1 text-left text-[10px]"
+                                style={{ color: "var(--text)" }}
                               >
                                 {loc}
                               </button>
@@ -1228,14 +1376,22 @@ export default function CalendarLauncher() {
                     )}
 
                     <div>
-                      <p className="mb-1 text-[11px] text-white/50">
+                      <p className="mb-1 text-[11px] text-[color:var(--muted)]">
                         Description
                       </p>
                       <textarea
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
                         rows={2}
-                        className="w-full resize-none rounded-xl border border-white/20 bg-black px-3 py-1.5 text-[11px] text-white outline-none placeholder:text-white/35"
+                        className="w-full resize-none rounded-xl px-3 py-1.5 text-[11px] outline-none"
+                        style={{
+                          background: "var(--surface)",
+                          border: "none",
+                          boxShadow: isDark
+                            ? "0 10px 22px rgba(0,0,0,0.30)"
+                            : "0 6px 12px rgba(15,23,42,0.10)",
+                          color: "var(--text)",
+                        }}
                         placeholder={
                           mode === "event"
                             ? "Optionnel : code portail, notes…"
@@ -1246,12 +1402,15 @@ export default function CalendarLauncher() {
                   </div>
 
                   {/* Épingler */}
-                  <label className="mt-2 inline-flex items-center gap-2 text-[11px] text-white/65">
+                  <label
+                    className="mt-2 inline-flex items-center gap-2 text-[11px]"
+                    style={{ color: "var(--text)" }}
+                  >
                     <input
                       type="checkbox"
                       checked={pinned}
                       onChange={(e) => setPinned(e.target.checked)}
-                      className="h-3 w-3 rounded border border-white/40 bg-transparent"
+                      className="h-3 w-3 rounded border border-[color:var(--border)] bg-transparent"
                     />
                     <span>Épingler sur le dashboard</span>
                   </label>
@@ -1261,7 +1420,17 @@ export default function CalendarLauncher() {
                     <button
                       type="button"
                       onClick={handleSave}
-                      className="flex-1 rounded-full bg-gradient.to-r from-indigo-500 to-cyan-400 px-3 py-1.5 text-[11px] font-semibold text-white shadow-[0_0_18px_rgba(56,189,248,0.6)]"
+                      className="flex-1 rounded-full px-3 py-1.5 text-[11px] font-semibold"
+                      style={{
+                        background: isDark
+                          ? "var(--surface)"
+                          : "linear-gradient(180deg, #ffffff, #f6f7fb)",
+                        color: isDark ? "var(--text)" : "rgba(15,23,42,0.9)",
+                        boxShadow: isDark
+                          ? "0 10px 24px rgba(0,0,0,0.38)"
+                          : "0 6px 12px rgba(15,23,42,0.10)",
+                        border: "none",
+                      }}
                     >
                       {editId
                         ? "Mettre à jour"
@@ -1273,7 +1442,8 @@ export default function CalendarLauncher() {
                       <button
                         type="button"
                         onClick={handleDelete}
-                        className="rounded-full border border-rose-400 px-3 py-1.5 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/10"
+                        className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/10"
+                        style={{ border: "1px solid var(--border)" }}
                       >
                         Supprimer
                       </button>
@@ -1295,7 +1465,12 @@ export default function CalendarLauncher() {
                             key={item.id}
                             type="button"
                             onClick={() => handleClickItem(item)}
-                            className="flex w-full items-start gap-2 rounded-lg border border-white/15 bg-black px-2 py-1 text-left text-[11px] text-white"
+                            className="flex w-full items-start gap-2 rounded-lg px-2 py-1 text-left text-[11px]"
+                            style={{
+                              background: "var(--surface)",
+                              border: "1px solid var(--border)",
+                              color: "var(--text)",
+                            }}
                           >
                             <span
                               className="mt-[3px] h-1.5 w-1.5 rounded-full"
@@ -1311,22 +1486,22 @@ export default function CalendarLauncher() {
                                 {item.title}
                               </p>
                               {item.location && (
-                                <p className="text-[10px] text-white/55">
+                                <p className="text-[10px] text-[color:var(--muted)]">
                                   📍 {item.location}
                                 </p>
                               )}
                               {item.description && (
-                                <p className="text-[10px] text-white/60">
+                                <p className="text-[10px] text-[color:var(--muted)]">
                                   {item.description}
                                 </p>
                               )}
                               {item.durationLabel && (
-                                <p className="text-[10px] text-white/50">
+                                <p className="text-[10px] text-[color:var(--muted)]">
                                   Durée : {item.durationLabel}
                                 </p>
                               )}
                               {tag && (
-                                <p className="text-[10px] text-cyan-300">
+                                <p className="text-[10px] text-[color:var(--text)]">
                                   #{tag.name}
                                 </p>
                               )}
@@ -1351,7 +1526,12 @@ export default function CalendarLauncher() {
                         return (
                           <div
                             key={item.id}
-                            className="flex w-full items-start gap-2 rounded-lg border border-white/15 bg-black px-2 py-1 text-left text-[11px] text-white"
+                            className="flex w-full items-start gap-2 rounded-lg px-2 py-1 text-left text-[11px]"
+                            style={{
+                              background: "var(--surface)",
+                              border: "1px solid var(--border)",
+                              color: "var(--text)",
+                            }}
                           >
                             <input
                               type="checkbox"
@@ -1372,25 +1552,23 @@ export default function CalendarLauncher() {
                               className="flex-1 text-left"
                             >
                               <p
-                                className={`font-medium ${
-                                  isDone
-                                    ? "line-through text-white/50"
-                                    : ""
-                                }`}
+                              className={`font-medium ${
+                                isDone ? "line-through text-[color:var(--muted)]" : ""
+                              }`}
                               >
                                 📝 {item.title}
                               </p>
                               {item.description && (
-                                <p className="text-[10px] text-white/60">
+                                <p className="text-[10px] text-[color:var(--muted)]">
                                   {item.description}
                                 </p>
                               )}
                               {tag && (
-                                <p className="text-[10px] text-cyan-300">
+                                <p className="text-[10px] text-[color:var(--text)]">
                                   #{tag.name}
                                 </p>
                               )}
-                              <p className="text-[10px] text-white/50">
+                              <p className="text-[10px] text-[color:var(--muted)]">
                                 {isDone ? "Fait" : "À faire"}
                               </p>
                             </button>
@@ -1423,29 +1601,27 @@ export default function CalendarLauncher() {
         type="button"
         aria-label="Calendrier Infinity"
         onClick={handleToggleOpen}
-        className="dock-item flex h-14 w-14 items-center justify-center backdrop-blur-md"
+        className="dock-item flex h-14 w-14 items-center justify-center"
       >
-        <div className="relative h-11 w-11 rounded-2xl p-[6px]">
-          <div className="absolute inset-0 rounded-2xl border border-white/30" />
-          <div className="absolute inset-[2px] rounded-2xl border border-white/20" />
-          <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_center,rgba(90,150,255,0.22),transparent_72%)] blur-[10px]" />
-          <div className="relative flex h-full w-full items-center justify-center">
-            <div className="relative h-[22px] w-[22px]">
-              <div className="absolute inset-x-0 top-0 h-[5px] rounded-t-[5px] bg-gradient-to-r from-sky-400 to-indigo-500" />
-              <div className="absolute left-[3px] top-[-3px] h-[4px] w-[3px] rounded-md border border-white/40 bg-black" />
-              <div className="absolute right-[3px] top-[-3px] h-[4px] w-[3px] rounded-md border border-white/40 bg-black" />
-              <div className="absolute inset-x-[3px] top-[7px] bottom-[3px] grid grid-cols-3 grid-rows-3 gap-[2px]">
-                {Array.from({ length: 9 }).map((_, i) => (
-                  // eslint-disable-next-line react/no-array-index-key
-                  <div
-                    key={i}
-                    className="rounded-[3px] bg-white/35 shadow-[0_0_5px_rgba(255,255,255,0.5)]"
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        <svg
+          aria-hidden
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-current"
+        >
+          <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+          <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
+          <line x1="7" y1="12.5" x2="17" y2="12.5" />
+          <line x1="7" y1="16.5" x2="17" y2="16.5" />
+          <circle cx="10" cy="12.5" r="0.6" />
+          <circle cx="14.5" cy="16.5" r="0.6" />
+        </svg>
       </button>
 
       {/* PORTAL : overlay du calendrier seulement */}

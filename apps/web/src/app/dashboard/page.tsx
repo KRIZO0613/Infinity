@@ -58,6 +58,7 @@ export default function DashboardPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [boardHeight, setBoardHeight] = useState<number>(800);
   const [hasLoadedLayout, setHasLoadedLayout] = useState(false);
+  const [openItem, setOpenItem] = useState<CalendarItem | null>(null);
 
   // ✅ On récupère tous les items du store (snapshot stable)
   const allItems = useCalendarStore((s) => s.items);
@@ -162,8 +163,8 @@ export default function DashboardPage() {
 
   return (
     <div
-      className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-0 -mt-18 sm:-mt-20 text-fg transition-colors"
-      style={{ background: "var(--bg-canvas)" }}
+      className="min-h-[calc(100vh-4rem)] px-6 pb-28 pt-24 sm:pt-28 mt-0 text-fg transition-colors"
+      style={{ background: "var(--bg)" }}
     >
       {/* Header */}
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
@@ -178,7 +179,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Switch vues */}
-        <div className="inline-flex items-center gap-1 rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/80 px-1 py-1 text-xs backdrop-blur shadow-[0_10px_24px_rgba(0,0,0,0.2)]">
+        <div className="view-toggle inline-flex items-center gap-3 rounded-full px-2 py-1 text-xs">
           <ViewModeButton
             label="Galerie"
             active={viewMode === "grid"}
@@ -200,7 +201,7 @@ export default function DashboardPage() {
       {/* État vide */}
       {isEmpty && (
         <div className="mx-auto mt-8 flex w-full max-w-6xl items-center justify-center">
-          <div className="rounded-2xl border border-dashed border-[color:var(--muted-2)] bg-[color:var(--surface)]/60 px-6 py-8 text-center text-xs text-muted">
+          <div className="rounded-2xl bg-white/90 px-6 py-8 text-center text-xs text-muted shadow-[0_22px_70px_rgba(15,23,42,0.12)] backdrop-blur-md border border-slate-200/80">
             <p className="text-[13px] font-medium text-fg">
               Aucun élément épinglé pour l&apos;instant.
             </p>
@@ -217,18 +218,18 @@ export default function DashboardPage() {
       {/* MODE 3D */}
       {!isEmpty && viewMode === "float3d" && (
         <div className="mt-4 w-full">
-          <Coverflow3D items={widgets} />
+          <Coverflow3D items={widgets} onOpen={setOpenItem} />
         </div>
       )}
 
       {/* MODE GALERIE = whiteboard libre */}
     {!isEmpty && viewMode === "grid" && (
   <div className="mt-4 w-full">
-    <div
-      ref={freeMoveContainerRef}
-      className="relative w-full overflow-hidden rounded-xl border border-[color:var(--muted-2)] bg-[color:var(--surface)]/90 shadow-[0_25px_60px_rgba(0,0,0,0.35)]"
-      style={{ height: boardHeight }}
-    >
+        <div
+          ref={freeMoveContainerRef}
+          className="relative w-full overflow-hidden rounded-xl bg-white/92 shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-md"
+          style={{ height: boardHeight }}
+        >
             {widgets.map(({ meta, item }) => (
               <FreeWidget
                 key={meta.id}
@@ -236,6 +237,7 @@ export default function DashboardPage() {
                 item={item}
                 containerRef={freeMoveContainerRef}
                 setMetas={setMetas}
+                onOpen={setOpenItem}
               />
             ))}
           </div>
@@ -245,7 +247,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setBoardHeight((h) => Math.min(2400, h + 200))}
-              className="rounded-full border border-[color:var(--muted-2)] bg-[color:var(--surface)]/70 px-3 py-1 text-sm text-fg hover:bg-[color:var(--surface)]/90"
+              className="rounded-full bg-white px-3 py-1 text-sm text-fg shadow-[0_12px_30px_rgba(15,23,42,0.12)] hover:shadow-[0_16px_40px_rgba(15,23,42,0.16)]"
             >
               ⤵︎ Agrandir la zone
             </button>
@@ -269,10 +271,60 @@ export default function DashboardPage() {
                 whileDrag={{ scale: 1.03, zIndex: 20 }}
                 className="cursor-grab active:cursor-grabbing"
               >
-                <WidgetCard item={item} variant="list" />
+                <WidgetCard item={item} variant="list" onOpen={setOpenItem} />
               </Reorder.Item>
             ))}
           </Reorder.Group>
+        </div>
+      )}
+
+      {openItem && (
+        <div
+          className="fixed inset-0 z-[240] flex items-start justify-center pt-16"
+          style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(3px)" }}
+          onClick={() => setOpenItem(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="panel-glass relative w-[min(92vw,520px)] rounded-3xl p-5 text-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.18),0_10px_30px_rgba(15,23,42,0.14)] max-h-[72vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="text-sm font-semibold truncate" title={openItem.title}>
+                  {openItem.title}
+                </div>
+                <div className="text-[12px] text-slate-600 flex flex-wrap items-center gap-2">
+                  <span>{formatDateLabel(openItem.date)}</span>
+                  {openItem.time && (
+                    <span>
+                      · {openItem.time}
+                      {openItem.endTime ? `–${openItem.endTime}` : ""}
+                    </span>
+                  )}
+                  <span>· {labelForType(openItem.type)}</span>
+                  {openItem.tagId && <span>· #{openItem.tagId}</span>}
+                  {openItem.location && <span>· 📍 {openItem.location}</span>}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn-plain text-slate-700 hover:text-slate-900"
+                aria-label="Fermer"
+                onClick={() => setOpenItem(null)}
+              >
+                ✕
+              </button>
+            </div>
+            {openItem.description && (
+              <div className="mt-3 max-h-[48vh] overflow-auto pr-1">
+                <p className="text-[13px] text-slate-700 leading-relaxed whitespace-pre-line break-words">
+                  {openItem.description}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -288,12 +340,13 @@ type FreeWidgetProps = {
   item: CalendarItem;
   containerRef: React.RefObject<HTMLDivElement | null>;
   setMetas: React.Dispatch<React.SetStateAction<WidgetMeta[]>>;
+  onOpen?: (item: CalendarItem | null) => void;
 };
 
 const CARD_BASE_WIDTH = 300;
 const CARD_BASE_HEIGHT = 200;
 
-function FreeWidget({ meta, item, containerRef, setMetas }: FreeWidgetProps) {
+function FreeWidget({ meta, item, containerRef, setMetas, onOpen }: FreeWidgetProps) {
   const [isResizing, setIsResizing] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const scale = meta.scale ?? 1;
@@ -423,13 +476,13 @@ function FreeWidget({ meta, item, containerRef, setMetas }: FreeWidgetProps) {
       }}
       onPointerDown={startDrag}
     >
-           <div ref={cardRef} className="relative inline-block">
-        <WidgetCard item={item} variant="grid" />
+      <div ref={cardRef} className="relative inline-block">
+        <WidgetCard item={item} variant="grid" onOpen={onOpen} />
 
         {/* Poignée de resize (coin bas droit) */}
         <div
           onPointerDown={startResize}
-          className="pointer-events-auto absolute -right-1 -bottom-1 flex h-4 w-4 cursor-nwse-resize items-center justify-center rounded-full border border-white/80 bg-black/80 text-[9px] text-white shadow-[0_0_8px_rgba(255,255,255,0.8)] opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+          className="pointer-events-auto absolute -right-1 -bottom-1 flex h-4 w-4 cursor-nwse-resize items-center justify-center rounded-full border border-slate-200 bg-white text-[9px] text-slate-700 shadow-[0_6px_14px_rgba(15,23,42,0.16)] opacity-0 group-hover:opacity-100 transition-opacity duration-150"
         >
           ↘
         </div>
@@ -444,8 +497,10 @@ function FreeWidget({ meta, item, containerRef, setMetas }: FreeWidgetProps) {
 
 function Coverflow3D({
   items,
+  onOpen,
 }: {
   items: { meta: WidgetMeta; item: CalendarItem }[];
+  onOpen?: (item: CalendarItem | null) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -544,7 +599,7 @@ function Coverflow3D({
                 ease: "easeOut",
               }}
             >
-              <WidgetCard item={item} variant="float3d" />
+              <WidgetCard item={item} variant="float3d" onOpen={onOpen} />
             </motion.div>
           );
         })}
@@ -580,29 +635,10 @@ function Coverflow3D({
 type WidgetCardProps = {
   item: CalendarItem;
   variant: ViewMode;
+  onOpen?: (item: CalendarItem) => void;
 };
 
-function WidgetCard({ item, variant }: WidgetCardProps) {
-  const colorKey = item.type === "event" ? "indigo" : "cyan";
-
-  const baseColor =
-    colorKey === "indigo"
-      ? "from-indigo-500/80 to-sky-400/70"
-      : "from-cyan-400/80 to-sky-300/80";
-
-  const borderColor =
-    colorKey === "indigo"
-      ? "border-indigo-400/60"
-      : "border-cyan-400/60";
-
-  const shadowColor =
-    colorKey === "indigo"
-      ? "shadow-[0_0_32px_rgba(79,70,229,0.7)]"
-      : "shadow-[0_0_32px_rgba(34,211,238,0.7)]";
-
-  const baseClasses =
-    "relative overflow-hidden rounded-3xl border backdrop-blur";
-
+function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
   const padding =
     variant === "list"
       ? "px-4 py-3"
@@ -615,12 +651,12 @@ function WidgetCard({ item, variant }: WidgetCardProps) {
 
   return (
     <div
-      className={`${baseClasses} ${borderColor} ${shadowColor} ${padding} transition-all`}
+      className={`relative overflow-hidden rounded-3xl bg-white/94 backdrop-blur-md border border-slate-200/80 shadow-[0_22px_70px_rgba(15,23,42,0.12),0_10px_30px_rgba(15,23,42,0.08)] ${padding} transition-all`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2">
           <span
-            className={`inline-flex items-center justify-center rounded-full bg-gradient-to-r ${baseColor} px-2.5 py-[3px] text-[10px] font-semibold text-white`}
+            className="inline-flex items-center justify-center gap-1 rounded-full bg-white/92 px-2.5 py-[3px] text-[10px] font-semibold text-slate-900 shadow-[0_10px_26px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.8)] border border-slate-200/70"
           >
             {iconForType(item.type)}
             <span className="ml-1 capitalize">
@@ -629,10 +665,10 @@ function WidgetCard({ item, variant }: WidgetCardProps) {
           </span>
         </div>
         {(dateLabel || hasTime) && (
-          <div className="text-right text-[10px] text-muted">
+          <div className="text-right text-[10px] text-slate-500">
             {dateLabel && <div>{dateLabel}</div>}
             {hasTime && (
-              <div className="font-medium text-fg">
+              <div className="font-medium text-slate-900">
                 {item.time}
                 {item.endTime ? `–${item.endTime}` : ""}
               </div>
@@ -641,12 +677,15 @@ function WidgetCard({ item, variant }: WidgetCardProps) {
         )}
       </div>
 
-      <h2 className="mt-3 text-sm font-semibold text-fg sm:text-base">
+      <h2
+        className="mt-3 text-sm font-semibold text-slate-900 sm:text-base cursor-pointer hover:underline"
+        onClick={() => onOpen?.(item)}
+      >
         {item.title}
       </h2>
 
       {item.description && (
-        <p className="mt-2 text-[11px] leading-snug text-muted sm:text-[12px]">
+        <p className="mt-2 text-[11px] leading-snug text-slate-600 sm:text-[12px]">
           {item.description}
         </p>
       )}
@@ -665,10 +704,10 @@ function ViewModeButton({ label, active, onClick }: ViewModeButtonProps) {
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-3 py-1 text-[11px] transition-all ${
+      className={`inline-flex items-center justify-center rounded-full cursor-pointer bg-transparent px-3 py-1 text-[11px] transition-colors ${
         active
-          ? "bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-[0_0_14px_rgba(56,189,248,0.7)]"
-          : "text-muted hover:text-fg"
+          ? "text-slate-900 font-semibold"
+          : "text-slate-700 hover:text-slate-900"
       }`}
     >
       {label}
