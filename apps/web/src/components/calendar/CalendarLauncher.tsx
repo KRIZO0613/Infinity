@@ -945,15 +945,23 @@ export default function CalendarLauncher() {
             <button
               type="button"
               onClick={handleToggleOpen}
-              className="rounded-full px-4 py-1.5 text-[11px]"
-              style={{
-                border: isDark ? "1px solid var(--border)" : "none",
-                background: isDark ? "var(--surface)" : "transparent",
-                color: "var(--text)",
-                boxShadow: isDark ? "0 12px 32px rgba(0,0,0,0.16)" : "none",
-              }}
+              className="close-icon"
+              aria-label="Fermer"
             >
-              Fermer
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M6 6l12 12" />
+                <path d="M18 6l-12 12" />
+              </svg>
             </button>
           </div>
 
@@ -1118,17 +1126,23 @@ export default function CalendarLauncher() {
                         setDetailOpen(false);
                         resetFormForNew();
                       }}
-                      className="rounded-full px-2 py-1 text-[10px]"
-                      style={{
-                        border: isDark
-                          ? "1px solid var(--border)"
-                          : "none",
-                        background: isDark ? "var(--surface)" : "#ffffff",
-                        color: "var(--text)",
-                        boxShadow: isDark ? "0 10px 26px rgba(0,0,0,0.18)" : "none",
-                      }}
+                      className="close-icon"
+                      aria-label="Fermer"
                     >
-                      Fermer
+                      <svg
+                        aria-hidden="true"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M6 6l12 12" />
+                        <path d="M18 6l-12 12" />
+                      </svg>
                     </button>
                   </div>
 
@@ -1461,10 +1475,8 @@ export default function CalendarLauncher() {
                         const color = tag?.color ?? "#6366f1";
 
                         return (
-                          <button
+                          <div
                             key={item.id}
-                            type="button"
-                            onClick={() => handleClickItem(item)}
                             className="flex w-full items-start gap-2 rounded-lg px-2 py-1 text-left text-[11px]"
                             style={{
                               background: "var(--surface)",
@@ -1479,19 +1491,28 @@ export default function CalendarLauncher() {
                                 boxShadow: `0 0 8px ${color}80`,
                               }}
                             />
-                            <div className="flex-1">
-                              <p className="font-medium">
+                            <button
+                              type="button"
+                              onClick={() => handleClickItem(item)}
+                              className="flex-1 min-w-0 text-left"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                padding: 0,
+                              }}
+                            >
+                              <p className="font-medium break-words">
                                 {item.time}
                                 {item.endTime ? `–${item.endTime}` : ""} ·{" "}
                                 {item.title}
                               </p>
                               {item.location && (
-                                <p className="text-[10px] text-[color:var(--muted)]">
+                                <p className="text-[10px] text-[color:var(--muted)] line-clamp-1 break-words">
                                   📍 {item.location}
                                 </p>
                               )}
                               {item.description && (
-                                <p className="text-[10px] text-[color:var(--muted)]">
+                                <p className="text-[10px] text-[color:var(--muted)] line-clamp-2 break-words">
                                   {item.description}
                                 </p>
                               )}
@@ -1505,8 +1526,8 @@ export default function CalendarLauncher() {
                                   #{tag.name}
                                 </p>
                               )}
-                            </div>
-                          </button>
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1549,17 +1570,24 @@ export default function CalendarLauncher() {
                             <button
                               type="button"
                               onClick={() => handleClickItem(item)}
-                              className="flex-1 text-left"
+                              className="flex-1 min-w-0 text-left"
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                padding: 0,
+                              }}
                             >
                               <p
-                              className={`font-medium ${
-                                isDone ? "line-through text-[color:var(--muted)]" : ""
-                              }`}
+                                className={`font-medium break-words ${
+                                  isDone
+                                    ? "line-through text-[color:var(--muted)]"
+                                    : ""
+                                }`}
                               >
                                 📝 {item.title}
                               </p>
                               {item.description && (
-                                <p className="text-[10px] text-[color:var(--muted)]">
+                                <p className="text-[10px] text-[color:var(--muted)] line-clamp-2 break-words">
                                   {item.description}
                                 </p>
                               )}

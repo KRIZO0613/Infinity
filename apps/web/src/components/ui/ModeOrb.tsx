@@ -233,50 +233,23 @@ export default function ModeOrb() {
                   <button
                     type="button"
                     onClick={() => setMenuOpen(false)}
-                    className="btn-plain flex h-8 w-8 items-center justify-center rounded-full"
-                    style={{
-                      background: "rgba(255,255,255,0.9)",
-                      boxShadow: "var(--shadow-inset)",
-                      border: "none",
-                    }}
+                    className="close-icon"
                     aria-label="Fermer le panneau"
                   >
-                    <span
-                      aria-hidden
-                      style={{
-                        position: "relative",
-                        display: "block",
-                        width: "12px",
-                        height: "12px",
-                      }}
+                    <svg
+                      aria-hidden="true"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      <span
-                        style={{
-                          position: "absolute",
-                          inset: 0,
-                          background: "currentColor",
-                          height: "2px",
-                          width: "100%",
-                          top: "50%",
-                          left: 0,
-                          transform: "translateY(-50%) rotate(45deg)",
-                          borderRadius: "999px",
-                        }}
-                      />
-                      <span
-                        style={{
-                          position: "absolute",
-                          inset: 0,
-                          background: "currentColor",
-                          height: "2px",
-                          width: "100%",
-                          top: "50%",
-                          left: 0,
-                          transform: "translateY(-50%) rotate(-45deg)",
-                          borderRadius: "999px",
-                        }}
-                      />
-                    </span>
+                      <path d="M6 6l12 12" />
+                      <path d="M18 6l-12 12" />
+                    </svg>
                   </button>
                 </div>
 

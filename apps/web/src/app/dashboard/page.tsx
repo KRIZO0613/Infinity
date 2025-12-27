@@ -310,11 +310,24 @@ export default function DashboardPage() {
               </div>
               <button
                 type="button"
-                className="btn-plain text-slate-700 hover:text-slate-900"
+                className="close-icon"
                 aria-label="Fermer"
                 onClick={() => setOpenItem(null)}
               >
-                ✕
+                <svg
+                  aria-hidden="true"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 6l12 12" />
+                  <path d="M18 6l-12 12" />
+                </svg>
               </button>
             </div>
             {openItem.description && (
@@ -645,13 +658,19 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
       : variant === "float3d"
       ? "px-7 py-6"
       : "px-4 py-4";
+  const widthClass =
+    variant === "grid"
+      ? "w-[300px]"
+      : variant === "float3d"
+      ? "w-[360px] sm:w-[420px]"
+      : "w-full";
 
   const dateLabel = formatDateLabel(item.date);
   const hasTime = item.type === "event" && item.time;
 
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl ${padding} transition-all shadow-[0_22px_70px_rgba(0,0,0,0.12),0_10px_30px_rgba(0,0,0,0.10)] hover:shadow-[0_26px_90px_rgba(0,0,0,0.18),0_12px_36px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
+      className={`relative overflow-hidden rounded-3xl ${padding} ${widthClass} transition-all shadow-[0_22px_70px_rgba(0,0,0,0.12),0_10px_30px_rgba(0,0,0,0.10)] hover:shadow-[0_26px_90px_rgba(0,0,0,0.18),0_12px_36px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
       style={{
         background: "var(--card)",
         border: "1px solid var(--border)",
@@ -689,14 +708,14 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
       </div>
 
       <h2
-        className="mt-3 text-sm font-semibold text-fg sm:text-base cursor-pointer hover:underline"
+        className="mt-3 break-words text-sm font-semibold text-fg sm:text-base cursor-pointer hover:underline"
         onClick={() => onOpen?.(item)}
       >
         {item.title}
       </h2>
 
       {item.description && (
-        <p className="mt-2 text-[11px] leading-snug text-muted sm:text-[12px]">
+        <p className="mt-2 break-words text-[11px] leading-snug text-muted sm:text-[12px]">
           {item.description}
         </p>
       )}

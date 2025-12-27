@@ -524,11 +524,11 @@ body {
 /* - Neutral default (NO gradient blue)                         */
 /* - Keep your “+ Projet” clean                                 */
 /* ------------------------------------------------------------ */
-button:not(.orb-trigger):not(.dock-item):not(.btn-plain),
-a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain),
-input[type="button"]:not(.btn-plain),
-input[type="submit"]:not(.btn-plain),
-input[type="reset"]:not(.btn-plain) {
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
+input[type="button"]:not(.btn-plain):not(.close-icon),
+input[type="submit"]:not(.btn-plain):not(.close-icon),
+input[type="reset"]:not(.btn-plain):not(.close-icon) {
   appearance: none;
   -webkit-appearance: none;
 
@@ -554,30 +554,30 @@ input[type="reset"]:not(.btn-plain) {
   text-decoration: none;
 }
 
-button:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
-a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
-input[type="button"]:not(.btn-plain):hover,
-input[type="submit"]:not(.btn-plain):hover,
-input[type="reset"]:not(.btn-plain):hover {
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
+input[type="button"]:not(.btn-plain):not(.close-icon):hover,
+input[type="submit"]:not(.btn-plain):not(.close-icon):hover,
+input[type="reset"]:not(.btn-plain):not(.close-icon):hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-2), var(--shadow-inset);
 }
 
-.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain),
-.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain),
-.dark input[type="button"]:not(.btn-plain),
-.dark input[type="submit"]:not(.btn-plain),
-.dark input[type="reset"]:not(.btn-plain) {
+.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
+.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
+.dark input[type="button"]:not(.btn-plain):not(.close-icon),
+.dark input[type="submit"]:not(.btn-plain):not(.close-icon),
+.dark input[type="reset"]:not(.btn-plain):not(.close-icon) {
   background: var(--surface);
   color: rgba(235, 240, 248, 0.94);
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
 }
 
-.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
-.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):hover,
-.dark input[type="button"]:not(.btn-plain):hover,
-.dark input[type="submit"]:not(.btn-plain):hover,
-.dark input[type="reset"]:not(.btn-plain):hover {
+.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
+.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
+.dark input[type="button"]:not(.btn-plain):not(.close-icon):hover,
+.dark input[type="submit"]:not(.btn-plain):not(.close-icon):hover,
+.dark input[type="reset"]:not(.btn-plain):not(.close-icon):hover {
   box-shadow: 0 28px 74px rgba(0, 0, 0, 0.66);
 }
 
@@ -600,6 +600,18 @@ input[type="reset"]:disabled {
 .btn-primary:hover { box-shadow: 0 26px 70px rgba(15, 23, 42, 0.36) !important; }
 
 .btn-plain { all: unset; }
+.close-icon {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+  color: var(--muted);
+}
+
+.close-icon:hover { color: var(--text); }
 
 /* ------------------------------------------------------------ */
 /* Inputs                                                       */
