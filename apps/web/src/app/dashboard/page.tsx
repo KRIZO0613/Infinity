@@ -227,8 +227,8 @@ export default function DashboardPage() {
   <div className="mt-4 w-full">
         <div
           ref={freeMoveContainerRef}
-          className="relative w-full overflow-hidden rounded-xl bg-white/92 shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-md"
-          style={{ height: boardHeight }}
+          className="pinned-board relative w-full overflow-hidden rounded-xl shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur-md"
+          style={{ height: boardHeight, background: "var(--card)" }}
         >
             {widgets.map(({ meta, item }) => (
               <FreeWidget
@@ -651,12 +651,23 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
 
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl bg-white/94 backdrop-blur-md border border-slate-200/80 shadow-[0_22px_70px_rgba(15,23,42,0.12),0_10px_30px_rgba(15,23,42,0.08)] ${padding} transition-all`}
+      className={`relative overflow-hidden rounded-3xl ${padding} transition-all shadow-[0_22px_70px_rgba(0,0,0,0.12),0_10px_30px_rgba(0,0,0,0.10)] hover:shadow-[0_26px_90px_rgba(0,0,0,0.18),0_12px_36px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
+      style={{
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        color: "var(--text)",
+      }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="inline-flex items-center gap-2">
           <span
-            className="inline-flex items-center justify-center gap-1 rounded-full bg-white/92 px-2.5 py-[3px] text-[10px] font-semibold text-slate-900 shadow-[0_10px_26px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,0.8)] border border-slate-200/70"
+            className="inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-[3px] text-[10px] font-semibold"
+            style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "none",
+              color: "var(--text)",
+            }}
           >
             {iconForType(item.type)}
             <span className="ml-1 capitalize">
@@ -665,10 +676,10 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
           </span>
         </div>
         {(dateLabel || hasTime) && (
-          <div className="text-right text-[10px] text-slate-500">
+          <div className="text-right text-[10px] text-muted">
             {dateLabel && <div>{dateLabel}</div>}
             {hasTime && (
-              <div className="font-medium text-slate-900">
+              <div className="font-medium text-fg">
                 {item.time}
                 {item.endTime ? `–${item.endTime}` : ""}
               </div>
@@ -678,14 +689,14 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
       </div>
 
       <h2
-        className="mt-3 text-sm font-semibold text-slate-900 sm:text-base cursor-pointer hover:underline"
+        className="mt-3 text-sm font-semibold text-fg sm:text-base cursor-pointer hover:underline"
         onClick={() => onOpen?.(item)}
       >
         {item.title}
       </h2>
 
       {item.description && (
-        <p className="mt-2 text-[11px] leading-snug text-slate-600 sm:text-[12px]">
+        <p className="mt-2 text-[11px] leading-snug text-muted sm:text-[12px]">
           {item.description}
         </p>
       )}
@@ -704,11 +715,14 @@ function ViewModeButton({ label, active, onClick }: ViewModeButtonProps) {
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center justify-center rounded-full cursor-pointer bg-transparent px-3 py-1 text-[11px] transition-colors ${
-        active
-          ? "text-slate-900 font-semibold"
-          : "text-slate-700 hover:text-slate-900"
+      className={`inline-flex items-center justify-center cursor-pointer px-3 py-1 text-[11px] transition-colors ${
+        active ? "font-semibold text-fg" : "text-muted hover:text-fg"
       }`}
+      style={{
+        background: "transparent",
+        border: "none",
+        boxShadow: "none",
+      }}
     >
       {label}
     </button>
