@@ -13,6 +13,13 @@ type WidgetMeta = {
   scale: number;
 };
 
+type EditDraft = {
+  title: string;
+  description: string;
+  location: string;
+  tagId: string;
+};
+
 const STORAGE_KEY = "infinity_dashboard_pinned_layout_v1";
 
 /* ------------------------------------------------------------------ */
@@ -59,15 +66,62 @@ export default function DashboardPage() {
   const [boardHeight, setBoardHeight] = useState<number>(800);
   const [hasLoadedLayout, setHasLoadedLayout] = useState(false);
   const [openItem, setOpenItem] = useState<CalendarItem | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditDraft>({
+    title: "",
+    description: "",
+    location: "",
+    tagId: "",
+  });
 
   // ✅ On récupère tous les items du store (snapshot stable)
   const allItems = useCalendarStore((s) => s.items);
+  const updateItem = useCalendarStore((s) => s.updateItem);
+  const tags = useCalendarStore((s) => s.tags);
+  const editingItem = allItems.find((item) => item.id === editingId) ?? null;
 
   // ✅ On filtre en local, mémoïsé → plus d’erreur getSnapshot
   const pinnedItems = useMemo(
     () => allItems.filter((i) => i.pinned),
     [allItems],
   );
+
+  useEffect(() => {
+    if (editingId && !editingItem) {
+      setEditingId(null);
+    }
+  }, [editingId, editingItem]);
+
+  const startEdit = (item: CalendarItem) => {
+    setEditingId(item.id);
+    setEditDraft({
+      title: item.title,
+      description: item.description ?? "",
+      location: item.location ?? "",
+      tagId: item.tagId ?? "",
+    });
+    setOpenItem(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+  };
+
+  const saveEdit = (item: CalendarItem) => {
+    const nextTitle = editDraft.title.trim();
+    const patch: Partial<CalendarItem> = {
+      title: nextTitle || item.title,
+      description: editDraft.description.trim() || undefined,
+      tagId: editDraft.tagId || undefined,
+    };
+
+    if (item.type === "event") {
+      patch.location = editDraft.location.trim() || undefined;
+    }
+
+    updateItem(item.id, patch);
+    setEditingId(null);
+  };
 
   const [metas, setMetas] = useState<WidgetMeta[]>([]);
   const freeMoveContainerRef = useRef<HTMLDivElement | null>(null);
@@ -218,7 +272,12 @@ export default function DashboardPage() {
       {/* MODE 3D */}
       {!isEmpty && viewMode === "float3d" && (
         <div className="mt-4 w-full">
-          <Coverflow3D items={widgets} onOpen={setOpenItem} />
+          <Coverflow3D
+            items={widgets}
+            onOpen={setOpenItem}
+            onTogglePinned={updateItem}
+            onEdit={startEdit}
+          />
         </div>
       )}
 
@@ -237,6 +296,8 @@ export default function DashboardPage() {
                 item={item}
                 containerRef={freeMoveContainerRef}
                 setMetas={setMetas}
+                onTogglePinned={updateItem}
+                onEdit={startEdit}
                 onOpen={setOpenItem}
               />
             ))}
@@ -271,7 +332,13 @@ export default function DashboardPage() {
                 whileDrag={{ scale: 1.03, zIndex: 20 }}
                 className="cursor-grab active:cursor-grabbing"
               >
-                <WidgetCard item={item} variant="list" onOpen={setOpenItem} />
+                <WidgetCard
+                  item={item}
+                  variant="list"
+                  onOpen={setOpenItem}
+                  onTogglePinned={updateItem}
+                  onEdit={startEdit}
+                />
               </Reorder.Item>
             ))}
           </Reorder.Group>
@@ -340,6 +407,212 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {editingItem && (
+        <div
+          className="fixed inset-0 z-[250] flex items-start justify-center pt-16"
+          style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(3px)" }}
+          onClick={() => setEditingId(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="panel-glass relative w-[min(92vw,560px)] rounded-3xl p-5 text-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.18),0_10px_30px_rgba(15,23,42,0.14)] max-h-[72vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="text-sm font-semibold truncate">
+                  Modifier {editingItem.type === "task" ? "la tâche" : "l’événement"}
+                </div>
+                <div className="text-[12px] text-slate-600 flex flex-wrap items-center gap-2">
+                  <span>{formatDateLabel(editingItem.date)}</span>
+                  {editingItem.time && (
+                    <span>
+                      · {editingItem.time}
+                      {editingItem.endTime ? `–${editingItem.endTime}` : ""}
+                    </span>
+                  )}
+                  <span>· {labelForType(editingItem.type)}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close-icon"
+                aria-label="Fermer"
+                onClick={() => setEditingId(null)}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 6l12 12" />
+                  <path d="M18 6l-12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-[11px]">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-500">Titre</span>
+                  <input
+                    value={editDraft.title}
+                    onChange={(e) =>
+                      setEditDraft((prev) => ({
+                        ...prev,
+                        title: e.target.value,
+                      }))
+                    }
+                    className="rounded-lg px-2 py-1 text-[11px] outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                    }}
+                  />
+                </label>
+                {editingItem.type === "event" && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500">Lieu</span>
+                    <input
+                      value={editDraft.location}
+                      onChange={(e) =>
+                        setEditDraft((prev) => ({
+                          ...prev,
+                          location: e.target.value,
+                        }))
+                      }
+                      className="rounded-lg px-2 py-1 text-[11px] outline-none"
+                      style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        color: "var(--text)",
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-500">Description</span>
+                <textarea
+                  value={editDraft.description}
+                  onChange={(e) =>
+                    setEditDraft((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="resize-none rounded-lg px-2 py-1 text-[11px] outline-none"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                />
+              </label>
+
+              {tags.length > 0 && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-500">Tag</span>
+                  <select
+                    value={editDraft.tagId}
+                    onChange={(e) =>
+                      setEditDraft((prev) => ({
+                        ...prev,
+                        tagId: e.target.value,
+                      }))
+                    }
+                    className="rounded-lg px-2 py-1 text-[11px] outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                    }}
+                  >
+                    <option value="">Aucun tag</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => saveEdit(editingItem)}
+                  className="rounded-full px-3 py-1 text-[10px] font-semibold"
+                  style={{
+                    background: "#0c98cb",
+                    color: "white",
+                    border: "none",
+                  }}
+                >
+                  Enregistrer
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-full px-3 py-1 text-[10px] font-semibold"
+                  style={{
+                    background: "transparent",
+                    color: "var(--muted)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  Annuler
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                <span>L’heure n’est pas modifiable ici.</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Ouvrir le calendrier"
+                  title="Ouvrir le calendrier"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(
+                        new CustomEvent("infinity:calendar-open", {
+                          detail: { itemId: editingItem.id },
+                        }),
+                      );
+                    }
+                    setEditingId(null);
+                  }}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+                    <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -354,12 +627,22 @@ type FreeWidgetProps = {
   containerRef: React.RefObject<HTMLDivElement | null>;
   setMetas: React.Dispatch<React.SetStateAction<WidgetMeta[]>>;
   onOpen?: (item: CalendarItem | null) => void;
+  onTogglePinned?: (id: string, patch: Partial<CalendarItem>) => void;
+  onEdit?: (item: CalendarItem) => void;
 };
 
 const CARD_BASE_WIDTH = 300;
 const CARD_BASE_HEIGHT = 200;
 
-function FreeWidget({ meta, item, containerRef, setMetas, onOpen }: FreeWidgetProps) {
+function FreeWidget({
+  meta,
+  item,
+  containerRef,
+  setMetas,
+  onOpen,
+  onTogglePinned,
+  onEdit,
+}: FreeWidgetProps) {
   const [isResizing, setIsResizing] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const scale = meta.scale ?? 1;
@@ -490,7 +773,13 @@ function FreeWidget({ meta, item, containerRef, setMetas, onOpen }: FreeWidgetPr
       onPointerDown={startDrag}
     >
       <div ref={cardRef} className="relative inline-block">
-        <WidgetCard item={item} variant="grid" onOpen={onOpen} />
+        <WidgetCard
+          item={item}
+          variant="grid"
+          onOpen={onOpen}
+          onTogglePinned={onTogglePinned}
+          onEdit={onEdit}
+        />
 
         {/* Poignée de resize (coin bas droit) */}
         <div
@@ -511,9 +800,13 @@ function FreeWidget({ meta, item, containerRef, setMetas, onOpen }: FreeWidgetPr
 function Coverflow3D({
   items,
   onOpen,
+  onTogglePinned,
+  onEdit,
 }: {
   items: { meta: WidgetMeta; item: CalendarItem }[];
   onOpen?: (item: CalendarItem | null) => void;
+  onTogglePinned?: (id: string, patch: Partial<CalendarItem>) => void;
+  onEdit?: (item: CalendarItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -612,7 +905,13 @@ function Coverflow3D({
                 ease: "easeOut",
               }}
             >
-              <WidgetCard item={item} variant="float3d" onOpen={onOpen} />
+              <WidgetCard
+                item={item}
+                variant="float3d"
+                onOpen={onOpen}
+                onTogglePinned={onTogglePinned}
+                onEdit={onEdit}
+              />
             </motion.div>
           );
         })}
@@ -649,9 +948,17 @@ type WidgetCardProps = {
   item: CalendarItem;
   variant: ViewMode;
   onOpen?: (item: CalendarItem) => void;
+  onTogglePinned?: (id: string, patch: Partial<CalendarItem>) => void;
+  onEdit?: (item: CalendarItem) => void;
 };
 
-function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
+function WidgetCard({
+  item,
+  variant,
+  onOpen,
+  onTogglePinned,
+  onEdit,
+}: WidgetCardProps) {
   const padding =
     variant === "list"
       ? "px-4 py-3"
@@ -694,17 +1001,72 @@ function WidgetCard({ item, variant, onOpen }: WidgetCardProps) {
             </span>
           </span>
         </div>
-        {(dateLabel || hasTime) && (
-          <div className="text-right text-[10px] text-muted">
-            {dateLabel && <div>{dateLabel}</div>}
-            {hasTime && (
-              <div className="font-medium text-fg">
-                {item.time}
-                {item.endTime ? `–${item.endTime}` : ""}
-              </div>
-            )}
-          </div>
-        )}
+        <div className="flex items-start gap-2">
+          {(dateLabel || hasTime) && (
+            <div className="text-right text-[10px] text-muted">
+              {dateLabel && <div>{dateLabel}</div>}
+              {hasTime && (
+                <div className="font-medium text-fg">
+                  {item.time}
+                  {item.endTime ? `–${item.endTime}` : ""}
+                </div>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Désépingler"
+            title="Désépingler"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onTogglePinned?.(item.id, { pinned: !item.pinned });
+            }}
+            style={{ color: "#0c98cb" }}
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M10 3h4l1 5 3 3-1.5 1.5L12 8 7.5 12.5 6 11l3-3 1-5Z" />
+              <path d="M12 8v13" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Modifier"
+            title="Modifier"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onEdit?.(item);
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 20h9" />
+              <path d="m16.5 3.5 4 4L8 20l-4 1 1-4 11.5-13.5Z" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <h2

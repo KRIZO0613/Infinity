@@ -410,6 +410,28 @@ export default function CalendarLauncher() {
     setSelectedDateKey(formatDateKey(now));
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleOpen = (event: Event) => {
+      const customEvent = event as CustomEvent<{ itemId?: string }>;
+      const itemId = customEvent.detail?.itemId;
+      if (!itemId) return;
+
+      const item = items.find((i) => i.id === itemId);
+      if (!item) return;
+
+      setOpen(true);
+      handleClickItem(item);
+      const d = parseDateKey(item.date);
+      setCurrentRefDate(new Date(d.getFullYear(), d.getMonth(), 1));
+      setOpenedInCalendarId(null);
+    };
+
+    window.addEventListener("infinity:calendar-open", handleOpen);
+    return () => window.removeEventListener("infinity:calendar-open", handleOpen);
+  }, [items]);
+
   /* --------------------------------------- */
   /*           DONNÉES DÉRIVÉES              */
   /* --------------------------------------- */

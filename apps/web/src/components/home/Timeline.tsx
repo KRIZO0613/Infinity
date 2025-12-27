@@ -22,6 +22,7 @@ export function Timeline() {
     location: "",
     tagId: "",
   });
+  const editingItem = items.find((item) => item.id === editingId) ?? null;
 
   const sorted = [...items].sort((a, b) => {
     if (a.date !== b.date) return a.date.localeCompare(b.date);
@@ -52,6 +53,12 @@ export function Timeline() {
       setSelected(fresh);
     }
   }, [items, selected?.id]);
+
+  useEffect(() => {
+    if (editingId && !editingItem) {
+      setEditingId(null);
+    }
+  }, [editingId, editingItem]);
 
   const startEdit = (item: CalendarItem) => {
     setEditingId(item.id);
@@ -114,23 +121,56 @@ export function Timeline() {
           const displayTitle = item.title
             ? `${item.title.slice(0, 1).toUpperCase()}${item.title.slice(1)}`
             : "";
-          const isEditing = editingId === item.id;
-
           return (
             <div
               key={item.id}
               className="timeline-row flex flex-col gap-1 px-1 py-2 last:border-b-0 transition min-w-0"
             >
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
-                <span
-                  className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)] truncate w-20 shrink-0 uppercase cursor-pointer"
+                <button
+                  type="button"
+                  className="icon-button h-5 w-5 shrink-0 text-slate-700 dark:text-[rgba(235,240,248,0.92)]"
+                  aria-label={isTask ? "Tâche" : "Événement"}
+                  title={isTask ? "Tâche" : "Événement"}
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelected(item);
                   }}
                 >
-                  {isTask ? "TÂCHE" : "ÉVÉNEMENT"}:
-                </span>
+                  {isTask ? (
+                    <svg
+                      aria-hidden="true"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M16 4h-1.2a2 2 0 0 0-3.6 0H10a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z" />
+                      <path d="M10 8h4" />
+                      <path d="M10 12h4" />
+                      <path d="M10 16h4" />
+                    </svg>
+                  ) : (
+                    <svg
+                      aria-hidden="true"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+                      <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
+                    </svg>
+                  )}
+                </button>
                 <span
                   className="truncate font-semibold text-[#1b3a6f] dark:text-[rgba(235,240,248,0.92)] text-[12px] w-full sm:w-36 shrink-0 cursor-pointer"
                   title={displayTitle}
@@ -263,66 +303,95 @@ export function Timeline() {
                   />
                 </div>
               </div>
-              {isEditing && (
-                <div
-                  className="mt-2 w-full rounded-xl p-3 text-[11px]"
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                  }}
+            </div>
+          );
+        })}
+      </div>
+      </div>
+
+      {editingItem && (
+        <div
+          className="fixed inset-0 z-[230] flex items-start justify-center pt-16"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setEditingId(null)}
+          style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(2px)" }}
+        >
+          <div
+            className="panel-glass relative w-[min(92vw,560px)] rounded-3xl p-5 text-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.18),0_10px_30px_rgba(15,23,42,0.14)] max-h-[72vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="text-sm font-semibold truncate">
+                  Modifier {editingItem.type === "task" ? "la tâche" : "l’événement"}
+                </div>
+                <div className="text-[12px] text-slate-600 flex flex-wrap items-center gap-2">
+                  <span>{editingItem.date}</span>
+                  {editingItem.time && (
+                    <span>
+                      · {editingItem.time}
+                      {editingItem.endTime ? `–${editingItem.endTime}` : ""}
+                    </span>
+                  )}
+                  <span>· {editingItem.type === "task" ? "Tâche" : "Événement"}</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="close-icon"
+                aria-label="Fermer"
+                onClick={() => setEditingId(null)}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500">Titre</span>
-                      <input
-                        value={editDraft.title}
-                        onChange={(e) =>
-                          setEditDraft((prev) => ({
-                            ...prev,
-                            title: e.target.value,
-                          }))
-                        }
-                        className="rounded-lg px-2 py-1 text-[11px] outline-none"
-                        style={{
-                          background: "var(--surface)",
-                          border: "1px solid var(--border)",
-                          color: "var(--text)",
-                        }}
-                      />
-                    </label>
-                    {!isTask && (
-                      <label className="flex flex-col gap-1">
-                        <span className="text-[10px] text-slate-500">Lieu</span>
-                        <input
-                          value={editDraft.location}
-                          onChange={(e) =>
-                            setEditDraft((prev) => ({
-                              ...prev,
-                              location: e.target.value,
-                            }))
-                          }
-                          className="rounded-lg px-2 py-1 text-[11px] outline-none"
-                          style={{
-                            background: "var(--surface)",
-                            border: "1px solid var(--border)",
-                            color: "var(--text)",
-                          }}
-                        />
-                      </label>
-                    )}
-                  </div>
-                  <label className="mt-2 flex flex-col gap-1">
-                    <span className="text-[10px] text-slate-500">Description</span>
-                    <textarea
-                      value={editDraft.description}
+                  <path d="M6 6l12 12" />
+                  <path d="M18 6l-12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-[11px]">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-500">Titre</span>
+                  <input
+                    value={editDraft.title}
+                    onChange={(e) =>
+                      setEditDraft((prev) => ({
+                        ...prev,
+                        title: e.target.value,
+                      }))
+                    }
+                    className="rounded-lg px-2 py-1 text-[11px] outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                    }}
+                  />
+                </label>
+                {editingItem.type === "event" && (
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] text-slate-500">Lieu</span>
+                    <input
+                      value={editDraft.location}
                       onChange={(e) =>
                         setEditDraft((prev) => ({
                           ...prev,
-                          description: e.target.value,
+                          location: e.target.value,
                         }))
                       }
-                      rows={2}
-                      className="resize-none rounded-lg px-2 py-1 text-[11px] outline-none"
+                      className="rounded-lg px-2 py-1 text-[11px] outline-none"
                       style={{
                         background: "var(--surface)",
                         border: "1px solid var(--border)",
@@ -330,69 +399,121 @@ export function Timeline() {
                       }}
                     />
                   </label>
-                  {tags.length > 0 && (
-                    <label className="mt-2 flex flex-col gap-1">
-                      <span className="text-[10px] text-slate-500">Tag</span>
-                      <select
-                        value={editDraft.tagId}
-                        onChange={(e) =>
-                          setEditDraft((prev) => ({
-                            ...prev,
-                            tagId: e.target.value,
-                          }))
-                        }
-                        className="rounded-lg px-2 py-1 text-[11px] outline-none"
-                        style={{
-                          background: "var(--surface)",
-                          border: "1px solid var(--border)",
-                          color: "var(--text)",
-                        }}
-                      >
-                        <option value="">Aucun tag</option>
-                        {tags.map((tag) => (
-                          <option key={tag.id} value={tag.id}>
-                            {tag.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <div className="mt-3 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => saveEdit(item)}
-                      className="rounded-full px-3 py-1 text-[10px] font-semibold"
-                      style={{
-                        background: "#0c98cb",
-                        color: "white",
-                        border: "none",
-                      }}
-                    >
-                      Enregistrer
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelEdit}
-                      className="rounded-full px-3 py-1 text-[10px] font-semibold"
-                      style={{
-                        background: "transparent",
-                        color: "var(--muted)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      Annuler
-                    </button>
-                  </div>
-                  <p className="mt-2 text-[10px] text-slate-400">
-                    L’heure n’est pas modifiable ici.
-                  </p>
-                </div>
+                )}
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-500">Description</span>
+                <textarea
+                  value={editDraft.description}
+                  onChange={(e) =>
+                    setEditDraft((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  className="resize-none rounded-lg px-2 py-1 text-[11px] outline-none"
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                />
+              </label>
+
+              {tags.length > 0 && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-500">Tag</span>
+                  <select
+                    value={editDraft.tagId}
+                    onChange={(e) =>
+                      setEditDraft((prev) => ({
+                        ...prev,
+                        tagId: e.target.value,
+                      }))
+                    }
+                    className="rounded-lg px-2 py-1 text-[11px] outline-none"
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      color: "var(--text)",
+                    }}
+                  >
+                    <option value="">Aucun tag</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
+
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => saveEdit(editingItem)}
+                  className="rounded-full px-3 py-1 text-[10px] font-semibold"
+                  style={{
+                    background: "#0c98cb",
+                    color: "white",
+                    border: "none",
+                  }}
+                >
+                  Enregistrer
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="rounded-full px-3 py-1 text-[10px] font-semibold"
+                  style={{
+                    background: "transparent",
+                    color: "var(--muted)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  Annuler
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[10px] text-slate-400">
+                <span>L’heure n’est pas modifiable ici.</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Ouvrir le calendrier"
+                  title="Ouvrir le calendrier"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      window.dispatchEvent(
+                        new CustomEvent("infinity:calendar-open", {
+                          detail: { itemId: editingItem.id },
+                        }),
+                      );
+                    }
+                    setEditingId(null);
+                  }}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+                    <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          );
-        })}
-      </div>
-      </div>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <div

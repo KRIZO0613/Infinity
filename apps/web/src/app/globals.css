@@ -524,11 +524,11 @@ body {
 /* - Neutral default (NO gradient blue)                         */
 /* - Keep your “+ Projet” clean                                 */
 /* ------------------------------------------------------------ */
-button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
-a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
-input[type="button"]:not(.btn-plain):not(.close-icon),
-input[type="submit"]:not(.btn-plain):not(.close-icon),
-input[type="reset"]:not(.btn-plain):not(.close-icon) {
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button),
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button),
+input[type="button"]:not(.btn-plain):not(.close-icon):not(.icon-button),
+input[type="submit"]:not(.btn-plain):not(.close-icon):not(.icon-button),
+input[type="reset"]:not(.btn-plain):not(.close-icon):not(.icon-button) {
   appearance: none;
   -webkit-appearance: none;
 
@@ -554,30 +554,30 @@ input[type="reset"]:not(.btn-plain):not(.close-icon) {
   text-decoration: none;
 }
 
-button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
-a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
-input[type="button"]:not(.btn-plain):not(.close-icon):hover,
-input[type="submit"]:not(.btn-plain):not(.close-icon):hover,
-input[type="reset"]:not(.btn-plain):not(.close-icon):hover {
+button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+input[type="button"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+input[type="submit"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+input[type="reset"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-2), var(--shadow-inset);
 }
 
-.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
-.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon),
-.dark input[type="button"]:not(.btn-plain):not(.close-icon),
-.dark input[type="submit"]:not(.btn-plain):not(.close-icon),
-.dark input[type="reset"]:not(.btn-plain):not(.close-icon) {
+.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button),
+.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button),
+.dark input[type="button"]:not(.btn-plain):not(.close-icon):not(.icon-button),
+.dark input[type="submit"]:not(.btn-plain):not(.close-icon):not(.icon-button),
+.dark input[type="reset"]:not(.btn-plain):not(.close-icon):not(.icon-button) {
   background: var(--surface);
   color: rgba(235, 240, 248, 0.94);
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.6);
 }
 
-.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
-.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):hover,
-.dark input[type="button"]:not(.btn-plain):not(.close-icon):hover,
-.dark input[type="submit"]:not(.btn-plain):not(.close-icon):hover,
-.dark input[type="reset"]:not(.btn-plain):not(.close-icon):hover {
+.dark button:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+.dark a[role="button"]:not(.orb-trigger):not(.dock-item):not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+.dark input[type="button"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+.dark input[type="submit"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover,
+.dark input[type="reset"]:not(.btn-plain):not(.close-icon):not(.icon-button):hover {
   box-shadow: 0 28px 74px rgba(0, 0, 0, 0.66);
 }
 
@@ -612,6 +612,18 @@ input[type="reset"]:disabled {
 }
 
 .close-icon:hover { color: var(--text); }
+.icon-button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px;
+  color: var(--muted);
+}
+
+.icon-button:hover { color: var(--text); }
 
 /* ------------------------------------------------------------ */
 /* Inputs                                                       */
