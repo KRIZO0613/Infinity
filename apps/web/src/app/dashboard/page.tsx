@@ -73,6 +73,7 @@ export default function DashboardPage() {
     location: "",
     tagId: "",
   });
+  const [itemsHydrated, setItemsHydrated] = useState(false);
 
   // ✅ On récupère tous les items du store (snapshot stable)
   const allItems = useCalendarStore((s) => s.items);
@@ -85,6 +86,25 @@ export default function DashboardPage() {
     () => allItems.filter((i) => i.pinned),
     [allItems],
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const persist = useCalendarStore.persist;
+    if (!persist) {
+      setItemsHydrated(true);
+      return;
+    }
+    if (persist.hasHydrated()) {
+      setItemsHydrated(true);
+      return;
+    }
+    const unsub = persist.onFinishHydration(() => setItemsHydrated(true));
+    return () => {
+      if (typeof unsub === "function") {
+        unsub();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (editingId && !editingItem) {
@@ -169,6 +189,7 @@ export default function DashboardPage() {
   /* ---------- Sync des metas avec les éléments épinglés ---------- */
 
   useEffect(() => {
+    if (!hasLoadedLayout || !itemsHydrated) return;
     // Positionne automatiquement un layout pour chaque nouvel item épinglé
     setMetas((prev) => {
       const existingIds = new Set(prev.map((m) => m.id));
@@ -196,6 +217,19 @@ export default function DashboardPage() {
       return next.filter((m) => pinnedIds.has(m.id));
     });
   }, [pinnedItems]);
+
+  useEffect(() => {
+    if (viewMode !== "grid") return;
+
+    const padding = 120;
+    const neededHeight = metas.reduce((acc, meta) => {
+      const scale = meta.scale ?? 1;
+      const cardHeight = CARD_BASE_HEIGHT * scale + padding;
+      return Math.max(acc, meta.y + cardHeight);
+    }, 800);
+
+    setBoardHeight((prev) => Math.max(prev, Math.ceil(neededHeight)));
+  }, [metas, viewMode]);
 
   /* ---------- Jointure metas + items ---------- */
 
@@ -347,8 +381,7 @@ export default function DashboardPage() {
 
       {openItem && (
         <div
-          className="fixed inset-0 z-[240] flex items-start justify-center pt-16"
-          style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(3px)" }}
+          className="overlay-veil fixed inset-0 z-[240] flex items-start justify-center pt-16"
           onClick={() => setOpenItem(null)}
           role="dialog"
           aria-modal="true"
@@ -410,8 +443,7 @@ export default function DashboardPage() {
 
       {editingItem && (
         <div
-          className="fixed inset-0 z-[250] flex items-start justify-center pt-16"
-          style={{ background: "rgba(255,255,255,0.02)", backdropFilter: "blur(3px)" }}
+          className="overlay-veil fixed inset-0 z-[250] flex items-start justify-center pt-16"
           onClick={() => setEditingId(null)}
           role="dialog"
           aria-modal="true"

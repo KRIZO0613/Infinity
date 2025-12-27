@@ -112,7 +112,6 @@ export default function ModeOrb() {
   const themeOptions = [
     { value: "light" as const, label: "Mode clair" },
     { value: "dark" as const, label: "Mode sombre" },
-    { value: "neon" as const, label: "Mode néon" },
   ];
 
   const handleThemeChange = (nextTheme: Theme) => {
@@ -206,11 +205,10 @@ export default function ModeOrb() {
         {menuOpen && (
           <>
             <motion.div
-              className="fixed inset-0 z-[210]"
+              className="overlay-veil fixed inset-0 z-[210]"
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              style={{ background: "transparent", backdropFilter: "none" }}
               onClick={() => setMenuOpen(false)}
             />
 
