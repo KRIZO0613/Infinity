@@ -21,6 +21,7 @@ type EditDraft = {
 };
 
 const STORAGE_KEY = "infinity_dashboard_pinned_layout_v1";
+const LIST_ORDER_KEY = "infinity_dashboard_pinned_order_v1";
 
 /* ------------------------------------------------------------------ */
 /* Utils                                                              */
@@ -74,6 +75,8 @@ export default function DashboardPage() {
     tagId: "",
   });
   const [itemsHydrated, setItemsHydrated] = useState(false);
+  const [listOrder, setListOrder] = useState<string[]>([]);
+  const [hasLoadedOrder, setHasLoadedOrder] = useState(false);
 
   // ✅ On récupère tous les items du store (snapshot stable)
   const allItems = useCalendarStore((s) => s.items);
@@ -186,10 +189,38 @@ export default function DashboardPage() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(metas));
   }, [metas, hasLoadedLayout]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const raw = window.localStorage.getItem(LIST_ORDER_KEY);
+    if (!raw) {
+      setHasLoadedOrder(true);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.filter((id: any) => typeof id === "string");
+        setListOrder(normalized);
+      }
+    } catch (err) {
+      console.error("Erreur de lecture ordre dashboard", err);
+    } finally {
+      setHasLoadedOrder(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasLoadedOrder) return;
+    window.localStorage.setItem(LIST_ORDER_KEY, JSON.stringify(listOrder));
+  }, [listOrder, hasLoadedOrder]);
+
   /* ---------- Sync des metas avec les éléments épinglés ---------- */
 
   useEffect(() => {
-    if (!hasLoadedLayout || !itemsHydrated) return;
+    if (!hasLoadedLayout || !itemsHydrated || !hasLoadedOrder) return;
     // Positionne automatiquement un layout pour chaque nouvel item épinglé
     setMetas((prev) => {
       const existingIds = new Set(prev.map((m) => m.id));
@@ -215,6 +246,21 @@ export default function DashboardPage() {
       // Supprime les metas dont l'item n'est plus épinglé
       const pinnedIds = new Set(pinnedItems.map((i) => i.id));
       return next.filter((m) => pinnedIds.has(m.id));
+    });
+
+    setListOrder((prev) => {
+      const pinnedIds = new Set(pinnedItems.map((i) => i.id));
+      const next = prev.filter((id) => pinnedIds.has(id));
+      const existing = new Set(next);
+      pinnedItems.forEach((item) => {
+        if (!existing.has(item.id)) {
+          next.push(item.id);
+        }
+      });
+      if (next.length === 0 && pinnedItems.length > 0) {
+        return pinnedItems.map((item) => item.id);
+      }
+      return next;
     });
   }, [pinnedItems]);
 
@@ -246,6 +292,18 @@ export default function DashboardPage() {
         ),
     [metas, pinnedItems],
   );
+
+  const listWidgets = useMemo(() => {
+    if (listOrder.length === 0) return widgets;
+    const lookup = new Map(widgets.map((w) => [w.meta.id, w]));
+    const ordered = listOrder
+      .map((id) => lookup.get(id))
+      .filter(
+        (w): w is { meta: WidgetMeta; item: CalendarItem } => w !== undefined,
+      );
+    const remaining = widgets.filter((w) => !listOrder.includes(w.meta.id));
+    return [...ordered, ...remaining];
+  }, [listOrder, widgets]);
 
   const isEmpty = widgets.length === 0;
 
@@ -355,14 +413,14 @@ export default function DashboardPage() {
         <div className="mx-auto mt-4 w-full max-w-6xl">
           <Reorder.Group
             axis="y"
-            values={metas}
-            onReorder={setMetas}
+            values={listWidgets.map((w) => w.meta.id)}
+            onReorder={(nextOrder) => setListOrder(nextOrder as string[])}
             className="flex flex-col gap-3"
           >
-            {widgets.map(({ meta, item }) => (
+            {listWidgets.map(({ meta, item }) => (
               <Reorder.Item
                 key={meta.id}
-                value={meta}
+                value={meta.id}
                 whileDrag={{ scale: 1.03, zIndex: 20 }}
                 className="cursor-grab active:cursor-grabbing"
               >
@@ -587,8 +645,8 @@ export default function DashboardPage() {
                   onClick={() => saveEdit(editingItem)}
                   className="rounded-full px-3 py-1 text-[10px] font-semibold"
                   style={{
-                    background: "#0c98cb",
-                    color: "white",
+                    background: "var(--text)",
+                    color: "var(--bg)",
                     border: "none",
                   }}
                 >
@@ -858,7 +916,7 @@ function Coverflow3D({
   function handleWheel(e: React.WheelEvent<HTMLDivElement>) {
     e.preventDefault();
     const now = Date.now();
-    if (now - lastWheelTime.current < 350) return;
+    if (now - lastWheelTime.current < 900) return;
     lastWheelTime.current = now;
 
     const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
@@ -894,7 +952,8 @@ function Coverflow3D({
         onWheel={handleWheel}
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
-        className="relative flex h-[360px] w-full items-center justify-center overflow-visible touch-pan-x [touch-action:pan-x]"
+        className="relative flex h-[420px] w-full items-center justify-center overflow-visible touch-pan-x [touch-action:pan-x]"
+        style={{ perspective: "1200px" }}
       >
         {items.map(({ item }, index) => {
           const offset = index - activeIndex;
@@ -902,17 +961,13 @@ function Coverflow3D({
 
           const clamped = Math.max(-3, Math.min(3, offset));
 
-          const baseTranslateX = 260;
-          const x = clamped * baseTranslateX;
-
-          const y = Math.abs(clamped) * 28;
-
-          const rotateY = clamped * -18;
-
-          const opacity = isActive ? 1 : 0.45;
-
-          const scaleX = isActive ? 2.2 : 0.9;
-          const scaleY = isActive ? 3.0 : 0.9;
+          const distance = Math.abs(clamped);
+          const x = clamped * 200;
+          const y = distance * 12;
+          const rotateY = clamped * -12;
+          const opacity = isActive ? 1 : 0.32;
+          const scale = isActive ? 1.0 : Math.max(0.76, 0.88 - distance * 0.04);
+          const z = isActive ? 140 : -distance * 60;
 
           const zIndex = isActive ? 50 : 40 - Math.abs(clamped) * 2;
 
@@ -920,20 +975,20 @@ function Coverflow3D({
             <motion.div
               key={item.id}
               className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-              style={{ cursor: "pointer", zIndex }}
+              style={{ cursor: "pointer", zIndex, transformStyle: "preserve-3d" }}
               onClick={() => setActiveIndex(index)}
               initial={false}
               animate={{
                 x,
                 y,
                 rotateY,
-                scaleX,
-                scaleY,
+                scale,
+                z,
                 opacity,
               }}
               transition={{
                 type: "tween",
-                duration: isActive ? 0.22 : 0.16,
+                duration: isActive ? 0.26 : 0.18,
                 ease: "easeOut",
               }}
             >
@@ -943,6 +998,7 @@ function Coverflow3D({
                 onOpen={onOpen}
                 onTogglePinned={onTogglePinned}
                 onEdit={onEdit}
+                isActive={isActive}
               />
             </motion.div>
           );
@@ -982,6 +1038,7 @@ type WidgetCardProps = {
   onOpen?: (item: CalendarItem) => void;
   onTogglePinned?: (id: string, patch: Partial<CalendarItem>) => void;
   onEdit?: (item: CalendarItem) => void;
+  isActive?: boolean;
 };
 
 function WidgetCard({
@@ -990,6 +1047,7 @@ function WidgetCard({
   onOpen,
   onTogglePinned,
   onEdit,
+  isActive = false,
 }: WidgetCardProps) {
   const padding =
     variant === "list"
@@ -1001,19 +1059,34 @@ function WidgetCard({
     variant === "grid"
       ? "w-[300px]"
       : variant === "float3d"
-      ? "w-[360px] sm:w-[420px]"
+      ? "w-[320px] sm:w-[360px]"
       : "w-full";
+  const heightClass = variant === "float3d" ? "min-h-[360px]" : "";
+  const isFloat = variant === "float3d";
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
 
   const dateLabel = formatDateLabel(item.date);
   const hasTime = item.type === "event" && item.time;
 
   return (
     <div
-      className={`relative overflow-hidden rounded-3xl ${padding} ${widthClass} transition-all shadow-[0_22px_70px_rgba(0,0,0,0.12),0_10px_30px_rgba(0,0,0,0.10)] hover:shadow-[0_26px_90px_rgba(0,0,0,0.18),0_12px_36px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
+      className={`relative overflow-hidden rounded-3xl ${padding} ${widthClass} ${heightClass} transition-all shadow-[0_22px_70px_rgba(0,0,0,0.12),0_10px_30px_rgba(0,0,0,0.10)] hover:shadow-[0_26px_90px_rgba(0,0,0,0.18),0_12px_36px_rgba(0,0,0,0.12)] hover:-translate-y-1`}
       style={{
-        background: "var(--card)",
+        background: isFloat
+          ? isDark
+            ? isActive
+              ? "rgba(36,36,36,0.52)"
+              : "rgba(36,36,36,0.78)"
+            : isActive
+            ? "rgba(255,255,255,0.68)"
+            : "rgba(255,255,255,0.88)"
+          : "var(--card)",
         border: "1px solid var(--border)",
         color: "var(--text)",
+        backdropFilter: isFloat ? "blur(10px) saturate(1.05)" : undefined,
+        WebkitBackdropFilter: isFloat ? "blur(10px) saturate(1.05)" : undefined,
       }}
     >
       <div className="flex items-center justify-between gap-2">
@@ -1055,7 +1128,7 @@ function WidgetCard({
               event.stopPropagation();
               onTogglePinned?.(item.id, { pinned: !item.pinned });
             }}
-            style={{ color: "#0c98cb" }}
+            style={{ color: "var(--text)" }}
           >
             <svg
               aria-hidden="true"

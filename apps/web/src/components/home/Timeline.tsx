@@ -37,13 +37,18 @@ export function Timeline() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackState>>({});
   const [datePulseId, setDatePulseId] = useState<string | null>(null);
-  const [rescheduleId, setRescheduleId] = useState<string | null>(null);
+  const [rescheduleIds, setRescheduleIds] = useState<string[]>([]);
   const [rescheduleDate, setRescheduleDate] = useState("");
   const [rescheduleTime, setRescheduleTime] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const feedbackTimers = useRef<Record<string, number[]>>({});
   const datePulseTimer = useRef<number | null>(null);
   const editingItem = items.find((item) => item.id === editingId) ?? null;
-  const rescheduleItem = items.find((item) => item.id === rescheduleId) ?? null;
+  const rescheduleItems = useMemo(
+    () => rescheduleIds.map((id) => items.find((item) => item.id === id)).filter(Boolean) as CalendarItem[],
+    [items, rescheduleIds],
+  );
+  const rescheduleItem = rescheduleItems[0] ?? null;
 
   const sorted = useMemo(() => {
     return [...items].sort((a, b) => {
@@ -56,6 +61,18 @@ export function Timeline() {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }, []);
+
+  const tomorrowStart = useMemo(() => {
+    const next = new Date(todayStart);
+    next.setDate(next.getDate() + 1);
+    return next;
+  }, [todayStart]);
+
+  const weekEnd = useMemo(() => {
+    const end = new Date(todayStart);
+    end.setDate(end.getDate() + 7);
+    return end;
+  }, [todayStart]);
 
   const dateOptions = useMemo<DateOption[]>(() => {
     const options: DateOption[] = [];
@@ -106,16 +123,80 @@ export function Timeline() {
     return d < todayStart;
   };
 
+  const parseDateValue = (value?: string) => {
+    if (!value) return null;
+    const d = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    return d;
+  };
+
+  const isDueWithinWeek = (item: CalendarItem) => {
+    if (item.done) return false;
+    if (!item.date) return false;
+    const d = new Date(`${item.date}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return false;
+    return d >= todayStart && d <= weekEnd;
+  };
+
   const visibleItems = useMemo(() => {
     return sorted.filter((item) => {
       const overdue = isOverdue(item);
+      const dueSoon = isDueWithinWeek(item);
       const done = !!item.done;
       if (filterStatus === "all") return true;
       if (filterStatus === "done") return done;
       if (filterStatus === "overdue") return overdue;
-      return !done && !overdue;
+      return !done && (overdue || dueSoon);
     });
-  }, [sorted, filterStatus, todayStart]);
+  }, [sorted, filterStatus, todayStart, weekEnd]);
+
+  const groupedItems = useMemo(() => {
+    const groups: Record<string, CalendarItem[]> = {
+      overdue: [],
+      today: [],
+      tomorrow: [],
+      week: [],
+      later: [],
+    };
+
+    visibleItems.forEach((item) => {
+      if (isOverdue(item)) {
+        groups.overdue.push(item);
+        return;
+      }
+      const dateValue = parseDateValue(item.date);
+      if (!dateValue) {
+        groups.later.push(item);
+        return;
+      }
+      const timeValue = dateValue.getTime();
+      if (timeValue < todayStart.getTime()) {
+        groups.later.push(item);
+        return;
+      }
+      if (timeValue === todayStart.getTime()) {
+        groups.today.push(item);
+        return;
+      }
+      if (timeValue === tomorrowStart.getTime()) {
+        groups.tomorrow.push(item);
+        return;
+      }
+      if (dateValue <= weekEnd) {
+        groups.week.push(item);
+        return;
+      }
+      groups.later.push(item);
+    });
+
+    return [
+      { key: "overdue", label: "En retard", items: groups.overdue },
+      { key: "today", label: "Aujourd’hui", items: groups.today },
+      { key: "tomorrow", label: "Demain", items: groups.tomorrow },
+      { key: "week", label: "Cette semaine", items: groups.week },
+      { key: "later", label: "Plus tard", items: groups.later },
+    ].filter((group) => group.items.length > 0);
+  }, [visibleItems, todayStart, tomorrowStart, weekEnd]);
 
   function getTagName(id?: string) {
     if (!id) return undefined;
@@ -148,10 +229,10 @@ export function Timeline() {
   }, [editingId, editingItem]);
 
   useEffect(() => {
-    if (rescheduleId && !rescheduleItem) {
-      setRescheduleId(null);
+    if (rescheduleIds.length > 0 && !rescheduleItem) {
+      setRescheduleIds([]);
     }
-  }, [rescheduleId, rescheduleItem]);
+  }, [rescheduleIds, rescheduleItem]);
 
   const startEdit = (item: CalendarItem) => {
     setEditingId(item.id);
@@ -161,7 +242,7 @@ export function Timeline() {
       location: item.location ?? "",
       tagId: item.tagId ?? "",
     });
-    setRescheduleId(null);
+    setRescheduleIds([]);
     setSelected(null);
   };
 
@@ -292,12 +373,450 @@ export function Timeline() {
     }, 700);
   };
 
-  const openReschedule = (item: CalendarItem) => {
-    setRescheduleId(item.id);
-    setRescheduleDate(item.date);
-    setRescheduleTime(item.time || "09:00");
+  const clearSelected = () => {
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (itemId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  };
+
+  const openRescheduleForIds = (ids: string[]) => {
+    const unique = Array.from(new Set(ids)).filter(Boolean);
+    if (unique.length === 0) return;
+    setRescheduleIds(unique);
+    const primary = items.find((item) => item.id === unique[0]);
+    setRescheduleDate(primary?.date ?? "");
+    setRescheduleTime(primary?.time || "09:00");
     setEditingId(null);
     setSelected(null);
+  };
+
+  const handleBulkDone = () => {
+    const ids = Array.from(selectedIds);
+    ids.forEach((id) => {
+      const item = items.find((entry) => entry.id === id);
+      if (!item || item.done) return;
+      updateItem(item.id, { done: true });
+      showFeedback(
+        item.id,
+        item.type === "task" ? "Marqué comme fait" : "Événement fait",
+      );
+    });
+    clearSelected();
+  };
+
+  const handleBulkDelete = () => {
+    const ids = Array.from(selectedIds);
+    ids.forEach((id) => deleteItem(id));
+    if (selected && ids.includes(selected.id)) {
+      setSelected(null);
+    }
+    if (editingId && ids.includes(editingId)) {
+      setEditingId(null);
+    }
+    if (rescheduleIds.some((id) => ids.includes(id))) {
+      setRescheduleIds([]);
+    }
+    clearSelected();
+  };
+
+  const shiftReschedule = (days: number) => {
+    rescheduleItems.forEach((item) => {
+      const base = new Date(`${item.date}T00:00:00`);
+      const effective = Number.isNaN(base.getTime()) ? new Date(todayStart) : base;
+      effective.setDate(effective.getDate() + days);
+      const next = `${effective.getFullYear()}-${String(effective.getMonth() + 1).padStart(2, "0")}-${String(
+        effective.getDate(),
+      ).padStart(2, "0")}`;
+      applyReschedule(item, next, item.time);
+    });
+    setRescheduleIds([]);
+    clearSelected();
+  };
+
+  const applyRescheduleSelection = () => {
+    if (!rescheduleDate) return;
+    rescheduleItems.forEach((item) => {
+      const timeValue = rescheduleTime || item.time;
+      applyReschedule(item, rescheduleDate, timeValue);
+    });
+    setRescheduleIds([]);
+    clearSelected();
+  };
+
+  const renderItemRow = (item: CalendarItem) => {
+    const tagName = getTagName(item.tagId);
+    const isTask = item.type === "task";
+    const isDone = !!item.done;
+    const isLate = isOverdue(item);
+    const dateValue = parseDateValue(item.date);
+    const isToday = dateValue ? dateValue.getTime() === todayStart.getTime() : false;
+    const isTomorrow = dateValue ? dateValue.getTime() === tomorrowStart.getTime() : false;
+    const badgeLabel = isToday ? "Aujourd’hui" : isTomorrow ? "Demain" : "";
+    const [year, month, day] = item.date.split("-");
+    const formattedDate = day && month && year ? `${day}/${month}/${year}` : item.date;
+    const formattedTime = item.time
+      ? `${item.time.replace(/:/, "H")}${item.endTime ? ` - ${item.endTime.replace(/:/, "H")}` : ""}`
+      : "";
+    const locationName = !isTask && item.location ? item.location : "";
+    const displayTitle = item.title
+      ? `${item.title.slice(0, 1).toUpperCase()}${item.title.slice(1)}`
+      : "";
+    const isSelected = selectedIds.has(item.id);
+
+    return (
+      <div
+        key={item.id}
+        className="timeline-row flex flex-col gap-1 px-1 py-2 last:border-b-0 transition min-w-0"
+        style={
+          isSelected
+            ? {
+                background: "rgba(15,23,42,0.04)",
+                borderRadius: "12px",
+              }
+            : undefined
+        }
+      >
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
+          <button
+            type="button"
+            className="icon-button h-5 w-5 shrink-0"
+            aria-label={isSelected ? "Désélectionner" : "Sélectionner"}
+            title={isSelected ? "Désélectionner" : "Sélectionner"}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSelected(item.id);
+            }}
+            style={{
+              color: isSelected ? "var(--text)" : "rgba(148,163,184,0.9)",
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="9" />
+              {isSelected && <path d="m8 12 3 3 5-6" />}
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="icon-button h-5 w-5 shrink-0 text-slate-500"
+            aria-label="Supprimer"
+            title="Supprimer"
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteItem(item.id);
+              if (selected?.id === item.id) {
+                setSelected(null);
+              }
+              if (editingId === item.id) {
+                setEditingId(null);
+              }
+              if (rescheduleIds.includes(item.id)) {
+                setRescheduleIds([]);
+              }
+              setSelectedIds((prev) => {
+                if (!prev.has(item.id)) return prev;
+                const next = new Set(prev);
+                next.delete(item.id);
+                return next;
+              });
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 6h18" />
+              <path d="M8 6V4h8v2" />
+              <path d="M6 6l1 14h10l1-14" />
+              <path d="M10 11v6" />
+              <path d="M14 11v6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="icon-button h-5 w-5 shrink-0 text-slate-700 dark:text-[rgba(235,240,248,0.92)]"
+            aria-label={isTask ? "Tâche" : "Événement"}
+            title={isTask ? "Tâche" : "Événement"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelected(item);
+            }}
+          >
+            {isTask ? (
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 4h-1.2a2 2 0 0 0-3.6 0H10a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z" />
+                <path d="M10 8h4" />
+                <path d="M10 12h4" />
+                <path d="M10 16h4" />
+              </svg>
+            ) : (
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
+                <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
+              </svg>
+            )}
+          </button>
+          <span
+            className="truncate font-semibold text-[color:var(--text)] text-[12px] w-full sm:w-36 shrink-0 cursor-pointer"
+            title={displayTitle}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelected(item);
+            }}
+          >
+            {displayTitle}
+          </span>
+          <div className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-[rgba(235,240,248,0.78)] min-w-0 flex-1">
+            <span className="truncate min-w-0" title={item.description}>
+              {item.description ? item.description.replace(/\s+/g, " ").trim() : ""}
+            </span>
+            {locationName && (
+              <span
+                className="truncate flex-shrink-0 flex items-center gap-1 text-slate-500 dark:text-[rgba(235,240,248,0.7)]"
+                title={locationName}
+              >
+                <svg
+                  aria-hidden="true"
+                  focusable="false"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="flex-shrink-0"
+                >
+                  <path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10Z" />
+                  <circle cx="12" cy="11" r="2.5" />
+                </svg>
+                <span className="truncate">{locationName}</span>
+              </span>
+            )}
+            {tagName && (
+              <span className="truncate flex-shrink-0 text-slate-500" title={tagName}>
+                #{tagName}
+              </span>
+            )}
+          </div>
+          <div className="flex w-full flex-col items-end gap-1 text-right sm:w-32">
+            <div className="flex items-center gap-1">
+              {isLate && (
+                <span
+                  className="inline-flex h-1.5 w-1.5 rounded-full"
+                  style={{ background: "rgba(244,63,94,0.55)" }}
+                  title="En retard"
+                />
+              )}
+              <span
+                className="text-[9px] text-slate-400 dark:text-[rgba(235,240,248,0.6)]"
+                style={
+                  datePulseId === item.id
+                    ? { animation: "timelineDateShift 650ms ease" }
+                    : undefined
+                }
+              >
+                {formattedTime ? `${formattedDate} ${formattedTime}` : formattedDate}
+              </span>
+              {badgeLabel && (
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[9px]"
+                  style={{
+                    border: "1px solid var(--border)",
+                    background: "rgba(15,23,42,0.04)",
+                    color: "var(--text)",
+                  }}
+                >
+                  {badgeLabel}
+                </span>
+              )}
+            </div>
+            {feedbackMap[item.id] && (
+              <span
+                className="text-[9px] text-slate-400 transition-opacity duration-500"
+                style={{
+                  opacity: feedbackMap[item.id].visible ? 1 : 0,
+                }}
+              >
+                {feedbackMap[item.id].message}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label={item.pinned ? "Désépingler" : "Épingler"}
+              onClick={(e) => {
+                e.stopPropagation();
+                updateItem(item.id, { pinned: !item.pinned });
+              }}
+              className="inline-flex items-center justify-center p-0 leading-none"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+              }}
+              title={item.pinned ? "Désépingler" : "Épingler"}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={item.pinned ? "#22c55e" : "rgba(148,163,184,0.8)"}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M10 3h4l1 5 3 3-1.5 1.5L12 8 7.5 12.5 6 11l3-3 1-5Z" />
+                <path d="M12 8v13" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="Modifier l’élément"
+              onClick={(e) => {
+                e.stopPropagation();
+                startEdit(item);
+              }}
+              className="inline-flex items-center justify-center p-0 leading-none"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                color: "var(--muted)",
+              }}
+              title="Modifier"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 20h9" />
+                <path d="m16.5 3.5 4 4L8 20l-4 1 1-4 11.5-13.5Z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label="Reporter"
+              onClick={(e) => {
+                e.stopPropagation();
+                openRescheduleForIds([item.id]);
+              }}
+              className="inline-flex items-center justify-center p-0 leading-none"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                color: "var(--muted)",
+              }}
+              title="Reporter"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 6h6v6" />
+                <path d="M18 6a8 8 0 1 0 2.2 5.5" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              aria-label={isDone ? "Marquer comme à faire" : "Marquer comme fait"}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleDone(item);
+              }}
+              className="inline-flex items-center justify-center rounded-full transition active:scale-95"
+              style={{
+                width: "16px",
+                height: "16px",
+                padding: 0,
+                border: "1px solid var(--border)",
+                color: isDone ? "var(--text)" : "var(--muted)",
+                background: isDone ? "rgba(15,23,42,0.08)" : "transparent",
+              }}
+            >
+              <svg
+                aria-hidden="true"
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   if (sorted.length === 0) {
@@ -311,80 +830,101 @@ export function Timeline() {
   return (
     <>
       <div className="timeline-panel rounded-2xl p-4 text-[12px] text-[color:var(--text)] max-h-80 overflow-y-auto">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)]">Timeline</p>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-slate-600 dark:text-[rgba(235,240,248,0.7)]">{visibleItems.length} élément(s)</span>
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Filtrer"
-            title="Filtrer"
-            onClick={() => setFilterOpen(true)}
-            style={{ opacity: 0.75 }}
-          >
-            <svg
-              aria-hidden="true"
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M3 5h18" />
-              <path d="M6 12h12" />
-              <path d="M10 19h4" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        {visibleItems.length === 0 && (
-          <p className="text-[11px] text-slate-500">
-            Aucun élément pour ce filtre.
-          </p>
-        )}
-        {visibleItems.map((item) => {
-          const tagName = getTagName(item.tagId);
-          const isTask = item.type === "task";
-          const isDone = !!item.done;
-          const [year, month, day] = item.date.split("-");
-          const formattedDate = day && month && year ? `${day}/${month}/${year}` : item.date;
-          const formattedTime = item.time
-            ? `${item.time.replace(/:/, "H")}${item.endTime ? ` - ${item.endTime.replace(/:/, "H")}` : ""}`
-            : "";
-          const locationName = !isTask && item.location ? item.location : "";
-          const displayTitle = item.title
-            ? `${item.title.slice(0, 1).toUpperCase()}${item.title.slice(1)}`
-            : "";
-          return (
+        <div className="mb-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)]">Timeline</p>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-600 dark:text-[rgba(235,240,248,0.7)]">
+                {visibleItems.length} élément(s)
+              </span>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Filtrer"
+                title="Filtrer"
+                onClick={() => setFilterOpen(true)}
+                style={{ opacity: 0.75 }}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M3 5h18" />
+                  <path d="M6 12h12" />
+                  <path d="M10 19h4" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          {selectedIds.size > 0 && (
             <div
-              key={item.id}
-              className="timeline-row flex flex-col gap-1 px-1 py-2 last:border-b-0 transition min-w-0"
+              className="mt-2 flex items-center justify-between rounded-full px-2 py-1 text-[10px]"
+              style={{
+                border: "1px solid var(--border)",
+                background: "rgba(15,23,42,0.04)",
+                color: "var(--text)",
+              }}
             >
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 min-w-0">
+              <span>
+                {selectedIds.size} sélectionné{selectedIds.size > 1 ? "s" : ""}
+              </span>
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="icon-button h-5 w-5 shrink-0 text-slate-500"
+                  className="icon-button"
+                  aria-label="Marquer comme fait"
+                  title="Marquer comme fait"
+                  onClick={handleBulkDone}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Reporter"
+                  title="Reporter"
+                  onClick={() => openRescheduleForIds(Array.from(selectedIds))}
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 6h6v6" />
+                    <path d="M18 6a8 8 0 1 0 2.2 5.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
                   aria-label="Supprimer"
                   title="Supprimer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteItem(item.id);
-                    if (selected?.id === item.id) {
-                      setSelected(null);
-                    }
-                    if (editingId === item.id) {
-                      setEditingId(null);
-                    }
-                    if (rescheduleId === item.id) {
-                      setRescheduleId(null);
-                    }
-                  }}
+                  onClick={handleBulkDelete}
                 >
                   <svg
                     aria-hidden="true"
@@ -406,247 +946,52 @@ export function Timeline() {
                 </button>
                 <button
                   type="button"
-                  className="icon-button h-5 w-5 shrink-0 text-slate-700 dark:text-[rgba(235,240,248,0.92)]"
-                  aria-label={isTask ? "Tâche" : "Événement"}
-                  title={isTask ? "Tâche" : "Événement"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelected(item);
-                  }}
+                  className="icon-button"
+                  aria-label="Tout désélectionner"
+                  title="Tout désélectionner"
+                  onClick={clearSelected}
                 >
-                  {isTask ? (
-                    <svg
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M16 4h-1.2a2 2 0 0 0-3.6 0H10a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Z" />
-                      <path d="M10 8h4" />
-                      <path d="M10 12h4" />
-                      <path d="M10 16h4" />
-                    </svg>
-                  ) : (
-                    <svg
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="3.5" y="4.5" width="17" height="16" rx="3" />
-                      <path d="M8 3.5v3M16 3.5v3M4 9.5h16" />
-                    </svg>
-                  )}
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M6 6l12 12" />
+                    <path d="M18 6l-12 12" />
+                  </svg>
                 </button>
-                <span
-                  className="truncate font-semibold text-[#1b3a6f] dark:text-[rgba(235,240,248,0.92)] text-[12px] w-full sm:w-36 shrink-0 cursor-pointer"
-                  title={displayTitle}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelected(item);
-                  }}
-                >
-                  {displayTitle}
-                </span>
-                <div className="flex items-center gap-2 text-[12px] text-slate-600 dark:text-[rgba(235,240,248,0.78)] min-w-0 flex-1">
-                  <span
-                    className="truncate min-w-0"
-                    title={item.description}
-                  >
-                    {item.description ? item.description.replace(/\s+/g, " ").trim() : ""}
-                  </span>
-                  {locationName && (
-                    <span
-                      className="truncate flex-shrink-0 flex items-center gap-1 text-slate-500 dark:text-[rgba(235,240,248,0.7)]"
-                      title={locationName}
-                    >
-                      <svg
-                        aria-hidden="true"
-                        focusable="false"
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="flex-shrink-0"
-                      >
-                        <path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10Z" />
-                        <circle cx="12" cy="11" r="2.5" />
-                      </svg>
-                      <span className="truncate">{locationName}</span>
-                    </span>
-                  )}
-                  {tagName && (
-                    <span className="truncate flex-shrink-0 text-slate-500" title={tagName}>
-                      #{tagName}
-                    </span>
-                  )}
-                </div>
-                <div className="flex w-full flex-col items-end gap-1 text-right sm:w-32">
-                  <span
-                    className="text-[9px] text-slate-400 dark:text-[rgba(235,240,248,0.6)]"
-                    style={
-                      datePulseId === item.id
-                        ? { animation: "timelineDateShift 650ms ease" }
-                        : undefined
-                    }
-                  >
-                    {formattedDate} {item.time ? item.time.replace(/:/, "H") : ""}
-                  </span>
-                  {feedbackMap[item.id] && (
-                    <span
-                      className="text-[9px] text-slate-400 transition-opacity duration-500"
-                      style={{
-                        opacity: feedbackMap[item.id].visible ? 1 : 0,
-                      }}
-                    >
-                      {feedbackMap[item.id].message}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    aria-label={item.pinned ? "Désépingler" : "Épingler"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      updateItem(item.id, { pinned: !item.pinned });
-                    }}
-                    className="inline-flex items-center justify-center p-0 leading-none"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                    }}
-                    title={item.pinned ? "Désépingler" : "Épingler"}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={item.pinned ? "#22c55e" : "rgba(148,163,184,0.8)"}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M10 3h4l1 5 3 3-1.5 1.5L12 8 7.5 12.5 6 11l3-3 1-5Z" />
-                      <path d="M12 8v13" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Modifier l’élément"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      startEdit(item);
-                    }}
-                    className="inline-flex items-center justify-center p-0 leading-none"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                      color: "var(--muted)",
-                    }}
-                    title="Modifier"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M12 20h9" />
-                      <path d="m16.5 3.5 4 4L8 20l-4 1 1-4 11.5-13.5Z" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Reporter"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openReschedule(item);
-                    }}
-                    className="inline-flex items-center justify-center p-0 leading-none"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      padding: 0,
-                      color: "var(--muted)",
-                    }}
-                    title="Reporter"
-                  >
-                    <svg
-                      aria-hidden="true"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M12 6h6v6" />
-                      <path d="M18 6a8 8 0 1 0 2.2 5.5" />
-                    </svg>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={isDone ? "Marquer comme à faire" : "Marquer comme fait"}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleDone(item);
-                    }}
-                    className="inline-flex items-center justify-center rounded-full transition active:scale-95"
-                    style={{
-                      width: "16px",
-                      height: "16px",
-                      padding: 0,
-                      border: "1px solid var(--border)",
-                      color: isDone ? "var(--text)" : "var(--muted)",
-                      background: isDone ? "rgba(15,23,42,0.08)" : "transparent",
-                    }}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      width="10"
-                      height="10"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                  </button>
-                </div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          {visibleItems.length === 0 && (
+            <p className="text-[11px] text-slate-500">
+              Aucun élément pour ce filtre.
+            </p>
+          )}
+          {groupedItems.map((group) => (
+            <div key={group.key} className="space-y-2">
+              <div
+                className="flex items-center justify-between px-1 text-[10px]"
+                style={{ opacity: 0.65 }}
+              >
+                <span className="uppercase tracking-[0.14em]">{group.label}</span>
+                <span>{group.items.length}</span>
+              </div>
+              <div className="space-y-2">
+                {group.items.map((item) => renderItemRow(item))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {editingItem && (
@@ -795,8 +1140,8 @@ export function Timeline() {
                   onClick={() => saveEdit(editingItem)}
                   className="rounded-full px-3 py-1 text-[10px] font-semibold"
                   style={{
-                    background: "#0c98cb",
-                    color: "white",
+                    background: "var(--text)",
+                    color: "var(--bg)",
                     border: "none",
                   }}
                 >
@@ -859,19 +1204,21 @@ export function Timeline() {
           className="overlay-veil fixed inset-0 z-[225] flex items-start justify-center pt-16"
           role="dialog"
           aria-modal="true"
-          onClick={() => setRescheduleId(null)}
+          onClick={() => setRescheduleIds([])}
         >
           <div
             className="panel-glass relative w-[min(92vw,340px)] rounded-3xl p-4 text-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.16),0_10px_30px_rgba(15,23,42,0.12)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="text-[12px] font-semibold">Reporter</div>
+              <div className="text-[12px] font-semibold">
+                {rescheduleIds.length > 1 ? `Reporter (${rescheduleIds.length})` : "Reporter"}
+              </div>
               <button
                 type="button"
                 className="close-icon"
                 aria-label="Fermer"
-                onClick={() => setRescheduleId(null)}
+                onClick={() => setRescheduleIds([])}
               >
                 <svg
                   aria-hidden="true"
@@ -900,16 +1247,7 @@ export function Timeline() {
                     color: "var(--text)",
                     border: "1px solid var(--border)",
                   }}
-                  onClick={() => {
-                    const base = new Date(`${rescheduleItem.date}T00:00:00`);
-                    const effective = Number.isNaN(base.getTime()) ? new Date(todayStart) : base;
-                    effective.setDate(effective.getDate() + 1);
-                    const next = `${effective.getFullYear()}-${String(effective.getMonth() + 1).padStart(2, "0")}-${String(
-                      effective.getDate(),
-                    ).padStart(2, "0")}`;
-                    applyReschedule(rescheduleItem, next, rescheduleItem.time);
-                    setRescheduleId(null);
-                  }}
+                  onClick={() => shiftReschedule(1)}
                 >
                   Demain
                 </button>
@@ -921,16 +1259,7 @@ export function Timeline() {
                     color: "var(--text)",
                     border: "1px solid var(--border)",
                   }}
-                  onClick={() => {
-                    const base = new Date(`${rescheduleItem.date}T00:00:00`);
-                    const effective = Number.isNaN(base.getTime()) ? new Date(todayStart) : base;
-                    effective.setDate(effective.getDate() + 7);
-                    const next = `${effective.getFullYear()}-${String(effective.getMonth() + 1).padStart(2, "0")}-${String(
-                      effective.getDate(),
-                    ).padStart(2, "0")}`;
-                    applyReschedule(rescheduleItem, next, rescheduleItem.time);
-                    setRescheduleId(null);
-                  }}
+                  onClick={() => shiftReschedule(7)}
                 >
                   Dans une semaine
                 </button>
@@ -981,7 +1310,7 @@ export function Timeline() {
                       }),
                     );
                   }
-                  setRescheduleId(null);
+                  setRescheduleIds([]);
                 }}
                 className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-semibold"
                 style={{
@@ -1009,11 +1338,7 @@ export function Timeline() {
               <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!rescheduleDate) return;
-                    applyReschedule(rescheduleItem, rescheduleDate, rescheduleTime || rescheduleItem.time);
-                    setRescheduleId(null);
-                  }}
+                  onClick={applyRescheduleSelection}
                   className="rounded-full px-3 py-1 text-[10px] font-semibold"
                   style={{
                     background: "var(--surface)",
@@ -1025,7 +1350,7 @@ export function Timeline() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRescheduleId(null)}
+                  onClick={() => setRescheduleIds([])}
                   className="rounded-full px-3 py-1 text-[10px] font-semibold"
                   style={{
                     background: "transparent",

@@ -6,7 +6,7 @@ import ModeOrb from "@/components/ui/ModeOrb";
 export default function Header() {
   return (
     <header
-      className="header-glass mat-header fixed left-1/2 top-4 z-50 flex w-[min(1120px,calc(100%-2rem))] -translate-x-1/2 items-center justify-between px-5 py-3 lg:px-8 lg:py-4"
+      className="header-glass mat-header fixed left-1/2 top-4 z-[160] flex w-[min(1120px,calc(100%-2rem))] -translate-x-1/2 items-center justify-between px-5 py-3 lg:px-8 lg:py-4"
     >
       <div className="flex items-center gap-3">
         <Link
@@ -24,8 +24,8 @@ export default function Header() {
         {/* TODO: Inject main navigation (Table / Fiche / Calendrier) */}
       </div>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
+        <Link
+          href="/projects/new"
           className="btn-plain flex h-10 items-center gap-1 rounded-full px-3 text-sm font-semibold text-slate-900"
           style={{
             background: "transparent",
@@ -39,7 +39,7 @@ export default function Header() {
         >
           <span className="text-base leading-none">+</span>
           <span>Projet</span>
-        </button>
+        </Link>
         <button
           type="button"
           aria-label="Rechercher"

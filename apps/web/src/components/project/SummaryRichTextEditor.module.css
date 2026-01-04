@@ -1,0 +1,448 @@
+.editorRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: none;
+  position: relative;
+}
+
+.toolButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+}
+
+.toolButton:hover {
+  opacity: 0.7;
+}
+
+.toolButton:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.toolText {
+  font-weight: 600;
+}
+
+.toolItalic {
+  font-style: italic;
+}
+
+.toolUnderline {
+  text-decoration: underline;
+}
+
+.toolSpacer {
+  flex: 1;
+}
+
+.morePanel {
+  position: absolute;
+  z-index: 20;
+  padding: 10px;
+  width: 200px;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.moreRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.moreField {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  justify-content: flex-end;
+}
+
+.moreActionButton {
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.moreExpandedRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% + 40px);
+  margin: -2px -20px 10px;
+  padding: 6px 20px;
+}
+
+.moreInput {
+  flex: 1;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 10px;
+  background: transparent;
+  color: var(--text);
+}
+
+.moreAction {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.moreLabel {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.moreSelect {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.moreSelect:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.emojiPanel {
+  position: absolute;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 10px;
+  width: 220px;
+  max-height: 200px;
+  overflow: auto;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.emojiButton {
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.datePanel {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  width: 200px;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.dateInput {
+  flex: 1;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 4px 6px;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text);
+}
+
+.dateAction {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.colorButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  position: relative;
+}
+
+.colorButton:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.colorInput {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.clearButton {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.editorArea {
+  min-height: 120px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  outline: none;
+  background: rgba(0, 0, 0, 0.03);
+  position: relative;
+}
+
+.editorArea ul,
+.editorArea ol {
+  margin: 0.4em 0;
+  padding-left: 0;
+  margin-left: 0;
+  list-style-position: inside;
+}
+
+.editorArea ul {
+  list-style: disc;
+}
+
+.editorArea ol {
+  list-style: decimal;
+}
+
+.editorArea li {
+  list-style-position: inside;
+  white-space: pre-wrap;
+}
+
+.editorArea ul[data-list-style="dash"] > li::marker {
+  content: "";
+}
+
+.editorArea ul[data-list-style="star"] > li::marker {
+  content: "";
+}
+
+.editorArea ul[data-list-style="custom"] > li::marker {
+  content: "";
+}
+
+.editorArea ul[data-list-style="dash"] > li::before {
+  content: "– ";
+  display: inline-block;
+  margin-right: 0.35em;
+}
+
+.editorArea ul[data-list-style="star"] > li::before {
+  content: "★ ";
+  display: inline-block;
+  margin-right: 0.35em;
+  font-size: 0.85em;
+  transform: translateY(-0.02em);
+}
+
+.editorArea ul[data-list-style="custom"] > li::before {
+  content: var(--list-marker);
+  display: inline-block;
+  margin-right: 0.35em;
+}
+
+.editorImageWrap {
+  display: inline-block;
+  max-width: 100%;
+  resize: none;
+  overflow: hidden;
+  vertical-align: middle;
+  cursor: grab;
+  margin: 0 6px 6px 0;
+  touch-action: none;
+  min-width: 80px;
+  min-height: 60px;
+}
+
+.editorImageWrap[data-floating="true"] {
+  position: absolute;
+  z-index: 2;
+  margin: 0;
+  max-width: calc(100% - 12px);
+  max-height: calc(100% - 12px);
+}
+
+.imageControls {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 3;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.imageControlButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.8);
+  cursor: pointer;
+}
+
+.imageControlButton:hover {
+  opacity: 0.7;
+}
+
+.imageResizeHandle {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid rgba(0, 0, 0, 0.35);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  opacity: 0;
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
+.editorImageWrap:hover .imageControls,
+.editorImageWrap[data-active="true"] .imageControls,
+.editorImageWrap:hover .imageResizeHandle,
+.editorImageWrap[data-active="true"] .imageResizeHandle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:global(.dark) .imageControlButton {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .imageResizeHandle {
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.editorImageWrap:active {
+  cursor: grabbing;
+}
+
+.editorImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.editorArea:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(0, 0, 0, 0.35);
+}
+
+:global(.dark) .toolbar {
+  border-bottom: none;
+}
+
+:global(.dark) .toolButton {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .moreLabel {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .moreSelect {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .morePanel {
+  background: rgba(20, 20, 20, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55) !important;
+}
+
+:global(.dark) .moreInput {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .moreActionButton {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+:global(.dark) .moreAction {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .clearButton {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .editorArea {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:global(.dark) .editorArea:empty::before {
+  color: rgba(255, 255, 255, 0.35);
+}

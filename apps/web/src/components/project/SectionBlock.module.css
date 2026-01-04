@@ -1,0 +1,15 @@
+.sectionBlock {
+  width: 100%;
+  max-width: 100%;
+  padding: 16px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+
+:global(.dark) .sectionBlock {
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}

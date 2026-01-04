@@ -1,0 +1,2158 @@
+.projectTitleInput {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.04);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: 0.65rem 0.9rem;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.projectPage {
+  background: transparent;
+  overflow-x: visible;
+}
+
+.projectTitleInput:focus-visible {
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.12);
+}
+
+.projectMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.projectMenuItem:hover {
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+
+.projectMenuActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projectModeToggle {
+  opacity: 0.6;
+}
+
+.projectModeToggleActive {
+  opacity: 1;
+}
+
+.projectMenuInput {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.04);
+  border: none;
+  border-radius: 12px;
+  color: var(--text);
+  padding: 0.55rem 0.75rem;
+  font-size: 12px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease;
+}
+
+.projectMenuInput:focus-visible {
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12);
+}
+
+.projectAlignOption {
+  padding: 0;
+  border: none;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.6);
+  background: transparent;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.24),
+    0 2px 6px rgba(15, 23, 42, 0.12);
+  cursor: pointer;
+}
+
+.projectAlignOptionActive {
+  color: rgba(0, 0, 0, 0.9);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.projectMenuTitle {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.projectMenuSection {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.projectMenuTrigger {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.projectPages {
+  display: flex;
+  align-items: center;
+  gap: 200px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.projectPages::-webkit-scrollbar {
+  display: none;
+}
+
+.projectPagesShell {
+  display: flex;
+  align-items: center;
+  align-self: flex-start;
+  max-width: min(520px, 52vw);
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+  margin-top: -2px;
+}
+
+.projectPageChip {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 3px 8px;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  color: rgba(0, 0, 0, 0.6);
+  background: transparent;
+  cursor: pointer;
+}
+
+.projectPageChipActive {
+  color: rgba(0, 0, 0, 0.9);
+  border-color: rgba(0, 0, 0, 0.24);
+}
+
+.projectPageSeparator {
+  width: 1px;
+  height: 18px;
+  margin: 0 50px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.projectPagePopover {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 60;
+  width: min(220px, 80vw);
+  max-width: 220px;
+  min-width: 180px;
+  border-radius: 14px;
+  font-size: 10px;
+  pointer-events: auto;
+}
+
+.projectPagePopover .projectMenuInput {
+  width: 100%;
+  max-width: 100%;
+  padding: 0.45rem 0.6rem;
+  font-size: 10px;
+}
+
+.projectMenuWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.projectTitleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.projectHeaderRow {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.projectPageTriggerWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.projectPageTrigger {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.projectMenuPopover {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 12px);
+  z-index: 120;
+  display: inline-flex;
+  align-items: flex-start;
+}
+
+.projectSummaryPopover {
+  z-index: 130;
+  width: min(240px, 80vw);
+  min-width: 200px;
+}
+
+.projectMenuPanel {
+  width: min(260px, 80vw);
+}
+
+.projectSummaryList {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.projectSummaryItem {
+  list-style-position: inside;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.projectSummaryItem + .projectSummaryItem {
+  margin-top: 12px;
+}
+
+.projectSummaryCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  width: 100%;
+}
+
+.projectSummaryOptionsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projectSummaryOptionsLabel {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectSummaryNumbered {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.projectSummaryNumberedItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.projectSummaryDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+  width: 100%;
+  margin-inline: 0;
+  padding-inline: 0;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+.projectSummarySection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scroll-margin-top: 24px;
+}
+
+.projectSummarySectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projectSummarySectionActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projectSummarySectionTitleWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.projectSummarySectionTextIcon {
+  margin-left: 6px;
+}
+
+.projectSummarySectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projectSummarySectionBlocks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.projectSummaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.projectSummaryBlockHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.projectSummaryBlockLabel {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.projectSummaryBlockInput {
+  width: 100%;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  font-size: 11px;
+  color: var(--text);
+  background: transparent;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.projectSummaryBlockInput:focus-visible {
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.projectTableBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  width: 100%;
+  text-align: left;
+  min-width: 0;
+}
+
+.projectTableShell {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.projectTableFrame {
+  border-radius: 20px;
+  overflow: visible;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+  border: 0;
+  outline: none;
+  background: rgba(255, 255, 255, 0.04);
+  background-clip: padding-box;
+}
+
+:global(.dark) .projectTableFrame {
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
+
+.projectTableScroll {
+  max-height: clamp(260px, 45vh, 520px);
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  border-radius: 18px;
+  padding: 0;
+  background: transparent;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.projectTableScroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.projectTableScroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 999px;
+}
+
+.projectTableScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.projectTableScroll :global(.structuredScroller::-webkit-scrollbar) {
+  height: 2px;
+}
+
+.projectTableScroll :global(.structuredScroller::-webkit-scrollbar-thumb) {
+  background: rgba(0, 0, 0, 0.16);
+  border-radius: 999px;
+}
+
+.projectTableScroll :global(.structuredScroller::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+:global(.dark) .projectTableScroll::-webkit-scrollbar-thumb,
+:global(.dark) .projectTableScroll :global(.structuredScroller::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.projectTableBlockActive {
+  z-index: 120;
+  isolation: isolate;
+}
+
+.projectTableHeaderRow {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.projectTableHeadCell {
+  text-align: left;
+  padding: 0 8px 6px;
+  vertical-align: bottom;
+  border-right: none;
+}
+
+.projectTableHeadCell:last-child {
+  border-right: none;
+}
+
+.projectTableHeadInner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.projectTableHeaderLabel {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.projectTableHeaderMeta {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.projectTableBody {
+  width: 100%;
+}
+
+.projectTableBodyRow {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.projectTableBodyRow:last-child {
+  border-bottom: none;
+}
+
+.projectTableCell {
+  padding: 6px 8px;
+  vertical-align: middle;
+  border-right: 1px solid rgba(0, 0, 0, 0.04);
+}
+
+.projectTableCell:last-child {
+  border-right: none;
+}
+
+.projectTableCellInput {
+  width: auto;
+  min-width: 2ch;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--text);
+  padding: 0;
+}
+
+.projectTableCellInput[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.projectTableCellInput[type="number"]::-webkit-outer-spin-button,
+.projectTableCellInput[type="number"]::-webkit-inner-spin-button {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.projectTableCellInput[type="number"]:focus::-webkit-outer-spin-button,
+.projectTableCellInput[type="number"]:focus::-webkit-inner-spin-button {
+  opacity: 1;
+}
+
+.projectTableCellInput:focus-visible {
+  outline: none;
+}
+
+.projectTableCheckbox {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.projectTableCheckbox:checked {
+  background: rgba(0, 0, 0, 0.75);
+  border-color: rgba(0, 0, 0, 0.75);
+}
+
+.projectTableMedia {
+  width: 100%;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.projectTableMedia input {
+  display: none;
+}
+
+.projectTableMedia img,
+.projectTableMedia video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.projectTableRowDelete {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.projectTableBodyRow:hover .projectTableRowDelete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.projectTableBodyRow:hover td {
+  background: transparent;
+}
+
+.projectTableActionCell {
+  width: 32px;
+  text-align: center;
+  padding: 10px 6px;
+}
+
+.projectTableGrid {
+  min-width: 100%;
+  width: 100%;
+}
+
+.projectTable {
+  width: max-content;
+  border-collapse: separate;
+  border-spacing: 0 8px;
+  table-layout: auto;
+}
+
+.projectTableActionCol {
+  width: 32px;
+}
+
+.projectTableChip {
+  width: 100%;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  min-height: auto;
+}
+
+.projectTableChip .projectTableCellInput {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.projectTableChip:focus-within {
+  background: transparent;
+  border-color: transparent;
+}
+
+.projectTableChipMedia {
+  width: 96px;
+  max-width: 100%;
+  height: 56px;
+  border-radius: 12px;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.projectTableChipMedia input {
+  display: none;
+}
+
+.projectTableChipMedia img,
+.projectTableChipMedia video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+
+.projectTableConfig {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 220;
+  width: 300px;
+  pointer-events: auto;
+  transform: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.projectTableConfigTitle {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.6);
+  margin-bottom: 10px;
+}
+
+.projectTableConfigRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.projectTableConfigLabel {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectTableConfigInput,
+.projectTableConfigSelect {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 28px;
+  line-height: 1;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  padding: 6px 8px;
+  align-self: stretch;
+}
+
+.projectTableConfigGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: none;
+  overflow-y: visible;
+  padding-right: 0;
+}
+
+.projectTableConfigColumn {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.projectTableConfigDrag {
+  color: rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  flex: 0 0 18px;
+}
+
+.projectTableConfigDrag:active {
+  cursor: grabbing;
+}
+
+.projectTableConfigRemove {
+  color: rgba(0, 0, 0, 0.5);
+  flex: 0 0 24px;
+}
+
+.projectTableConfigOptions {
+  flex: 1 1 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 26px;
+}
+
+.projectTableConfigOptionRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projectTableConfigOptionInput {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 10px;
+  padding: 4px 6px;
+}
+
+.projectTableConfigOptionColor {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.projectTableConfigOptionRemove {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectTableConfigOptionAdd {
+  all: unset;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.projectTableConfigActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.projectTableConfigQuick {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.projectTableConfigGhost {
+  all: unset;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  text-decoration: none;
+}
+
+.projectTableConfigPrimary {
+  all: unset;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.8);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  text-decoration: none;
+}
+
+.projectTableConfigGhost:focus-visible,
+.projectTableConfigPrimary:focus-visible {
+  outline: none;
+}
+
+.projectTableConfigGhost:hover,
+.projectTableConfigPrimary:hover {
+  text-decoration: none;
+}
+
+.cardBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cardTitleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cardTitleLabel {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.cardHeaderActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardLayoutSelect {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 10px;
+  padding: 3px 8px;
+}
+
+.cardAddButton,
+.cardDeleteButton {
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cardList {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.cardListStack {
+  flex-direction: column;
+}
+
+.cardListGallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cardListCarousel {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 10px 12px 12px;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 12px;
+  flex-wrap: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cardListCarousel::-webkit-scrollbar {
+  height: 4px;
+}
+
+.cardListCarousel::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+}
+
+.cardListCarousel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cardToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.cardToolbarGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cardToolbarButton {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.cardToolbarButton:hover {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.cardToolbarButtonActive {
+  color: rgba(0, 0, 0, 0.95);
+}
+
+.projectImageTitle {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.7);
+  text-align: center;
+  width: 100%;
+}
+
+.projectImageTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.projectImageTitleRow {
+  min-height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projectImageFrame {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  min-height: 140px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.projectImageActions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.projectImageTile:hover .projectImageActions,
+.projectImageTileActive .projectImageActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cardListStack .cardItem,
+.cardListGallery .cardItem {
+  width: 100%;
+  min-width: 0;
+}
+
+.cardListCarousel .cardItem {
+  flex: 0 0 200px;
+}
+
+.cardListCarousel .cardItemExpanded {
+  flex: 0 0 320px;
+}
+
+.cardListCarousel .cardAddTile {
+  flex: 0 0 140px;
+}
+
+.cardItem {
+  position: relative;
+  min-width: 200px;
+  min-height: 220px;
+  border-radius: 18px;
+  padding: 10px 14px 12px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: none;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  scroll-snap-align: start;
+  border: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  row-gap: 4px;
+}
+
+.cardItemExpanded {
+  min-height: 320px;
+}
+
+.cardItemExpanded .cardItemBody {
+  max-height: none;
+  overflow: visible;
+}
+
+.cardExpandButton {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  color: rgba(0, 0, 0, 0.6);
+  z-index: 2;
+}
+
+.cardExpandButton:hover {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.cardItemOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.92));
+  pointer-events: none;
+}
+
+.cardItemHasImage .cardItemOverlay {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.7));
+}
+
+.cardItemHeader {
+  position: relative;
+  display: block;
+  z-index: 1;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.cardItemMedia {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.cardAvatar {
+  width: 140px;
+  height: 100px;
+  border-radius: 12px;
+  border: none;
+  background: rgba(0, 0, 0, 0.04);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.cardAvatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cardAvatarPlaceholder {
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+}
+
+.cardItemTitle {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  text-align: center;
+}
+
+.cardItemActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.cardItemActionsRow {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  justify-self: start;
+}
+
+.cardItemAction {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: rgba(0, 0, 0, 0.75);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+}
+
+.cardItemAction:hover,
+.cardItemAction:focus-visible,
+.cardItemAction:active {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.cardItemBody {
+  position: relative;
+  z-index: 1;
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  grid-column: 1 / -1;
+  grid-row: 3;
+  max-height: 90px;
+  overflow: hidden;
+}
+
+.cardItemRow {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 11px;
+  align-items: baseline;
+}
+
+.cardItemLabel {
+  color: rgba(0, 0, 0, 0.55);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 9px;
+  flex: 0 0 72px;
+}
+
+.cardItemValue {
+  color: var(--text);
+  font-weight: 500;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cardAddTile {
+  min-width: 140px;
+  border: none;
+  border-radius: 16px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 24px;
+}
+
+.cardRemoveTile {
+  min-width: 42px;
+  min-height: 42px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cardRemoveTile:hover {
+  color: rgba(0, 0, 0, 0.8);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+:global(.dark) .cardRemoveTile {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .cardRemoveTile:hover {
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.cardImagePreview {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardImagePlaceholder {
+  font-size: 16px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.cardHiddenInput {
+  display: none;
+}
+
+.cardPanel {
+  z-index: 140;
+  width: min(360px, 85vw);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cardPanelCentered {
+  transform: translate(-50%, -50%);
+}
+
+.cardPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cardPanelIconButton {
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  padding: 0;
+}
+
+.cardPanelIconButton:hover {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+:global(.dark) .cardPanelIconButton {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .cardPanelIconButton:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.cardPanelTitle {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.cardPanelRow {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.cardPanelImage {
+  width: 62px;
+  height: 62px;
+  border-radius: 12px;
+  border: 1px dashed rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.02);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cardPanelFields {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardPanelInput {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+  outline: none;
+  width: 100%;
+}
+
+.cardPanelTextarea {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 11px;
+  outline: none;
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.cardPanelInline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardPanelColor {
+  width: 32px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+}
+
+.cardPanelUpload {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
+.cardPanelSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardPanelSectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.cardPanelAdd {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.cardPanelFieldRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardPanelFieldLabel {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(0, 0, 0, 0.45);
+  width: 80px;
+}
+
+.cardPanelHint {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.cardPanelRemove {
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cardPanelActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cardPanelButton {
+  border: none;
+  background: transparent;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.cardPanelButtonPrimary {
+  border: none;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+:global(.dark) .cardItem {
+  background: rgba(18, 18, 18, 0.92);
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+:global(.dark) .cardItemOverlay {
+  background: linear-gradient(180deg, rgba(15, 15, 15, 0.75), rgba(15, 15, 15, 0.9));
+}
+
+:global(.dark) .cardItemHasImage .cardItemOverlay {
+  background: linear-gradient(180deg, rgba(10, 10, 10, 0.4), rgba(10, 10, 10, 0.6));
+}
+
+:global(.dark) .cardItemTitle {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+:global(.dark) .cardItemLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .cardItemValue {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .cardItemAction {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .cardToolbarButton {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .cardToolbarButton:hover,
+:global(.dark) .cardToolbarButtonActive {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:global(.dark) .projectImageTitle {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .cardExpandButton {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .cardExpandButton:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:global(.dark) .cardAvatar {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.projectSummaryActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projectSummaryEmpty {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.projectSummaryNumberedIndex {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectSummaryIndex {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectSummaryEntry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--text);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.projectSummaryEntryText {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projectPageList {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.projectPageItem {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.projectPageName {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: rgba(0, 0, 0, 0.6);
+  background: transparent;
+}
+
+.projectPageNameInput {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: rgba(0, 0, 0, 0.6);
+  padding: 0;
+  outline: none;
+}
+
+.projectPageNameActive {
+  color: rgba(0, 0, 0, 0.9);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+
+.projectPageIndex {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.projectSaveButton {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.7);
+  background: transparent;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+:global(.dark) .panel-glass .projectSaveButton {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.projectCanvas {
+  position: relative;
+  min-height: 480px;
+  border-radius: 24px;
+  overflow-x: visible;
+}
+
+.projectStack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  width: 100%;
+}
+
+.projectBlock {
+  position: absolute;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  color: var(--text);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: 1;
+}
+
+.projectBlock:hover,
+.projectBlock:focus-within {
+  z-index: 70;
+}
+
+.projectStackBlock {
+  position: relative;
+  left: auto;
+  top: auto;
+  width: max-content;
+  max-width: 100%;
+  background: transparent;
+}
+
+.projectBlockHead {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  z-index: 2;
+}
+
+.projectBlockLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.projectBlockPlain {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.projectBlockPlain .projectBlockHead {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translate(100%, -50%);
+  margin-bottom: 0;
+}
+
+.projectBlockTools {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.projectBlockPlain.projectBlockEditable:hover .projectBlockTools,
+.projectBlockPlain.projectBlockEditable:focus-within .projectBlockTools {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.projectBlockPlain.projectBlockEditable:hover,
+.projectBlockPlain.projectBlockEditable:focus-within {
+  z-index: 70;
+}
+
+.projectBlockPlain:not(.projectBlockEditable) .projectBlockTools {
+  display: none;
+}
+
+.projectTitleActions {
+  position: relative;
+}
+
+.projectAlignWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.projectAlignTrigger {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.projectAlignPanel {
+  position: absolute;
+  right: 0;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  z-index: 50;
+}
+
+.projectColorRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.projectColorTrigger {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.7);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.projectColorTrigger:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.projectColorInput {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.projectColorClear {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: rgba(0, 0, 0, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+}
+
+.projectBlockInput {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.04);
+  border: none;
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.projectBlockInput:focus-visible {
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.projectBlockInputPlain {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  width: auto;
+  min-width: 8ch;
+  max-width: 100%;
+}
+
+.projectBlockInputPlain:focus-visible {
+  box-shadow: none;
+}
+
+.projectDragHandle {
+  cursor: grab;
+  touch-action: none;
+}
+
+.projectDragHandle:active {
+  cursor: grabbing;
+}
+
+.projectResizeHandle {
+  cursor: se-resize;
+}
+
+:global(.dark) .projectTitleInput {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+:global(.dark) .projectTitleInput:focus-visible {
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.45);
+}
+
+:global(.dark) .projectMenuItem {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+:global(.dark) .projectMenuInput {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+:global(.dark) .projectMenuInput:focus-visible {
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.52);
+}
+
+:global(.dark) .projectPagesShell {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+:global(.dark) .projectPageSeparator {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectAlignOption {
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  background: transparent;
+  box-shadow: none;
+}
+
+:global(.dark) .projectAlignOptionActive {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:global(.dark) .projectTableHeaderMeta {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectTableRow {
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+:global(.dark) .projectTableHeaderRow {
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+
+:global(.dark) .projectTableBodyRow {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+:global(.dark) .projectTableCellInput {
+  background: transparent;
+  border-color: transparent;
+}
+
+:global(.dark) .projectTableCellInput:focus-visible {
+  border-color: transparent;
+  background: transparent;
+}
+
+:global(.dark) .projectTableCheckbox {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: transparent;
+}
+
+:global(.dark) .projectTableCheckbox:checked {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .projectTableHeadCell {
+  border-right-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(.dark) .projectTableCell {
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+:global(.dark) .projectTableChip {
+  background: transparent;
+  border-color: transparent;
+}
+
+:global(.dark) .projectTableChip:focus-within {
+  background: transparent;
+  border-color: transparent;
+}
+
+:global(.dark) .projectTableChipMedia {
+  background: transparent;
+  border-color: transparent;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectTableConfigTitle {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectTableConfigLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .projectTableConfigInput,
+:global(.dark) .projectTableConfigSelect {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+:global(.dark) .projectTableConfigDrag {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectTableConfigOptionInput {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .projectTableConfigOptionAdd,
+:global(.dark) .projectTableConfigOptionRemove {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectTableConfigPrimary {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .projectBlock {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+:global(.dark) .projectAlignTrigger {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectAlignPanel {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+:global(.dark) .projectColorTrigger {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+:global(.dark) .projectColorClear {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+}
+
+:global(.dark) .projectBlockLabel {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectBlockInput {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+:global(.dark) .projectBlockInput:focus-visible {
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.5);
+}
+
+:global(.dark) .projectBlockInputPlain {
+  background: transparent;
+  box-shadow: none;
+}
+
+:global(.dark) .projectBlockInputPlain:focus-visible {
+  box-shadow: none;
+}
+
+:global(.dark) .projectMenuTitle {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectMenuSection {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+:global(.dark) .projectMenuTrigger {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectPageChip {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.7);
+  background: transparent;
+}
+
+:global(.dark) .projectPageChipActive {
+  color: rgba(255, 255, 255, 0.95);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+:global(.dark) .projectPageIndex {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectSaveButton {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+
+:global(.dark) .projectSummaryIndex {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectSummaryOptionsLabel {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectSummaryNumberedIndex {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectSummaryBlockLabel {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectSummaryBlockInput {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--text);
+}
+
+:global(.dark) .projectSummaryBlockInput:focus-visible {
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+:global(.dark) .projectPageName {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectPageNameActive {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:global(.dark) .projectMenuItem:hover {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55);
+}
