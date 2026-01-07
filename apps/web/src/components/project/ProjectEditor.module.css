@@ -737,6 +737,10 @@
   margin-bottom: 8px;
 }
 
+.projectTableConfigRowStack {
+  align-items: flex-start;
+}
+
 .projectTableConfigLabel {
   font-size: 10px;
   letter-spacing: 0.12em;
@@ -758,6 +762,55 @@
   font-size: 11px;
   padding: 6px 8px;
   align-self: stretch;
+}
+
+.projectTableConfigFilter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.projectTableConfigFilterList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.projectTableConfigFilterItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.projectTableConfigFilterCheckbox {
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  background: transparent;
+  cursor: pointer;
+}
+
+.projectTableConfigFilterCheckbox:checked {
+  background: rgba(22, 163, 74, 0.9);
+  border-color: rgba(22, 163, 74, 0.9);
+}
+
+.projectTableConfigFilterText {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.projectTableConfigFilterEmpty {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
 }
 
 .projectTableConfigGrid {
@@ -800,6 +853,13 @@
   flex-direction: column;
   gap: 6px;
   padding-left: 26px;
+}
+
+.projectTableConfigOptionsInline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .projectTableConfigOptionRow {
@@ -863,6 +923,21 @@
   box-shadow: none;
   outline: none;
   text-decoration: none;
+}
+
+.projectTableConfigTrash {
+  all: unset;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.6);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  padding: 0;
 }
 
 .projectTableConfigPrimary {
@@ -987,6 +1062,23 @@
   justify-content: flex-end;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.projectTableToolbar {
+  justify-content: space-between;
+  width: 100%;
+}
+
+.projectTableToolbarLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.projectTableToolbarRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .cardToolbarGroup {
@@ -2016,6 +2108,19 @@
   border-color: rgba(255, 255, 255, 0.12);
 }
 
+:global(.dark) .projectTableConfigFilterItem,
+:global(.dark) .projectTableConfigFilterText {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .projectTableConfigFilterCheckbox {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+:global(.dark) .projectTableConfigFilterEmpty {
+  color: rgba(255, 255, 255, 0.55);
+}
+
 :global(.dark) .projectTableConfigDrag {
   color: rgba(255, 255, 255, 0.7);
 }
@@ -2028,6 +2133,10 @@
 :global(.dark) .projectTableConfigOptionAdd,
 :global(.dark) .projectTableConfigOptionRemove {
   color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .projectTableConfigTrash {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 :global(.dark) .projectTableConfigPrimary {

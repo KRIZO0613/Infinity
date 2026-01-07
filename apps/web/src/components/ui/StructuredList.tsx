@@ -38,11 +38,19 @@ type StructuredListProps = {
   onUpdateCell: (rowId: string, columnId: string, value: string | boolean) => void;
   onAddRow: () => void;
   onRemoveRow?: (rowId: string) => void;
+  onAddColumnAt?: (index: number) => void;
+  onRemoveColumn?: (columnId: string) => void;
+  onOpenConfig?: (anchor: HTMLElement, columnId?: string) => void;
+  onMoveColumn?: (fromIndex: number, toIndex: number) => void;
+  onSwapColumn?: (fromIndex: number, toIndex: number) => void;
   onMediaSelect?: (rowId: string, column: StructuredListColumn, files: FileList | null) => void;
   emptyLabel?: string;
   addLabel?: string;
   showAddButton?: boolean;
+  showQuickAdd?: boolean;
+  showHeaderControls?: boolean;
   showColumnLabels?: boolean;
+  reorderMode?: boolean;
   editMode?: boolean;
   onResizeColumn?: (columnId: string, width: number) => void;
   scrollerStyle?: CSSProperties;
@@ -80,11 +88,19 @@ export default function StructuredList({
   onUpdateCell,
   onAddRow,
   onRemoveRow,
+  onAddColumnAt,
+  onRemoveColumn,
+  onOpenConfig,
+  onMoveColumn,
+  onSwapColumn,
   onMediaSelect,
   emptyLabel = "Aucun element pour le moment.",
   addLabel = "+ Ajouter un element",
   showAddButton = true,
+  showQuickAdd = false,
+  showHeaderControls = false,
   showColumnLabels = false,
+  reorderMode = false,
   editMode = false,
   onResizeColumn,
   scrollerStyle,
@@ -125,6 +141,96 @@ export default function StructuredList({
     return { meta, primary, secondary, values };
   }, [columns]);
   const columnById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  const columnIndexById = useMemo(
+    () => new Map(columns.map((column, index) => [column.id, index])),
+    [columns],
+  );
+  const lastColumnId = columns[columns.length - 1]?.id;
+  const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
+  const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
+  const allowColumnMove = Boolean(reorderMode && onMoveColumn);
+
+  const handleHeaderDragStart = (event: DragEvent<HTMLDivElement>, columnId: string) => {
+    if (!allowColumnMove) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", columnId);
+    setDraggingColumnId(columnId);
+  };
+
+  const handleHeaderDragOver = (event: DragEvent<HTMLDivElement>, columnId: string) => {
+    if (!allowColumnMove) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dragOverColumnId !== columnId) setDragOverColumnId(columnId);
+  };
+
+  const handleHeaderDrop = (event: DragEvent<HTMLDivElement>, columnId: string) => {
+    if (!allowColumnMove) return;
+    event.preventDefault();
+    const fromId = event.dataTransfer.getData("text/plain");
+    if (!fromId || fromId === columnId) {
+      setDraggingColumnId(null);
+      setDragOverColumnId(null);
+      return;
+    }
+    const fromIndex = columnIndexById.get(fromId);
+    const toIndex = columnIndexById.get(columnId);
+    if (fromIndex === undefined || toIndex === undefined) {
+      setDraggingColumnId(null);
+      setDragOverColumnId(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const dropBefore = event.clientX < rect.left + rect.width / 2;
+    let insertIndex = dropBefore ? toIndex : toIndex + 1;
+    if (fromIndex < insertIndex) insertIndex -= 1;
+    if (fromIndex !== insertIndex) {
+      onMoveColumn(fromIndex, insertIndex);
+    }
+    setDraggingColumnId(null);
+    setDragOverColumnId(null);
+  };
+
+  const handleHeaderDragEnd = () => {
+    setDraggingColumnId(null);
+    setDragOverColumnId(null);
+  };
+
+  useEffect(() => {
+    if (!allowColumnMove) {
+      setSelectedColumnId(null);
+      return;
+    }
+    if (selectedColumnId && !columnById.has(selectedColumnId)) {
+      setSelectedColumnId(null);
+    }
+  }, [allowColumnMove, columnById, selectedColumnId]);
+
+  const handleHeaderSelect = (event: MouseEvent<HTMLDivElement>, columnId: string) => {
+    if (!allowColumnMove) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, input, select, a, [data-no-reorder='true']")) return;
+    event.preventDefault();
+    if (!selectedColumnId || selectedColumnId === columnId) {
+      setSelectedColumnId((prev) => (prev === columnId ? null : columnId));
+      return;
+    }
+    const fromIndex = columnIndexById.get(selectedColumnId);
+    const toIndex = columnIndexById.get(columnId);
+    if (fromIndex === undefined || toIndex === undefined) {
+      setSelectedColumnId(null);
+      return;
+    }
+    if (fromIndex !== toIndex) {
+      if (onSwapColumn) {
+        onSwapColumn(fromIndex, toIndex);
+      } else {
+        onMoveColumn?.(fromIndex, toIndex);
+      }
+    }
+    setSelectedColumnId(null);
+  };
 
   const labelFor = (column?: StructuredListColumn | null) => {
     if (!column) return "";
@@ -370,7 +476,13 @@ export default function StructuredList({
     if (column.type === "image" || column.type === "video") {
       return (
         <label className={styles.structuredMediaButton} onClick={(event) => event.stopPropagation()}>
-          <span className={styles.structuredBadge}>+</span>
+          <span className={styles.structuredMediaPreview}>
+            {value
+              ? column.type === "image"
+                ? <img src={String(value)} alt="" />
+                : <video src={String(value)} muted playsInline />
+              : "+"}
+          </span>
           <input
             type="file"
             accept={column.type === "image" ? "image/*" : "video/*"}
@@ -445,6 +557,22 @@ export default function StructuredList({
       if (!value) return null;
       return <span className={styles.structuredValue}>{String(value)}</span>;
     }
+    if (column.type === "image") {
+      if (!value) return null;
+      return (
+        <span className={styles.structuredMediaPreview}>
+          <img src={String(value)} alt="" />
+        </span>
+      );
+    }
+    if (column.type === "video") {
+      if (!value) return null;
+      return (
+        <span className={styles.structuredMediaPreview}>
+          <video src={String(value)} muted playsInline />
+        </span>
+      );
+    }
     return null;
   };
 
@@ -462,7 +590,9 @@ export default function StructuredList({
     }
     if (column.type === "number") return value === "" || value === undefined ? "" : String(value);
     if (column.type === "text") return String(value ?? "");
-    if (column.type === "image" || column.type === "video") return value ? "Media" : "";
+    if (column.type === "image" || column.type === "video") {
+      return renderValue(column, value);
+    }
     return "";
   };
 
@@ -574,7 +704,13 @@ export default function StructuredList({
     if (column.type === "image" || column.type === "video") {
       return (
         <label className={styles.structuredMediaButton} onClick={(event) => event.stopPropagation()}>
-          <span className={styles.structuredBadge}>+</span>
+          <span className={styles.structuredMediaPreview}>
+            {value
+              ? column.type === "image"
+                ? <img src={String(value)} alt="" />
+                : <video src={String(value)} muted playsInline />
+              : "+"}
+          </span>
           <input
             type="file"
             accept={column.type === "image" ? "image/*" : "video/*"}
@@ -632,8 +768,12 @@ export default function StructuredList({
       widths.push(column.width ? Math.max(64, column.width) : fallback);
     };
     if (layout.meta) {
-      parts.push(getWidth(layout.meta, "52px"));
-      addWidth(layout.meta, 52);
+      if (layout.meta.width) {
+        parts.push(getWidth(layout.meta, "96px"));
+      } else {
+        parts.push("minmax(96px, max-content)");
+      }
+      addWidth(layout.meta, 96);
     }
     if (layout.primary) {
       parts.push(getWidth(layout.primary, defaultWidth));
@@ -682,14 +822,55 @@ export default function StructuredList({
       onPointerCancel={handleScrollerPointerUp}
     >
       <div
-        className={cx(styles.structuredList, editMode && styles.structuredListEdit)}
+        className={cx(
+          styles.structuredList,
+          editMode && styles.structuredListEdit,
+          editingRowId && styles.structuredListActive,
+        )}
         style={listStyle}
       >
       {showColumnLabels && columns.length > 0 && (
         <div className={styles.structuredHeader} style={rowStyle}>
           {layout.meta && (
-            <div className={styles.structuredHeaderCell}>
-              {labelFor(layout.meta)}
+            <div
+              className={cx(
+                styles.structuredHeaderCell,
+                allowColumnMove && styles.structuredHeaderCellDraggable,
+                selectedColumnId === layout.meta.id && styles.structuredHeaderCellSelected,
+                draggingColumnId === layout.meta.id && styles.structuredHeaderCellDragging,
+                dragOverColumnId === layout.meta.id && styles.structuredHeaderCellDragOver,
+              )}
+              draggable={allowColumnMove}
+              onDragStart={(event) => handleHeaderDragStart(event, layout.meta!.id)}
+              onDragOver={(event) => handleHeaderDragOver(event, layout.meta!.id)}
+              onDrop={(event) => handleHeaderDrop(event, layout.meta!.id)}
+              onDragEnd={handleHeaderDragEnd}
+              onClick={(event) => handleHeaderSelect(event, layout.meta!.id)}
+            >
+              <span className={styles.structuredHeaderLabel}>{labelFor(layout.meta)}</span>
+              {showHeaderControls && onOpenConfig && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderFilter}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenConfig(event.currentTarget, layout.meta!.id);
+                  }}
+                  aria-label="Filtrer et editer"
+                  title="Filtrer et editer"
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="#ff3b30"
+                    className={styles.structuredHeaderFilterIcon}
+                  >
+                    <path d="M4 5h16l-6.5 7.2v5.6l-3 1.2v-6.8L4 5z" />
+                  </svg>
+                </button>
+              )}
               {editMode && (
                 <button
                   type="button"
@@ -702,8 +883,45 @@ export default function StructuredList({
             </div>
           )}
           {layout.primary && (
-            <div className={styles.structuredHeaderCell}>
-              {labelFor(layout.primary)}
+            <div
+              className={cx(
+                styles.structuredHeaderCell,
+                allowColumnMove && styles.structuredHeaderCellDraggable,
+                selectedColumnId === layout.primary.id && styles.structuredHeaderCellSelected,
+                draggingColumnId === layout.primary.id && styles.structuredHeaderCellDragging,
+                dragOverColumnId === layout.primary.id && styles.structuredHeaderCellDragOver,
+              )}
+              draggable={allowColumnMove}
+              onDragStart={(event) => handleHeaderDragStart(event, layout.primary!.id)}
+              onDragOver={(event) => handleHeaderDragOver(event, layout.primary!.id)}
+              onDrop={(event) => handleHeaderDrop(event, layout.primary!.id)}
+              onDragEnd={handleHeaderDragEnd}
+              onClick={(event) => handleHeaderSelect(event, layout.primary!.id)}
+            >
+              <span className={styles.structuredHeaderLabel}>{labelFor(layout.primary)}</span>
+              {showHeaderControls && onOpenConfig && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderFilter}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenConfig(event.currentTarget, layout.primary!.id);
+                  }}
+                  aria-label="Filtrer et editer"
+                  title="Filtrer et editer"
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="#ff3b30"
+                    className={styles.structuredHeaderFilterIcon}
+                  >
+                    <path d="M4 5h16l-6.5 7.2v5.6l-3 1.2v-6.8L4 5z" />
+                  </svg>
+                </button>
+              )}
               {editMode && (
                 <button
                   type="button"
@@ -716,8 +934,45 @@ export default function StructuredList({
             </div>
           )}
           {layout.secondary && (
-            <div className={styles.structuredHeaderCell}>
-              {labelFor(layout.secondary)}
+            <div
+              className={cx(
+                styles.structuredHeaderCell,
+                allowColumnMove && styles.structuredHeaderCellDraggable,
+                selectedColumnId === layout.secondary.id && styles.structuredHeaderCellSelected,
+                draggingColumnId === layout.secondary.id && styles.structuredHeaderCellDragging,
+                dragOverColumnId === layout.secondary.id && styles.structuredHeaderCellDragOver,
+              )}
+              draggable={allowColumnMove}
+              onDragStart={(event) => handleHeaderDragStart(event, layout.secondary!.id)}
+              onDragOver={(event) => handleHeaderDragOver(event, layout.secondary!.id)}
+              onDrop={(event) => handleHeaderDrop(event, layout.secondary!.id)}
+              onDragEnd={handleHeaderDragEnd}
+              onClick={(event) => handleHeaderSelect(event, layout.secondary!.id)}
+            >
+              <span className={styles.structuredHeaderLabel}>{labelFor(layout.secondary)}</span>
+              {showHeaderControls && onOpenConfig && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderFilter}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenConfig(event.currentTarget, layout.secondary!.id);
+                  }}
+                  aria-label="Filtrer et editer"
+                  title="Filtrer et editer"
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="#ff3b30"
+                    className={styles.structuredHeaderFilterIcon}
+                  >
+                    <path d="M4 5h16l-6.5 7.2v5.6l-3 1.2v-6.8L4 5z" />
+                  </svg>
+                </button>
+              )}
               {editMode && (
                 <button
                   type="button"
@@ -730,8 +985,46 @@ export default function StructuredList({
             </div>
           )}
           {layout.values.map((column) => (
-            <div key={column.id} className={styles.structuredHeaderCell}>
-              {labelFor(column)}
+            <div
+              key={column.id}
+              className={cx(
+                styles.structuredHeaderCell,
+                allowColumnMove && styles.structuredHeaderCellDraggable,
+                selectedColumnId === column.id && styles.structuredHeaderCellSelected,
+                draggingColumnId === column.id && styles.structuredHeaderCellDragging,
+                dragOverColumnId === column.id && styles.structuredHeaderCellDragOver,
+              )}
+              draggable={allowColumnMove}
+              onDragStart={(event) => handleHeaderDragStart(event, column.id)}
+              onDragOver={(event) => handleHeaderDragOver(event, column.id)}
+              onDrop={(event) => handleHeaderDrop(event, column.id)}
+              onDragEnd={handleHeaderDragEnd}
+              onClick={(event) => handleHeaderSelect(event, column.id)}
+            >
+              <span className={styles.structuredHeaderLabel}>{labelFor(column)}</span>
+              {showHeaderControls && onOpenConfig && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderFilter}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenConfig(event.currentTarget, column.id);
+                  }}
+                  aria-label="Filtrer et editer"
+                  title="Filtrer et editer"
+                >
+                  <svg
+                    aria-hidden="true"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="#ff3b30"
+                    className={styles.structuredHeaderFilterIcon}
+                  >
+                    <path d="M4 5h16l-6.5 7.2v5.6l-3 1.2v-6.8L4 5z" />
+                  </svg>
+                </button>
+              )}
               {editMode && (
                 <button
                   type="button"
@@ -743,7 +1036,42 @@ export default function StructuredList({
               )}
             </div>
           ))}
-          <div className={styles.structuredHeaderSpacer} aria-hidden="true" />
+          {showHeaderControls ? (
+            <div className={styles.structuredHeaderActions}>
+              {onAddColumnAt && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderButton}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (columns.length > 0) {
+                      onAddColumnAt(columns.length - 1);
+                    }
+                  }}
+                  aria-label="Ajouter une colonne"
+                  title="Ajouter une colonne"
+                >
+                  +
+                </button>
+              )}
+              {onRemoveColumn && columns.length > 1 && lastColumnId && (
+                <button
+                  type="button"
+                  className={styles.structuredHeaderButton}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemoveColumn(lastColumnId);
+                  }}
+                  aria-label="Supprimer une colonne"
+                  title="Supprimer une colonne"
+                >
+                  −
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className={styles.structuredHeaderSpacer} aria-hidden="true" />
+          )}
         </div>
       )}
       {rows.length === 0 && <div className={styles.structuredEmpty}>{emptyLabel}</div>}
@@ -777,7 +1105,9 @@ export default function StructuredList({
                 cellType === "date" ||
                 cellType === "select" ||
                 cellType === "multiselect" ||
-                cellType === "yesno";
+                cellType === "yesno" ||
+                cellType === "image" ||
+                cellType === "video";
               if (cellId && cellType === "checkbox") {
                 pendingActionRef.current = { rowId: row.id, columnId: cellId, action: "toggle" };
               }
@@ -795,31 +1125,26 @@ export default function StructuredList({
             {layout.meta && (
               <div className={styles.structuredCell} data-cell-id={layout.meta.id}>
                 {layout.meta.type === "image" || layout.meta.type === "video" ? (
-                  <label className={styles.structuredMediaButton}>
+                  <label
+                    className={styles.structuredMediaButton}
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <span className={styles.structuredMetaMedia}>
                       {metaValue
                         ? layout.meta.type === "image"
-                          ? (
-                            <img src={String(metaValue)} alt="" />
-                          )
-                          : (
-                            <video src={String(metaValue)} />
-                          )
-                        : isEditing
-                          ? "+"
-                          : null}
+                          ? <img src={String(metaValue)} alt="" />
+                          : <video src={String(metaValue)} muted playsInline />
+                        : "+"}
                     </span>
-                    {isEditing && (
-                      <input
-                        type="file"
-                        accept={layout.meta.type === "image" ? "image/*" : "video/*"}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => {
-                          onMediaSelect?.(row.id, layout.meta, event.target.files);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                    )}
+                    <input
+                      type="file"
+                      accept={layout.meta.type === "image" ? "image/*" : "video/*"}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => {
+                        onMediaSelect?.(row.id, layout.meta, event.target.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
                   </label>
                 ) : isEditing || isAlwaysInteractiveType(layout.meta.type) ? (
                   renderInlineControl(layout.meta, metaValue, row.id, styles.structuredMetaInput)
@@ -938,7 +1263,13 @@ export default function StructuredList({
                       className={styles.structuredMediaButton}
                       onClick={(event) => event.stopPropagation()}
                     >
-                      <span className={styles.structuredBadge}>+</span>
+                      <span className={styles.structuredMediaPreview}>
+                        {value
+                          ? column.type === "image"
+                            ? <img src={String(value)} alt="" />
+                            : <video src={String(value)} muted playsInline />
+                          : "+"}
+                      </span>
                       <input
                         type="file"
                         accept={column.type === "image" ? "image/*" : "video/*"}
@@ -1030,6 +1361,36 @@ export default function StructuredList({
           </div>
         );
       })}
+
+      {showQuickAdd && (
+        <div className={styles.structuredQuickActions}>
+          <button
+            type="button"
+            className={styles.structuredQuickAdd}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddRow();
+            }}
+            aria-label="Ajouter une ligne"
+            title="Ajouter une ligne"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className={styles.structuredQuickAdd}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (rows.length === 0) return;
+              onRemoveRow?.(rows[rows.length - 1]?.id ?? "");
+            }}
+            aria-label="Supprimer la dernière ligne"
+            title="Supprimer la dernière ligne"
+          >
+            −
+          </button>
+        </div>
+      )}
 
       {showAddButton && (
         <button type="button" className={styles.structuredAdd} onClick={onAddRow}>

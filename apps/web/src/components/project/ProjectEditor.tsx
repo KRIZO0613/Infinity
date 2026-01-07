@@ -147,6 +147,10 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
     description: null,
     summary: null,
   });
+  const projectRef = useRef<Project | null>(null);
+  const pagesRef = useRef<ProjectPage[]>([]);
+  const activePageRef = useRef<ProjectPage | null>(null);
+  const summarySectionsRef = useRef<SummarySection[]>([]);
 
   const decodedProjectId = useMemo(() => decodeURIComponent(projectId), [projectId]);
 
@@ -300,13 +304,18 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
   }, [activePageId]);
 
   const activePage = pages.find((page) => page.id === activePageId) ?? null;
+  projectRef.current = project;
+  pagesRef.current = pages;
+  activePageRef.current = activePage;
 
   const updateActivePage = (patch: Partial<ProjectPage>) => {
-    if (!project || !activePage) return;
-    const nextPages = pages.map((page) =>
-      page.id === activePage.id ? { ...page, ...patch } : page,
+    const currentProject = projectRef.current;
+    const currentPage = activePageRef.current;
+    if (!currentProject || !currentPage) return;
+    const nextPages = pagesRef.current.map((page) =>
+      page.id === currentPage.id ? { ...page, ...patch } : page,
     );
-    updateProject(project.id, { pages: nextPages });
+    updateProject(currentProject.id, { pages: nextPages });
   };
 
   const summarySections = useMemo<SummarySection[]>(() => {
@@ -318,6 +327,10 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
       blocks: [],
     }));
   }, [activePage]);
+
+  useEffect(() => {
+    summarySectionsRef.current = summarySections;
+  }, [summarySections]);
 
   useEffect(() => {
     if (!project || !activePage) return;
@@ -336,8 +349,11 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
   const titleHighlight = activePage?.blocks?.title?.highlight;
 
   const applySummarySections = (updater: (sections: SummarySection[]) => SummarySection[]) => {
-    if (!project || !activePage) return;
-    const next = updater(summarySections);
+    const currentProject = projectRef.current;
+    const currentPage = activePageRef.current;
+    if (!currentProject || !currentPage) return;
+    const baseSections = currentPage.summarySections ?? summarySectionsRef.current ?? [];
+    const next = updater(baseSections);
     updateActivePage({
       summarySections: next,
       summary: next.map((section) => section.title),
@@ -781,8 +797,8 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
       if (menuTriggerRef.current?.contains(target)) return;
       setSummaryPanelOpen(false);
     };
-    window.addEventListener("pointerdown", handleOutside);
-    return () => window.removeEventListener("pointerdown", handleOutside);
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => window.removeEventListener("pointerdown", handleOutside, true);
   }, [summaryPanelOpen]);
 
   useLayoutEffect(() => {
