@@ -846,6 +846,12 @@
   flex: 0 0 24px;
 }
 
+.projectTableConfigCopy,
+.projectTableConfigPaste {
+  color: rgba(0, 0, 0, 0.5);
+  flex: 0 0 24px;
+}
+
 .projectTableConfigOptions {
   flex: 1 1 100%;
   width: 100%;
@@ -860,6 +866,35 @@
   flex-direction: column;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.projectTableConfigOptionsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.projectTableConfigOptionsToggle {
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.55);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+.projectTableConfigOptionsToggle svg {
+  transition: transform 0.2s ease;
+}
+
+.projectTableConfigOptionsToggleOpen svg {
+  transform: rotate(180deg);
 }
 
 .projectTableConfigOptionRow {
@@ -1079,6 +1114,22 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.projectTableSearch {
+  width: 160px;
+  height: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.projectTableSearch:focus-visible {
+  outline: none;
+  border-color: rgba(0, 0, 0, 0.3);
 }
 
 .cardToolbarGroup {
@@ -2125,6 +2176,11 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+:global(.dark) .projectTableConfigCopy,
+:global(.dark) .projectTableConfigPaste {
+  color: rgba(255, 255, 255, 0.7);
+}
+
 :global(.dark) .projectTableConfigOptionInput {
   border-color: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.85);
@@ -2135,6 +2191,10 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+:global(.dark) .projectTableConfigOptionsToggle {
+  color: rgba(255, 255, 255, 0.75);
+}
+
 :global(.dark) .projectTableConfigTrash {
   color: rgba(255, 255, 255, 0.75);
 }
@@ -2142,6 +2202,15 @@
 :global(.dark) .projectTableConfigPrimary {
   background: transparent;
   color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .projectTableSearch {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .projectTableSearch:focus-visible {
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 :global(.dark) .projectBlock {

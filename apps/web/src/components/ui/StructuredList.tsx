@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FocusEvent, KeyboardEvent, PointerEvent, ReactNode, MouseEvent } from "react";
+import type { CSSProperties, FocusEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent, ReactNode, MouseEvent } from "react";
 import styles from "./StructuredList.module.css";
 
 export type StructuredListColumnType =
@@ -49,6 +49,16 @@ type StructuredListProps = {
   showAddButton?: boolean;
   showQuickAdd?: boolean;
   showHeaderControls?: boolean;
+  showCopyControls?: boolean;
+  onPasteRowAfter?: (rowId: string, text: string) => void;
+  onPasteColumnBefore?: (columnId: string, text: string) => void;
+  onPasteTable?: (text: string) => void;
+  onDuplicateRowAfter?: (rowId: string) => void;
+  onDuplicateColumnAfter?: (columnId: string) => void;
+  onUndoTable?: () => void;
+  onRedoTable?: () => void;
+  canUndoTable?: boolean;
+  canRedoTable?: boolean;
   showColumnLabels?: boolean;
   reorderMode?: boolean;
   editMode?: boolean;
@@ -99,6 +109,16 @@ export default function StructuredList({
   showAddButton = true,
   showQuickAdd = false,
   showHeaderControls = false,
+  showCopyControls = false,
+  onPasteRowAfter,
+  onPasteColumnBefore,
+  onPasteTable,
+  onDuplicateRowAfter,
+  onDuplicateColumnAfter,
+  onUndoTable,
+  onRedoTable,
+  canUndoTable = false,
+  canRedoTable = false,
   showColumnLabels = false,
   reorderMode = false,
   editMode = false,
@@ -125,6 +145,7 @@ export default function StructuredList({
     startX: number;
     startWidth: number;
   } | null>(null);
+  const copyBufferRef = useRef<HTMLTextAreaElement | null>(null);
 
   const layout = useMemo(() => {
     if (columns.length === 0) return { meta: null, primary: null, secondary: null, values: [] as StructuredListColumn[] };
@@ -141,6 +162,7 @@ export default function StructuredList({
     return { meta, primary, secondary, values };
   }, [columns]);
   const columnById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
   const columnIndexById = useMemo(
     () => new Map(columns.map((column, index) => [column.id, index])),
     [columns],
@@ -149,6 +171,10 @@ export default function StructuredList({
   const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
   const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null);
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<{
+    type: "column" | "row" | "table";
+    id?: string;
+  } | null>(null);
   const allowColumnMove = Boolean(reorderMode && onMoveColumn);
 
   const handleHeaderDragStart = (event: DragEvent<HTMLDivElement>, columnId: string) => {
@@ -237,6 +263,687 @@ export default function StructuredList({
     return column.label?.trim() || "Champ";
   };
 
+  const formatCopyValue = (
+    column: StructuredListColumn,
+    value: string | boolean | undefined,
+  ) => {
+    if (value === undefined || value === null || value === "") return "";
+    if (column.type === "checkbox") return value ? "Oui" : "Non";
+    if (column.type === "yesno") {
+      if (typeof value === "boolean") return value ? "Oui" : "Non";
+      const normalized = String(value ?? "").toLowerCase();
+      if (["yes", "oui", "true", "1"].includes(normalized)) return "Oui";
+      if (["no", "non", "false", "0"].includes(normalized)) return "Non";
+      return String(value ?? "");
+    }
+    if (column.type === "date") return formatDate(String(value ?? ""));
+    if (column.type === "link") return String(value ?? "");
+    if (column.type === "select") {
+      const raw = String(value ?? "");
+      if (!raw) return "";
+      return resolveOption(column, raw)?.label ?? raw;
+    }
+    if (column.type === "multiselect") {
+      const raw = String(value ?? "");
+      if (!raw) return "";
+      return raw
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join(", ");
+    }
+    if (column.type === "image" || column.type === "video") return String(value ?? "");
+    if (column.type === "number") return value === "" || value === undefined ? "" : String(value);
+    return String(value ?? "");
+  };
+
+  const ensureCopyBuffer = () => {
+    if (copyBufferRef.current && document.body.contains(copyBufferRef.current)) {
+      return copyBufferRef.current;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.setAttribute("aria-hidden", "true");
+    textarea.tabIndex = -1;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+    copyBufferRef.current = textarea;
+    return textarea;
+  };
+
+  const primeCopySelection = (text: string) => {
+    if (!text) return;
+    const textarea = ensureCopyBuffer();
+    textarea.value = text;
+    textarea.focus();
+    textarea.select();
+  };
+
+  const copyText = (text: string) => {
+    if (!text) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {
+        primeCopySelection(text);
+        document.execCommand("copy");
+      });
+      return;
+    }
+    primeCopySelection(text);
+    document.execCommand("copy");
+  };
+
+  const readClipboardText = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+      return "";
+    }
+    try {
+      return await navigator.clipboard.readText();
+    } catch {
+      return "";
+    }
+  };
+
+  const handlePasteRow = async (rowId: string) => {
+    if (!onPasteRowAfter) return;
+    const text = await readClipboardText();
+    if (!text.trim()) return;
+    onPasteRowAfter(rowId, text);
+  };
+
+  const handlePasteColumn = async (columnId: string) => {
+    if (!onPasteColumnBefore) return;
+    const text = await readClipboardText();
+    if (!text.trim()) return;
+    onPasteColumnBefore(columnId, text);
+  };
+
+  const handlePasteTable = async () => {
+    if (!onPasteTable) return;
+    const text = await readClipboardText();
+    if (!text.trim()) return;
+    onPasteTable(text);
+  };
+
+  const canRemoveColumn = Boolean(onRemoveColumn && columns.length > 1);
+  const shouldShowColumnMenu = showCopyControls || canRemoveColumn;
+
+  const isMenuOpen = (type: "column" | "row" | "table", id?: string) =>
+    openMenu?.type === type && openMenu?.id === id;
+  const toggleMenu = (type: "column" | "row" | "table", id?: string) => {
+    setOpenMenu((prev) =>
+      prev?.type === type && prev?.id === id ? null : { type, id },
+    );
+  };
+
+  const renderColumnMenu = (column: StructuredListColumn) => {
+    if (!shouldShowColumnMenu) return null;
+    const menuOpen = isMenuOpen("column", column.id);
+    return (
+      <div
+        className={cx(styles.structuredHeaderMenu, menuOpen && styles.structuredHeaderMenuOpen)}
+        data-structured-menu="true"
+      >
+        <button
+          type="button"
+          className={cx("icon-button", styles.structuredHeaderMenuToggle)}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleMenu("column", column.id);
+          }}
+          aria-label="Options de colonne"
+          title="Options de colonne"
+        >
+          <svg
+            aria-hidden="true"
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        <div className={styles.structuredHeaderMenuItems}>
+          {showCopyControls && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredCopyIcon)}
+              onClick={(event) => {
+                event.stopPropagation();
+                copyText(getColumnText(column));
+                setOpenMenu(null);
+              }}
+              aria-label="Copier la colonne"
+              title="Copier la colonne"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <rect x="4" y="4" width="11" height="11" rx="2" />
+              </svg>
+            </button>
+          )}
+          {showCopyControls && onPasteColumnBefore && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredPasteIcon)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handlePasteColumn(column.id);
+                setOpenMenu(null);
+              }}
+              aria-label="Coller la colonne"
+              title="Coller la colonne"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M12 11v6" />
+                <path d="M9 14l3 3 3-3" />
+              </svg>
+            </button>
+          )}
+          {onDuplicateColumnAfter && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredDuplicateIcon)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onDuplicateColumnAfter(column.id);
+                setOpenMenu(null);
+              }}
+              aria-label="Dupliquer la colonne"
+              title="Dupliquer la colonne"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <rect x="4" y="4" width="11" height="11" rx="2" />
+                <path d="M13 7h4" />
+                <path d="M15 5v4" />
+              </svg>
+            </button>
+          )}
+          {canRemoveColumn && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredDeleteIcon)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemoveColumn?.(column.id);
+                setOpenMenu(null);
+              }}
+              aria-label="Supprimer la colonne"
+              title="Supprimer la colonne"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M6 6l1 14h10l1-14" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderTableMenu = () => {
+    if (!showCopyControls) return null;
+    const menuOpen = isMenuOpen("table");
+    return (
+      <div
+        className={cx(
+          styles.structuredHeaderMenu,
+          styles.structuredHeaderMenuLeft,
+          menuOpen && styles.structuredHeaderMenuOpen,
+        )}
+        data-structured-menu="true"
+      >
+        <button
+          type="button"
+          className={cx("icon-button", styles.structuredHeaderMenuToggle)}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleMenu("table");
+          }}
+          aria-label="Options du tableau"
+          title="Options du tableau"
+        >
+          <svg
+            aria-hidden="true"
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        <div className={styles.structuredHeaderMenuItems}>
+          {onUndoTable && (
+            <button
+              type="button"
+              className={cx(
+                "icon-button",
+                styles.structuredUndoIcon,
+                !canUndoTable && styles.structuredMenuDisabled,
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!canUndoTable) return;
+                onUndoTable();
+                setOpenMenu(null);
+              }}
+              aria-label="Retour"
+              title="Retour"
+              disabled={!canUndoTable}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 7v6h6" />
+                <path d="M21 17a9 9 0 0 0-9-9H3" />
+              </svg>
+            </button>
+          )}
+          {onRedoTable && (
+            <button
+              type="button"
+              className={cx(
+                "icon-button",
+                styles.structuredRedoIcon,
+                !canRedoTable && styles.structuredMenuDisabled,
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!canRedoTable) return;
+                onRedoTable();
+                setOpenMenu(null);
+              }}
+              aria-label="Inverser"
+              title="Inverser"
+              disabled={!canRedoTable}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 7v6h-6" />
+                <path d="M3 17a9 9 0 0 1 9-9h9" />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            className={cx("icon-button", styles.structuredCopyIcon)}
+            onClick={(event) => {
+              event.stopPropagation();
+              copyText(getTableText());
+              setOpenMenu(null);
+            }}
+            aria-label="Copier le tableau"
+            title="Copier le tableau"
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 9h18" />
+              <path d="M9 9v12" />
+            </svg>
+          </button>
+          {onPasteTable && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredPasteIcon)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handlePasteTable();
+                setOpenMenu(null);
+              }}
+              aria-label="Coller le tableau"
+              title="Coller le tableau"
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M12 11v6" />
+                <path d="M9 14l3 3 3-3" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderRowMenu = (rowId: string) => {
+    if (!showCopyControls) return null;
+    const menuOpen = isMenuOpen("row", rowId);
+    return (
+      <div
+        className={cx(
+          styles.structuredHeaderMenu,
+          styles.structuredHeaderMenuLeft,
+          menuOpen && styles.structuredHeaderMenuOpen,
+        )}
+        data-structured-menu="true"
+      >
+        <button
+          type="button"
+          className={cx("icon-button", styles.structuredHeaderMenuToggle)}
+          onClick={(event) => {
+            event.stopPropagation();
+            toggleMenu("row", rowId);
+          }}
+          aria-label="Options de ligne"
+          title="Options de ligne"
+        >
+          <svg
+            aria-hidden="true"
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        <div className={styles.structuredHeaderMenuItems}>
+          <button
+            type="button"
+            className={cx("icon-button", styles.structuredCopyIcon)}
+            aria-label="Copier la ligne"
+            title="Copier la ligne"
+            onClick={(event) => {
+              event.stopPropagation();
+              copyText(getRowText(rowId));
+              setOpenMenu(null);
+            }}
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="9" y="9" width="11" height="11" rx="2" />
+              <rect x="4" y="4" width="11" height="11" rx="2" />
+            </svg>
+          </button>
+          {onPasteRowAfter && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredPasteIcon)}
+              aria-label="Coller la ligne"
+              title="Coller la ligne"
+              onClick={(event) => {
+                event.stopPropagation();
+                void handlePasteRow(rowId);
+                setOpenMenu(null);
+              }}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M12 11v6" />
+                <path d="M9 14l3 3 3-3" />
+              </svg>
+            </button>
+          )}
+          {onDuplicateRowAfter && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredDuplicateIcon)}
+              aria-label="Dupliquer la ligne"
+              title="Dupliquer la ligne"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDuplicateRowAfter(rowId);
+                setOpenMenu(null);
+              }}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <rect x="4" y="4" width="11" height="11" rx="2" />
+                <path d="M13 7h4" />
+                <path d="M15 5v4" />
+              </svg>
+            </button>
+          )}
+          {onRemoveRow && (
+            <button
+              type="button"
+              className={cx("icon-button", styles.structuredDeleteIcon)}
+              aria-label="Supprimer la ligne"
+              title="Supprimer la ligne"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemoveRow(rowId);
+                setOpenMenu(null);
+              }}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M6 6l1 14h10l1-14" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+  const orderedColumns = useMemo(
+    () =>
+      [layout.meta, layout.primary, layout.secondary, ...layout.values].filter(
+        (column): column is StructuredListColumn => Boolean(column),
+      ),
+    [layout],
+  );
+
+  const getColumnText = (column: StructuredListColumn) => {
+    const header = labelFor(column);
+    const values = rows.map((row) => formatCopyValue(column, row.values[column.id]));
+    return header ? [header, ...values].join("\n") : values.join("\n");
+  };
+
+  const getCellText = (rowId: string, columnId: string) => {
+    const row = rowById.get(rowId);
+    const column = columnById.get(columnId);
+    if (!row || !column) return "";
+    return formatCopyValue(column, row.values[column.id]);
+  };
+
+  const getRowText = (rowId: string) => {
+    const row = rowById.get(rowId);
+    if (!row) return "";
+    return orderedColumns
+      .map((column) => formatCopyValue(column, row.values[column.id]))
+      .join("\t");
+  };
+
+  const getTableText = () => {
+    const header = showColumnLabels
+      ? orderedColumns.map((column) => labelFor(column))
+      : [];
+    const body = rows.map((row) =>
+      orderedColumns.map((column) => formatCopyValue(column, row.values[column.id])).join("\t"),
+    );
+    return [...(header.length ? [header.join("\t")] : []), ...body].join("\n");
+  };
+
+  const handleContextMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (!showCopyControls) return;
+    const target = event.target as HTMLElement | null;
+    if (
+      target?.closest("input, textarea, select, [contenteditable='true']")
+    ) {
+      return;
+    }
+    const headerCell = target?.closest<HTMLElement>("[data-header-column-id]");
+    const cell = target?.closest<HTMLElement>("[data-cell-id]");
+    const row = target?.closest<HTMLElement>("[data-row-id]");
+    let text = "";
+    if (headerCell?.dataset.headerColumnId) {
+      const column = columnById.get(headerCell.dataset.headerColumnId);
+      if (column) text = getColumnText(column);
+    } else if (cell?.dataset.cellId && row?.dataset.rowId) {
+      text = getCellText(row.dataset.rowId, cell.dataset.cellId);
+    } else {
+      text = getTableText();
+    }
+    if (!text) return;
+    primeCopySelection(text);
+  };
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest("[data-structured-menu='true']")) return;
+      setOpenMenu(null);
+    };
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => window.removeEventListener("pointerdown", handleOutside, true);
+  }, [openMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (copyBufferRef.current) {
+        copyBufferRef.current.remove();
+        copyBufferRef.current = null;
+      }
+    };
+  }, []);
+
   const handleRowBlur = (rowId: string) => (event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget as Node | null;
     if (nextTarget && event.currentTarget.contains(nextTarget)) return;
@@ -289,7 +996,7 @@ export default function StructuredList({
     }
   };
 
-  const handleInputKey = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleInputKey = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
     setEditingRowId(null);
@@ -828,6 +1535,7 @@ export default function StructuredList({
           editingRowId && styles.structuredListActive,
         )}
         style={listStyle}
+        onContextMenu={handleContextMenu}
       >
       {showColumnLabels && columns.length > 0 && (
         <div className={styles.structuredHeader} style={rowStyle}>
@@ -840,6 +1548,7 @@ export default function StructuredList({
                 draggingColumnId === layout.meta.id && styles.structuredHeaderCellDragging,
                 dragOverColumnId === layout.meta.id && styles.structuredHeaderCellDragOver,
               )}
+              data-header-column-id={layout.meta.id}
               draggable={allowColumnMove}
               onDragStart={(event) => handleHeaderDragStart(event, layout.meta!.id)}
               onDragOver={(event) => handleHeaderDragOver(event, layout.meta!.id)}
@@ -871,6 +1580,7 @@ export default function StructuredList({
                   </svg>
                 </button>
               )}
+              {renderColumnMenu(layout.meta!)}
               {editMode && (
                 <button
                   type="button"
@@ -891,6 +1601,7 @@ export default function StructuredList({
                 draggingColumnId === layout.primary.id && styles.structuredHeaderCellDragging,
                 dragOverColumnId === layout.primary.id && styles.structuredHeaderCellDragOver,
               )}
+              data-header-column-id={layout.primary.id}
               draggable={allowColumnMove}
               onDragStart={(event) => handleHeaderDragStart(event, layout.primary!.id)}
               onDragOver={(event) => handleHeaderDragOver(event, layout.primary!.id)}
@@ -922,6 +1633,7 @@ export default function StructuredList({
                   </svg>
                 </button>
               )}
+              {renderColumnMenu(layout.primary!)}
               {editMode && (
                 <button
                   type="button"
@@ -942,6 +1654,7 @@ export default function StructuredList({
                 draggingColumnId === layout.secondary.id && styles.structuredHeaderCellDragging,
                 dragOverColumnId === layout.secondary.id && styles.structuredHeaderCellDragOver,
               )}
+              data-header-column-id={layout.secondary.id}
               draggable={allowColumnMove}
               onDragStart={(event) => handleHeaderDragStart(event, layout.secondary!.id)}
               onDragOver={(event) => handleHeaderDragOver(event, layout.secondary!.id)}
@@ -973,6 +1686,7 @@ export default function StructuredList({
                   </svg>
                 </button>
               )}
+              {renderColumnMenu(layout.secondary!)}
               {editMode && (
                 <button
                   type="button"
@@ -994,6 +1708,7 @@ export default function StructuredList({
                 draggingColumnId === column.id && styles.structuredHeaderCellDragging,
                 dragOverColumnId === column.id && styles.structuredHeaderCellDragOver,
               )}
+              data-header-column-id={column.id}
               draggable={allowColumnMove}
               onDragStart={(event) => handleHeaderDragStart(event, column.id)}
               onDragOver={(event) => handleHeaderDragOver(event, column.id)}
@@ -1025,6 +1740,7 @@ export default function StructuredList({
                   </svg>
                 </button>
               )}
+              {renderColumnMenu(column)}
               {editMode && (
                 <button
                   type="button"
@@ -1038,6 +1754,7 @@ export default function StructuredList({
           ))}
           {showHeaderControls ? (
             <div className={styles.structuredHeaderActions}>
+              {renderTableMenu()}
               {onAddColumnAt && (
                 <button
                   type="button"
@@ -1084,6 +1801,7 @@ export default function StructuredList({
           <div
             key={row.id}
             className={cx(styles.structuredRow, isEditing && styles.structuredRowActive)}
+            data-row-id={row.id}
             ref={(node) => {
               if (node) {
                 rowRefs.current.set(row.id, node);
@@ -1302,6 +2020,7 @@ export default function StructuredList({
               );
             })}
             <div className={styles.structuredActions}>
+              {renderRowMenu(row.id)}
               <button
                 type="button"
                 className="icon-button"
@@ -1327,7 +2046,7 @@ export default function StructuredList({
                   <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
                 </svg>
               </button>
-              {onRemoveRow && (
+              {!showCopyControls && onRemoveRow && (
                 <button
                   type="button"
                   className="icon-button"

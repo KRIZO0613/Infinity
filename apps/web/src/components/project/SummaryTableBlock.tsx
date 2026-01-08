@@ -35,10 +35,11 @@ const menuPanelClass = "table-menu-panel";
 const createId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-const createColumn = (): SummaryTableColumn => ({
+const createColumn = (overrides: Partial<SummaryTableColumn> = {}): SummaryTableColumn => ({
   id: createId("col"),
   label: "Champ",
   type: "text",
+  ...overrides,
 });
 
 const cloneTable = (source: SummaryTableData): SummaryTableData => ({
@@ -58,6 +59,8 @@ const createOption = (label = "Option", color?: string) => ({
   color,
 });
 
+const historyLimit = 30;
+
 const defaultOptionsForType = (type: SummaryTableColumn["type"]) => {
   if (type === "yesno") {
     return [
@@ -75,6 +78,129 @@ const createRow = (columns: SummaryTableColumn[]): SummaryTableRow => ({
   id: createId("row"),
   values: Object.fromEntries(
     columns.map((col) => [col.id, col.type === "checkbox" ? false : ""]),
+  ),
+});
+
+const normalizeClipboardText = (text: string) =>
+  text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+const parseClipboardMatrix = (text: string) => {
+  const normalized = normalizeClipboardText(text);
+  const lines = normalized.split("\n").filter((line) => line.trim() !== "");
+  return lines.map((line) => line.split("\t").map((cell) => cell.trim()));
+};
+
+type ClipboardColumnOption = { label?: string; color?: string };
+type ClipboardColumnPayload = {
+  label?: string;
+  type?: SummaryTableColumn["type"];
+  options?: ClipboardColumnOption[];
+};
+
+const columnTypes: SummaryTableColumn["type"][] = [
+  "text",
+  "number",
+  "date",
+  "checkbox",
+  "yesno",
+  "select",
+  "multiselect",
+  "link",
+  "image",
+  "video",
+];
+
+const isColumnType = (value: string): value is SummaryTableColumn["type"] =>
+  columnTypes.includes(value as SummaryTableColumn["type"]);
+
+const isChoiceType = (type: SummaryTableColumn["type"]) =>
+  type === "select" || type === "multiselect" || type === "yesno";
+
+const serializeColumnForClipboard = (column: SummaryTableColumn) =>
+  JSON.stringify({
+    __summaryTableColumn: true,
+    column: {
+      label: column.label ?? "",
+      type: column.type,
+      options: (column.options ?? []).map((option) => ({
+        label: option.label,
+        color: option.color,
+      })),
+    },
+  });
+
+const parseColumnFromClipboard = (text: string) => {
+  try {
+    const parsed = JSON.parse(text) as { __summaryTableColumn?: boolean; column?: ClipboardColumnPayload };
+    if (!parsed?.__summaryTableColumn || !parsed.column) return null;
+    const label = typeof parsed.column.label === "string" && parsed.column.label.trim()
+      ? parsed.column.label
+      : "Champ";
+    const type =
+      typeof parsed.column.type === "string" && isColumnType(parsed.column.type)
+        ? parsed.column.type
+        : "text";
+    const rawOptions = Array.isArray(parsed.column.options) ? parsed.column.options : [];
+    const options = isChoiceType(type)
+      ? (rawOptions.length > 0 ? rawOptions : defaultOptionsForType(type)).map((option) =>
+          createOption(
+            typeof option.label === "string" ? option.label : "Option",
+            typeof option.color === "string" ? option.color : undefined,
+          ),
+        )
+      : undefined;
+    return { label, type, options };
+  } catch {
+    return null;
+  }
+};
+
+const normalizeLabel = (value: string) => value.trim().toLowerCase();
+
+const columnLabel = (column: SummaryTableColumn) => column.label?.trim() || "Champ";
+
+const looksLikeHeaderRow = (cells: string[], columns: SummaryTableColumn[]) => {
+  if (cells.length === 0 || cells.length !== columns.length) return false;
+  const matches = cells.reduce((count, cell, index) => {
+    if (!cell) return count;
+    return normalizeLabel(cell) === normalizeLabel(columnLabel(columns[index]))
+      ? count + 1
+      : count;
+  }, 0);
+  const required = columns.length <= 2 ? columns.length : Math.ceil(columns.length / 2);
+  return matches >= required;
+};
+
+const parseCheckboxValue = (raw: string) => {
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "oui", "x"].includes(normalized)) return true;
+  if (["0", "false", "no", "non", ""].includes(normalized)) return false;
+  return Boolean(raw);
+};
+
+const coerceClipboardValue = (column: SummaryTableColumn, raw: string) => {
+  const value = raw.trim();
+  if (column.type === "checkbox") return parseCheckboxValue(value);
+  if (column.type === "yesno") {
+    const normalized = value.toLowerCase();
+    if (["1", "true", "yes", "oui"].includes(normalized)) return "Oui";
+    if (["0", "false", "no", "non"].includes(normalized)) return "Non";
+    return "";
+  }
+  if (column.type === "multiselect") {
+    const parts = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return parts.join(", ");
+  }
+  return value;
+};
+
+const createRowFromCells = (columns: SummaryTableColumn[], cells: string[]) => ({
+  id: createId("row"),
+  values: Object.fromEntries(
+    columns.map((column, index) => [column.id, coerceClipboardValue(column, cells[index] ?? "")]),
   ),
 });
 
@@ -142,6 +268,20 @@ const normalizeValue = (
   return value ?? "";
 };
 
+const normalizeSearchValue = (
+  value: string | boolean | undefined,
+  type: SummaryTableColumn["type"],
+) => {
+  if (value === undefined || value === null) return "";
+  if (type === "checkbox") return value ? "oui" : "non";
+  if (type === "yesno") {
+    if (typeof value === "boolean") return value ? "oui" : "non";
+    return String(value).toLowerCase();
+  }
+  if (typeof value === "boolean") return value ? "oui" : "non";
+  return String(value).toLowerCase();
+};
+
 const defaultValueForType = (type: SummaryTableColumn["type"]) =>
   type === "checkbox" ? false : "";
 
@@ -153,6 +293,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   const configSnapshotRef = useRef<SummaryTableData | null>(null);
   const seedRef = useRef<SummaryTableData | null>(null);
   const ignoreOutsideRef = useRef(false);
+  const clipboardBufferRef = useRef<HTMLTextAreaElement | null>(null);
   const [blockActive, setBlockActive] = useState(false);
   const [blockHovered, setBlockHovered] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
@@ -172,7 +313,60 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     selected?: string[];
   } | null>(null);
   const [filterSearch, setFilterSearch] = useState("");
+  const [globalSearch, setGlobalSearch] = useState("");
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
+  const [optionsExpanded, setOptionsExpanded] = useState(false);
+  const [optionsOpenById, setOptionsOpenById] = useState<Record<string, boolean>>({});
+  const [history, setHistory] = useState<{ past: SummaryTableData[]; future: SummaryTableData[] }>(
+    { past: [], future: [] },
+  );
+  const isHistoryActionRef = useRef(false);
+  const historyRef = useRef(history);
+
+  const ensureClipboardBuffer = () => {
+    if (clipboardBufferRef.current && document.body.contains(clipboardBufferRef.current)) {
+      return clipboardBufferRef.current;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.setAttribute("aria-hidden", "true");
+    textarea.tabIndex = -1;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    document.body.appendChild(textarea);
+    clipboardBufferRef.current = textarea;
+    return textarea;
+  };
+
+  const writeClipboardText = async (text: string) => {
+    if (!text) return;
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch {
+        // Fall back to execCommand below.
+      }
+    }
+    const textarea = ensureClipboardBuffer();
+    textarea.value = text;
+    textarea.focus();
+    textarea.select();
+    document.execCommand("copy");
+  };
+
+  const readClipboardText = async () => {
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) {
+      return "";
+    }
+    try {
+      return await navigator.clipboard.readText();
+    } catch {
+      return "";
+    }
+  };
 
   const getPanelPosition = (anchor: HTMLElement, base?: HTMLElement | null) => {
     const rect = (base ?? anchor).getBoundingClientRect();
@@ -229,6 +423,10 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     : false;
   const activeColumnIsYesNo = activeColumn?.type === "yesno";
   const activeColumnOptions = activeColumn?.options ?? [];
+  useEffect(() => {
+    if (!activeColumnIsChoice) return;
+    setOptionsExpanded(false);
+  }, [activeColumnId, activeColumnIsChoice]);
   const activeFilterSelected =
     activeColumn && filterConfig?.columnId === activeColumn.id
       ? filterConfig?.selected ?? []
@@ -386,8 +584,212 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     return () => window.removeEventListener("pointerdown", handleOutside, true);
   }, [configOpen]);
 
+  useEffect(() => {
+    if (!configOpen) return;
+    setOptionsExpanded(false);
+    setOptionsOpenById({});
+  }, [configOpen]);
+
+  useEffect(() => {
+    setHistory({ past: [], future: [] });
+  }, [block.id]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    return () => {
+      if (clipboardBufferRef.current) {
+        clipboardBufferRef.current.remove();
+        clipboardBufferRef.current = null;
+      }
+    };
+  }, []);
+
   const updateTable = (next: SummaryTableData) => {
+    const currentTable = tableRef.current ?? table;
+    if (!isHistoryActionRef.current) {
+      setHistory((prev) => {
+        const nextPast = [...prev.past, cloneTable(currentTable)];
+        const trimmedPast =
+          nextPast.length > historyLimit ? nextPast.slice(-historyLimit) : nextPast;
+        return { past: trimmedPast, future: [] };
+      });
+    }
     onChange({ table: next });
+  };
+
+  const handleUndoTable = () => {
+    const currentHistory = historyRef.current;
+    if (currentHistory.past.length === 0) return;
+    const previous = currentHistory.past[currentHistory.past.length - 1];
+    const current = tableRef.current ?? table;
+    isHistoryActionRef.current = true;
+    onChange({ table: previous });
+    requestAnimationFrame(() => {
+      isHistoryActionRef.current = false;
+    });
+    const nextPast = currentHistory.past.slice(0, -1);
+    const nextFuture = [cloneTable(current), ...currentHistory.future].slice(0, historyLimit);
+    setHistory({ past: nextPast, future: nextFuture });
+  };
+
+  const handleRedoTable = () => {
+    const currentHistory = historyRef.current;
+    if (currentHistory.future.length === 0) return;
+    const nextTable = currentHistory.future[0];
+    const current = tableRef.current ?? table;
+    isHistoryActionRef.current = true;
+    onChange({ table: nextTable });
+    requestAnimationFrame(() => {
+      isHistoryActionRef.current = false;
+    });
+    const nextPast = [...currentHistory.past, cloneTable(current)].slice(-historyLimit);
+    const nextFuture = currentHistory.future.slice(1);
+    setHistory({ past: nextPast, future: nextFuture });
+  };
+
+  const insertDraftColumnAt = (index: number, column: SummaryTableColumn) => {
+    setDraftColumns((prev) => {
+      const next = [...prev];
+      const insertAt = Math.min(Math.max(index, 0), next.length);
+      next.splice(insertAt, 0, column);
+      return next;
+    });
+    setOptionsOpenById((prev) => ({ ...prev, [column.id]: false }));
+  };
+
+  const handleCopyField = async (column: SummaryTableColumn) => {
+    await writeClipboardText(serializeColumnForClipboard(column));
+  };
+
+  const handlePasteFieldBefore = async (index: number) => {
+    const text = await readClipboardText();
+    if (!text.trim()) return;
+    const parsed = parseColumnFromClipboard(text);
+    if (!parsed) return;
+    const nextColumn = createColumn({
+      label: parsed.label,
+      type: parsed.type,
+      options: parsed.options,
+    });
+    insertDraftColumnAt(index, nextColumn);
+  };
+
+  const handlePasteTable = (text: string) => {
+    const matrix = parseClipboardMatrix(text);
+    if (matrix.length === 0) return;
+    const header = matrix.length > 1 ? matrix[0] : [];
+    const body = matrix.length > 1 ? matrix.slice(1) : matrix;
+    const maxBodyColumns = body.reduce((max, row) => Math.max(max, row.length), 0);
+    const columnCount = Math.max(header.length, maxBodyColumns);
+    if (columnCount === 0) return;
+    const nextColumns = Array.from({ length: columnCount }, (_, index) =>
+      createColumn({ label: header[index] || "Champ" }),
+    );
+    const nextRows = body.map((cells) => ({
+      id: createId("row"),
+      values: Object.fromEntries(
+        nextColumns.map((column, index) => [column.id, cells[index] ?? ""]),
+      ),
+    }));
+    if (configOpen) {
+      setDraftColumns(nextColumns);
+    }
+    updateTable({ columns: nextColumns, rows: nextRows });
+  };
+
+  const handlePasteRowAfter = (rowId: string, text: string) => {
+    const matrix = parseClipboardMatrix(text);
+    if (matrix.length === 0) return;
+    const currentTable = tableRef.current ?? table;
+    let rowsToInsert = matrix;
+    if (looksLikeHeaderRow(matrix[0], currentTable.columns)) {
+      rowsToInsert = matrix.slice(1);
+    }
+    if (rowsToInsert.length === 0) return;
+    const newRows = rowsToInsert.map((cells) =>
+      createRowFromCells(currentTable.columns, cells),
+    );
+    const rowIndex = currentTable.rows.findIndex((row) => row.id === rowId);
+    const insertAt = rowIndex >= 0 ? rowIndex + 1 : currentTable.rows.length;
+    const nextRows = [...currentTable.rows];
+    nextRows.splice(insertAt, 0, ...newRows);
+    updateTable({ ...currentTable, rows: nextRows });
+  };
+
+  const handlePasteColumnBefore = (columnId: string, text: string) => {
+    const matrix = parseClipboardMatrix(text);
+    if (matrix.length === 0) return;
+    const currentTable = tableRef.current ?? table;
+    const columnIndex = currentTable.columns.findIndex((column) => column.id === columnId);
+    const insertAt = columnIndex >= 0 ? columnIndex : currentTable.columns.length;
+    const isSingleColumn = matrix.every((row) => row.length <= 1);
+    let headerLabel = "Champ";
+    let values = matrix;
+    if (matrix.length > 1 && isSingleColumn) {
+      headerLabel = matrix[0][0] || headerLabel;
+      values = matrix.slice(1);
+    } else if (matrix.length > 1 && looksLikeHeaderRow(matrix[0], currentTable.columns)) {
+      headerLabel = matrix[0][0] || headerLabel;
+      values = matrix.slice(1);
+    }
+    const newColumn = createColumn({ label: headerLabel });
+    const nextColumns = [...currentTable.columns];
+    nextColumns.splice(insertAt, 0, newColumn);
+    const nextRows = currentTable.rows.map((row, index) => ({
+      ...row,
+      values: {
+        ...row.values,
+        [newColumn.id]: values[index]?.[0] ?? "",
+      },
+    }));
+    if (configOpen) {
+      setDraftColumns(nextColumns);
+    }
+    updateTable({ ...currentTable, columns: nextColumns, rows: nextRows });
+  };
+
+  const duplicateRowAfter = (rowId: string) => {
+    const currentTable = tableRef.current ?? table;
+    const rowIndex = currentTable.rows.findIndex((row) => row.id === rowId);
+    if (rowIndex < 0) return;
+    const sourceRow = currentTable.rows[rowIndex];
+    const duplicated = {
+      id: createId("row"),
+      values: { ...sourceRow.values },
+    };
+    const nextRows = [...currentTable.rows];
+    nextRows.splice(rowIndex + 1, 0, duplicated);
+    updateTable({ ...currentTable, rows: nextRows });
+  };
+
+  const duplicateColumnAfter = (columnId: string) => {
+    const currentTable = tableRef.current ?? table;
+    const columnIndex = currentTable.columns.findIndex((column) => column.id === columnId);
+    if (columnIndex < 0) return;
+    const sourceColumn = currentTable.columns[columnIndex];
+    const nextColumn = createColumn({
+      label: sourceColumn.label?.trim() ? sourceColumn.label : "Champ",
+      type: sourceColumn.type,
+      width: sourceColumn.width,
+      options: sourceColumn.options?.map((option) => createOption(option.label, option.color)),
+    });
+    const nextColumns = [...currentTable.columns];
+    nextColumns.splice(columnIndex + 1, 0, nextColumn);
+    const nextRows = currentTable.rows.map((row) => ({
+      ...row,
+      values: {
+        ...row.values,
+        [nextColumn.id]:
+          row.values[sourceColumn.id] ?? defaultValueForType(nextColumn.type),
+      },
+    }));
+    if (configOpen) {
+      setDraftColumns(nextColumns);
+    }
+    updateTable({ ...currentTable, columns: nextColumns, rows: nextRows });
   };
 
   const updateCell = (rowId: string, columnId: string, value: string | boolean) => {
@@ -745,6 +1147,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   const minListWidth = Math.max(900, columnsForView.length * 160 + 140);
   const visibleRows = useMemo(() => {
     let nextRows = [...table.rows];
+    const globalQuery = globalSearch.trim().toLowerCase();
     if (filterConfig?.columnId) {
       const query = filterConfig.query.trim().toLowerCase();
       const selected = (filterConfig.selected ?? []).map((value) => value.toLowerCase());
@@ -773,6 +1176,22 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
         });
       }
     }
+    if (globalQuery) {
+      nextRows = nextRows.filter((row) =>
+        table.columns.some((column) => {
+          const raw = row.values[column.id];
+          if (raw === undefined || raw === null || raw === "") return false;
+          if (column.type === "multiselect") {
+            return String(raw)
+              .split(",")
+              .map((part) => part.trim().toLowerCase())
+              .some((part) => part.includes(globalQuery));
+          }
+          const value = normalizeSearchValue(raw, column.type);
+          return value.includes(globalQuery);
+        }),
+      );
+    }
     if (sortConfig?.columnId) {
       const column = columnMap.get(sortConfig.columnId);
       if (column) {
@@ -800,7 +1219,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
       }
     }
     return nextRows;
-  }, [columnMap, filterConfig, sortConfig, table.rows]);
+  }, [columnMap, filterConfig, globalSearch, sortConfig, table.columns, table.rows]);
 
   return (
     <div
@@ -850,6 +1269,14 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
           </button>
         </div>
         <div className={styles.projectTableToolbarRight}>
+          <input
+            type="text"
+            className={styles.projectTableSearch}
+            value={globalSearch}
+            onChange={(event) => setGlobalSearch(event.target.value)}
+            placeholder="Rechercher"
+            aria-label="Rechercher dans le tableau"
+          />
           <button
             type="button"
             className={cx("icon-button", styles.cardToolbarButton)}
@@ -994,8 +1421,35 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                   </div>
                   {activeColumnIsChoice && (
                     <div className={styles.projectTableConfigOptionsInline}>
-                      <div className={styles.projectTableConfigLabel}>Options</div>
-                      {activeColumnOptions.map((option) => (
+                      <div className={styles.projectTableConfigOptionsHeader}>
+                        <div className={styles.projectTableConfigLabel}>Options</div>
+                        <button
+                          type="button"
+                          className={cx(
+                            "icon-button",
+                            styles.projectTableConfigOptionsToggle,
+                            optionsExpanded && styles.projectTableConfigOptionsToggleOpen,
+                          )}
+                          onClick={() => setOptionsExpanded((prev) => !prev)}
+                          aria-label={optionsExpanded ? "Reduire les options" : "Afficher les options"}
+                          title={optionsExpanded ? "Reduire les options" : "Afficher les options"}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="m6 9 6 6 6-6" />
+                          </svg>
+                        </button>
+                      </div>
+                      {optionsExpanded && activeColumnOptions.map((option) => (
                         <div key={option.id} className={styles.projectTableConfigOptionRow}>
                           <input
                             className={styles.projectTableConfigOptionInput}
@@ -1059,7 +1513,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                           )}
                         </div>
                       ))}
-                      {!activeColumnIsYesNo && (
+                      {optionsExpanded && !activeColumnIsYesNo && (
                         <button
                           type="button"
                           className={cx("btn-plain", styles.projectTableConfigOptionAdd)}
@@ -1364,54 +1818,147 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                             </svg>
                           </button>
                         )}
+                        <button
+                          type="button"
+                          className={cx("icon-button", styles.projectTableConfigCopy)}
+                          onClick={() => {
+                            void handleCopyField(column);
+                          }}
+                          aria-label="Copier le champ"
+                          title="Copier le champ"
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <rect x="9" y="9" width="11" height="11" rx="2" />
+                            <rect x="4" y="4" width="11" height="11" rx="2" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          className={cx("icon-button", styles.projectTableConfigPaste)}
+                          onClick={() => {
+                            void handlePasteFieldBefore(index);
+                          }}
+                          aria-label="Coller le champ"
+                          title="Coller le champ"
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                            <rect x="8" y="2" width="8" height="4" rx="1" />
+                            <path d="M12 11v6" />
+                            <path d="M9 14l3 3 3-3" />
+                          </svg>
+                        </button>
                         {isChoiceType && (
                           <div className={styles.projectTableConfigOptions}>
-                            {options.map((option) => (
-                              <div key={option.id} className={styles.projectTableConfigOptionRow}>
-                                <input
-                                  className={styles.projectTableConfigOptionInput}
-                                  value={option.label}
-                                  onChange={(event) =>
-                                    updateOption(column.id, option.id, { label: event.target.value })
-                                  }
-                                  placeholder="Option"
-                                />
-                                <input
-                                  type="color"
-                                  className={styles.projectTableConfigOptionColor}
-                                  value={option.color ?? "#9ca3af"}
-                                  onChange={(event) =>
-                                    updateOption(column.id, option.id, { color: event.target.value })
-                                  }
-                                  aria-label="Couleur"
-                                />
-                                {!isYesNo && options.length > 1 && (
-                                  <button
-                                    type="button"
-                                    className={cx("icon-button", styles.projectTableConfigOptionRemove)}
-                                    onClick={() => removeOption(column.id, option.id)}
-                                    aria-label="Supprimer"
-                                    title="Supprimer"
-                                  >
-                                    <svg
-                                      aria-hidden="true"
-                                      width="12"
-                                      height="12"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                    >
-                                      <path d="M18 6 6 18" />
-                                      <path d="m6 6 12 12" />
-                                    </svg>
-                                  </button>
+                            <div className={styles.projectTableConfigOptionsHeader}>
+                              <div className={styles.projectTableConfigLabel}>Options</div>
+                              <button
+                                type="button"
+                                className={cx(
+                                  "icon-button",
+                                  styles.projectTableConfigOptionsToggle,
+                                  (optionsOpenById[column.id] ?? false) &&
+                                    styles.projectTableConfigOptionsToggleOpen,
                                 )}
-                              </div>
-                            ))}
-                            {!isYesNo && (
+                                onClick={() =>
+                                  setOptionsOpenById((prev) => ({
+                                    ...prev,
+                                    [column.id]: !(prev[column.id] ?? false),
+                                  }))
+                                }
+                                aria-label={
+                                  optionsOpenById[column.id] ?? false
+                                    ? "Reduire les options"
+                                    : "Afficher les options"
+                                }
+                                title={
+                                  optionsOpenById[column.id] ?? false
+                                    ? "Reduire les options"
+                                    : "Afficher les options"
+                                }
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  width="12"
+                                  height="12"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="m6 9 6 6 6-6" />
+                                </svg>
+                              </button>
+                            </div>
+                            {(optionsOpenById[column.id] ?? false) &&
+                              options.map((option) => (
+                                <div key={option.id} className={styles.projectTableConfigOptionRow}>
+                                  <input
+                                    className={styles.projectTableConfigOptionInput}
+                                    value={option.label}
+                                    onChange={(event) =>
+                                      updateOption(column.id, option.id, { label: event.target.value })
+                                    }
+                                    placeholder="Option"
+                                  />
+                                  <input
+                                    type="color"
+                                    className={styles.projectTableConfigOptionColor}
+                                    value={option.color ?? "#9ca3af"}
+                                    onChange={(event) =>
+                                      updateOption(column.id, option.id, { color: event.target.value })
+                                    }
+                                    aria-label="Couleur"
+                                  />
+                                  {!isYesNo && options.length > 1 && (
+                                    <button
+                                      type="button"
+                                      className={cx("icon-button", styles.projectTableConfigOptionRemove)}
+                                      onClick={() => removeOption(column.id, option.id)}
+                                      aria-label="Supprimer"
+                                      title="Supprimer"
+                                    >
+                                      <svg
+                                        aria-hidden="true"
+                                        width="12"
+                                        height="12"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                      >
+                                        <path d="M18 6 6 18" />
+                                        <path d="m6 6 12 12" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            {(optionsOpenById[column.id] ?? false) && !isYesNo && (
                               <button
                                 type="button"
                                 className={cx("btn-plain", styles.projectTableConfigOptionAdd)}
@@ -1493,6 +2040,16 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
               emptyLabel="Aucun élément pour le moment."
               showColumnLabels
               showHeaderControls
+              showCopyControls
+              onUndoTable={handleUndoTable}
+              onRedoTable={handleRedoTable}
+              canUndoTable={history.past.length > 0}
+              canRedoTable={history.future.length > 0}
+              onPasteRowAfter={handlePasteRowAfter}
+              onPasteColumnBefore={handlePasteColumnBefore}
+              onPasteTable={handlePasteTable}
+              onDuplicateRowAfter={duplicateRowAfter}
+              onDuplicateColumnAfter={duplicateColumnAfter}
               editMode={configOpen}
               onResizeColumn={updateColumnWidth}
               minListWidth={minListWidth}

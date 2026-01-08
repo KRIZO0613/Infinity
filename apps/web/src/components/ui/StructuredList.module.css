@@ -115,8 +115,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 0;
-  opacity: 1 !important;
-  visibility: visible;
+  opacity: 0;
+  visibility: hidden;
   z-index: 2;
   position: static;
   flex: 0 0 auto;
@@ -127,6 +127,14 @@
 
 .structuredHeaderFilter:hover {
   color: #ff3b30;
+}
+
+.structuredHeaderCell:hover .structuredHeaderFilter,
+.structuredHeaderCellSelected .structuredHeaderFilter,
+.structuredHeaderCellDragOver .structuredHeaderFilter {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .structuredHeaderFilter svg {
@@ -185,6 +193,168 @@
   box-shadow: none;
 }
 
+.structuredCopyIcon,
+.structuredPasteIcon,
+.structuredDeleteIcon,
+.structuredUndoIcon,
+.structuredRedoIcon,
+.structuredDuplicateIcon {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.structuredCopyIcon:hover,
+.structuredPasteIcon:hover,
+.structuredDeleteIcon:hover,
+.structuredUndoIcon:hover,
+.structuredRedoIcon:hover,
+.structuredDuplicateIcon:hover {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.structuredHeaderActions .structuredCopyIcon,
+.structuredHeaderActions .structuredPasteIcon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredRow:hover .structuredActions .structuredCopyIcon,
+.structuredRow:hover .structuredActions .structuredPasteIcon,
+.structuredRowActive .structuredActions .structuredCopyIcon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredRowActive .structuredActions .structuredPasteIcon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredHeaderMenu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: -2px;
+}
+
+.structuredHeaderMenuToggle {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  color: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.structuredHeaderMenuToggle:hover {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.structuredHeaderCell:hover .structuredHeaderMenuToggle,
+.structuredHeaderCellSelected .structuredHeaderMenuToggle,
+.structuredHeaderCellDragOver .structuredHeaderMenuToggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredHeaderActions .structuredHeaderMenuToggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredRow:hover .structuredActions .structuredHeaderMenuToggle,
+.structuredRowActive .structuredActions .structuredHeaderMenuToggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredHeaderMenuItems {
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  transform: translate(0, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 3;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.structuredHeaderMenu:hover .structuredHeaderMenuItems,
+.structuredHeaderMenu:focus-within .structuredHeaderMenuItems {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+
+.structuredHeaderMenuOpen .structuredHeaderMenuItems {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+
+.structuredHeaderMenuLeft .structuredHeaderMenuItems {
+  left: auto;
+  right: 100%;
+  transform: translate(0, -50%);
+}
+
+.structuredHeaderMenuLeft:hover .structuredHeaderMenuItems,
+.structuredHeaderMenuLeft:focus-within .structuredHeaderMenuItems {
+  transform: translate(0, -50%);
+}
+
+.structuredHeaderMenu:hover .structuredCopyIcon,
+.structuredHeaderMenu:hover .structuredPasteIcon,
+.structuredHeaderMenu:hover .structuredDeleteIcon,
+.structuredHeaderMenu:focus-within .structuredCopyIcon,
+.structuredHeaderMenu:focus-within .structuredPasteIcon,
+.structuredHeaderMenu:focus-within .structuredDeleteIcon,
+.structuredHeaderMenu:hover .structuredUndoIcon,
+.structuredHeaderMenu:hover .structuredRedoIcon,
+.structuredHeaderMenu:focus-within .structuredUndoIcon,
+.structuredHeaderMenu:focus-within .structuredRedoIcon,
+.structuredHeaderMenu:hover .structuredDuplicateIcon,
+.structuredHeaderMenu:focus-within .structuredDuplicateIcon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredHeaderMenuOpen .structuredCopyIcon,
+.structuredHeaderMenuOpen .structuredPasteIcon,
+.structuredHeaderMenuOpen .structuredDeleteIcon,
+.structuredHeaderMenuOpen .structuredUndoIcon,
+.structuredHeaderMenuOpen .structuredRedoIcon,
+.structuredHeaderMenuOpen .structuredDuplicateIcon {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.structuredMenuDisabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.structuredHeaderMenuOpen .structuredHeaderMenuToggle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+
 .structuredHeaderFilter:focus,
 .structuredHeaderFilter:focus-visible,
 .structuredHeaderFilter:active {
@@ -202,6 +372,9 @@
   background: transparent;
   border: none;
   cursor: col-resize;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 
 .structuredResizeHandle::after {
@@ -214,6 +387,13 @@
   transform: translateX(-50%);
   background: rgba(0, 0, 0, 0.25);
   border-radius: 999px;
+}
+
+.structuredHeaderCell:hover .structuredResizeHandle,
+.structuredHeaderCellSelected .structuredResizeHandle,
+.structuredHeaderCellDragOver .structuredResizeHandle {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .structuredRow:hover {
@@ -611,6 +791,32 @@
 }
 
 :global(.dark) .structuredHeaderButton:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .structuredCopyIcon,
+:global(.dark) .structuredPasteIcon,
+:global(.dark) .structuredDeleteIcon,
+:global(.dark) .structuredUndoIcon,
+:global(.dark) .structuredRedoIcon,
+:global(.dark) .structuredDuplicateIcon {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+:global(.dark) .structuredCopyIcon:hover,
+:global(.dark) .structuredPasteIcon:hover,
+:global(.dark) .structuredDeleteIcon:hover,
+:global(.dark) .structuredUndoIcon:hover,
+:global(.dark) .structuredRedoIcon:hover,
+:global(.dark) .structuredDuplicateIcon:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+:global(.dark) .structuredHeaderMenuToggle {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .structuredHeaderMenuToggle:hover {
   color: rgba(255, 255, 255, 0.9);
 }
 

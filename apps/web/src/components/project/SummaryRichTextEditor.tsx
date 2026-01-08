@@ -50,6 +50,8 @@ export default function SummaryRichTextEditor({
   const highlightInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const selectionRef = useRef<Range | null>(null);
+  const isApplyingExternalValueRef = useRef(false);
+  const lastEmittedHtmlRef = useRef<string | null>(null);
   const draggingImageIdRef = useRef<string | null>(null);
   const pointerDraggingRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
@@ -127,6 +129,29 @@ export default function SummaryRichTextEditor({
     "🔴",
   ];
 
+  const normalizeHtml = (html: string) => {
+    const trimmed = (html || "").trim();
+    if (!trimmed) return "";
+    const normalized = trimmed
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\u00a0/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) return "";
+    if (/<img\b|<video\b|<audio\b|<iframe\b|<svg\b/i.test(normalized)) {
+      return normalized;
+    }
+    const stripped = normalized
+      .replace(/<br\s*\/?>/gi, "")
+      .replace(/<\/?p[^>]*>/gi, "")
+      .replace(/<\/?div[^>]*>/gi, "")
+      .replace(/<\/?span[^>]*>/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!stripped) return "";
+    return normalized;
+  };
+
   const insertText = (text: string) => {
     const editor = editorRef.current;
     if (!editor) return;
@@ -140,9 +165,14 @@ export default function SummaryRichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
     if (document.activeElement === editor) return;
-    if ((editor.innerHTML || "") !== (value || "")) {
-      editor.innerHTML = value || "";
-    }
+    const normalizedNext = normalizeHtml(value || "");
+    const normalizedCurrent = normalizeHtml(editor.innerHTML || "");
+    if (normalizedNext === normalizedCurrent) return;
+    isApplyingExternalValueRef.current = true;
+    editor.innerHTML = value || "";
+    requestAnimationFrame(() => {
+      isApplyingExternalValueRef.current = false;
+    });
   }, [value]);
 
   useEffect(() => {
@@ -269,7 +299,15 @@ export default function SummaryRichTextEditor({
   const syncValue = () => {
     const editor = editorRef.current;
     if (!editor) return;
-    onChange(editor.innerHTML);
+    if (isApplyingExternalValueRef.current) return;
+    const currentHtml = editor.innerHTML;
+    const normalized = normalizeHtml(currentHtml);
+    const normalizedProp = normalizeHtml(value);
+    if (normalized === normalizedProp) return;
+    const lastEmitted = lastEmittedHtmlRef.current;
+    if (lastEmitted !== null && normalizeHtml(lastEmitted) === normalized) return;
+    lastEmittedHtmlRef.current = currentHtml;
+    onChange(currentHtml);
   };
 
   const captureSelection = () => {
