@@ -60,6 +60,7 @@ const createOption = (label = "Option", color?: string) => ({
 });
 
 const historyLimit = 30;
+const tableClipboardKey = "summary-table-clipboard-v1";
 
 const defaultOptionsForType = (type: SummaryTableColumn["type"]) => {
   if (type === "yesno") {
@@ -90,10 +91,25 @@ const parseClipboardMatrix = (text: string) => {
   return lines.map((line) => line.split("\t").map((cell) => cell.trim()));
 };
 
+const parseTableClipboard = (raw: string | null) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { text?: string; table?: SummaryTableData };
+    if (!parsed?.table || !Array.isArray(parsed.table.columns) || !Array.isArray(parsed.table.rows)) {
+      return null;
+    }
+    if (typeof parsed.text !== "string") return null;
+    return parsed as { text: string; table: SummaryTableData };
+  } catch {
+    return null;
+  }
+};
+
 type ClipboardColumnOption = { label?: string; color?: string };
 type ClipboardColumnPayload = {
   label?: string;
   type?: SummaryTableColumn["type"];
+  numberFormat?: SummaryTableColumn["numberFormat"];
   options?: ClipboardColumnOption[];
 };
 
@@ -122,6 +138,7 @@ const serializeColumnForClipboard = (column: SummaryTableColumn) =>
     column: {
       label: column.label ?? "",
       type: column.type,
+      numberFormat: column.numberFormat,
       options: (column.options ?? []).map((option) => ({
         label: option.label,
         color: option.color,
@@ -140,6 +157,15 @@ const parseColumnFromClipboard = (text: string) => {
       typeof parsed.column.type === "string" && isColumnType(parsed.column.type)
         ? parsed.column.type
         : "text";
+    const numberFormat =
+      type === "number" &&
+      (parsed.column.numberFormat === "eur" ||
+        parsed.column.numberFormat === "percent" ||
+        parsed.column.numberFormat === "plain")
+        ? parsed.column.numberFormat
+        : type === "number"
+          ? "plain"
+          : undefined;
     const rawOptions = Array.isArray(parsed.column.options) ? parsed.column.options : [];
     const options = isChoiceType(type)
       ? (rawOptions.length > 0 ? rawOptions : defaultOptionsForType(type)).map((option) =>
@@ -149,7 +175,7 @@ const parseColumnFromClipboard = (text: string) => {
           ),
         )
       : undefined;
-    return { label, type, options };
+    return { label, type, options, numberFormat };
   } catch {
     return null;
   }
@@ -365,6 +391,24 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
       return await navigator.clipboard.readText();
     } catch {
       return "";
+    }
+  };
+
+  const writeTableClipboard = (payload: { text: string; table: SummaryTableData }) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(tableClipboardKey, JSON.stringify(payload));
+    } catch {
+      // Ignore storage failures.
+    }
+  };
+
+  const readTableClipboard = () => {
+    if (typeof window === "undefined") return null;
+    try {
+      return parseTableClipboard(window.localStorage.getItem(tableClipboardKey));
+    } catch {
+      return null;
     }
   };
 
@@ -673,11 +717,28 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
       label: parsed.label,
       type: parsed.type,
       options: parsed.options,
+      numberFormat: parsed.numberFormat,
     });
     insertDraftColumnAt(index, nextColumn);
   };
 
   const handlePasteTable = (text: string) => {
+    const normalizedText = normalizeClipboardText(text).trim();
+    const stored = readTableClipboard();
+    if (stored && normalizeClipboardText(stored.text).trim() === normalizedText) {
+      const nextTable = cloneTable(stored.table);
+      if (nextTable.columns.length === 0) {
+        nextTable.columns = [createColumn()];
+      }
+      if (nextTable.rows.length === 0) {
+        nextTable.rows = [createRow(nextTable.columns)];
+      }
+      if (configOpen) {
+        setDraftColumns(nextTable.columns);
+      }
+      updateTable(nextTable);
+      return;
+    }
     const matrix = parseClipboardMatrix(text);
     if (matrix.length === 0) return;
     const header = matrix.length > 1 ? matrix[0] : [];
@@ -906,25 +967,40 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     updateTable({ columns: nextColumns, rows: nextRows });
   };
 
+  const clearColumnState = (columnId: string) => {
+    setFilterConfig((prev) => (prev?.columnId === columnId ? null : prev));
+    setSortConfig((prev) => (prev?.columnId === columnId ? null : prev));
+    setActiveColumnId((prev) => (prev === columnId ? null : prev));
+    setFilterSearch("");
+  };
+
   const removeColumnById = (columnId: string) => {
+    const sourceColumns = configOpen ? draftColumns : table.columns;
+    if (sourceColumns.length <= 1) return;
+    const nextColumns = sourceColumns.filter((col) => col.id !== columnId);
+    if (nextColumns.length === sourceColumns.length) return;
     if (configOpen) {
-      setDraftColumns((prev) => (prev.length > 1 ? prev.filter((col) => col.id !== columnId) : prev));
+      setDraftColumns(nextColumns);
+      clearColumnState(columnId);
       return;
     }
-    if (table.columns.length <= 1) return;
-    const nextColumns = table.columns.filter((col) => col.id !== columnId);
     const nextRows = table.rows.map((row) => {
       const nextValues = { ...row.values };
       delete nextValues[columnId];
       return { ...row, values: nextValues };
     });
     updateTable({ columns: nextColumns, rows: nextRows });
+    clearColumnState(columnId);
   };
 
   const removeColumnImmediate = (columnId: string) => {
-    const sourceColumns = configOpen ? draftColumns : table.columns;
+    const sourceColumns =
+      configOpen && draftColumns.some((col) => col.id === columnId)
+        ? draftColumns
+        : table.columns;
     if (sourceColumns.length <= 1) return;
     const nextColumns = sourceColumns.filter((col) => col.id !== columnId);
+    if (nextColumns.length === sourceColumns.length) return;
     const nextRows = table.rows.map((row) => {
       const nextValues = { ...row.values };
       delete nextValues[columnId];
@@ -934,6 +1010,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     if (configOpen) {
       setDraftColumns(nextColumns);
     }
+    clearColumnState(columnId);
   };
 
   const updateDraftColumnCount = (nextCount: number) => {
@@ -963,6 +1040,11 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
           } else {
             next.options = undefined;
           }
+          if (patch.type === "number") {
+            next.numberFormat = next.numberFormat ?? "plain";
+          } else {
+            next.numberFormat = undefined;
+          }
         }
         return next;
       }),
@@ -982,6 +1064,14 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
         } else {
           next.options = undefined;
         }
+        if (patch.type === "number") {
+          next.numberFormat = next.numberFormat ?? "plain";
+        } else {
+          next.numberFormat = undefined;
+        }
+      }
+      if (patch.numberFormat && next.type !== "number") {
+        next.numberFormat = undefined;
       }
       return next;
     });
@@ -1221,6 +1311,24 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     return nextRows;
   }, [columnMap, filterConfig, globalSearch, sortConfig, table.columns, table.rows]);
 
+  const handleCopyTable = async (text: string) => {
+    const snapshotColumns = columnsForView.map((column) => ({
+      ...column,
+      options: column.options?.map((option) => ({ ...option })),
+    }));
+    const snapshotRows = visibleRows.map((row) => ({
+      ...row,
+      values: Object.fromEntries(
+        snapshotColumns.map((column) => [
+          column.id,
+          row.values[column.id] ?? (column.type === "checkbox" ? false : ""),
+        ]),
+      ),
+    }));
+    writeTableClipboard({ text, table: { columns: snapshotColumns, rows: snapshotRows } });
+    await writeClipboardText(text);
+  };
+
   return (
     <div
       ref={blockRef}
@@ -1343,7 +1451,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
       {configOpen && portalReady
         ? createPortal(
             <div
-              className={cx("p-3", styles.projectTableConfig, menuPanelClass)}
+              className={cx("panel-glass p-3", styles.projectTableConfig, menuPanelClass)}
               style={
                 configPosition
                   ? {
@@ -1352,8 +1460,6 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                       zIndex: 10000,
                       pointerEvents: "auto",
                       transform: "none",
-                      backdropFilter: "none",
-                      WebkitBackdropFilter: "none",
                     }
                   : undefined
               }
@@ -1368,18 +1474,116 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
               }}
             >
               <style>{`
-                .${menuPanelClass} {
-                  background: rgba(255, 255, 255, 0.92);
-                  border: 1px solid rgba(0, 0, 0, 0.08);
-                  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
-                  border-radius: 16px;
-                  color: rgba(12, 12, 12, 0.88);
+                .${menuPanelClass} .btn-plain {
+                  background: transparent !important;
+                  box-shadow: none !important;
                 }
-                .dark .${menuPanelClass} {
-                  background: rgba(70, 70, 70, 0.92);
-                  border-color: rgba(255, 255, 255, 0.12);
-                  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
-                  color: rgba(255, 255, 255, 0.9);
+                .${menuPanelClass}.panel-glass .btn-plain,
+                .${menuPanelClass} .btn-plain:hover,
+                .${menuPanelClass} .btn-plain:focus,
+                .${menuPanelClass} .btn-plain:focus-visible,
+                .${menuPanelClass} .btn-plain:active {
+                  background: transparent !important;
+                  box-shadow: none !important;
+                }
+                .dark .${menuPanelClass}.panel-glass .btn-plain,
+                .dark .${menuPanelClass} .btn-plain:hover,
+                .dark .${menuPanelClass} .btn-plain:focus,
+                .dark .${menuPanelClass} .btn-plain:focus-visible,
+                .dark .${menuPanelClass} .btn-plain:active {
+                  background: transparent !important;
+                  box-shadow: none !important;
+                }
+                .${menuPanelClass} .${menuButtonClass},
+                .${menuPanelClass} .${menuButtonClass}:hover,
+                .${menuPanelClass} .${menuButtonClass}:focus,
+                .${menuPanelClass} .${menuButtonClass}:focus-visible,
+                .${menuPanelClass} .${menuButtonClass}:active {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  box-shadow: none !important;
+                  outline: none !important;
+                }
+                .dark .${menuPanelClass} .${menuButtonClass},
+                .dark .${menuPanelClass} .${menuButtonClass}:hover,
+                .dark .${menuPanelClass} .${menuButtonClass}:focus,
+                .dark .${menuPanelClass} .${menuButtonClass}:focus-visible,
+                .dark .${menuPanelClass} .${menuButtonClass}:active {
+                  background: transparent !important;
+                  background-color: transparent !important;
+                  box-shadow: none !important;
+                  outline: none !important;
+                }
+                .${menuPanelClass} .icon-button {
+                  background: transparent !important;
+                  box-shadow: none !important;
+                }
+                .${menuPanelClass} button {
+                  background: transparent !important;
+                  -webkit-tap-highlight-color: transparent;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigGhost},
+                .${menuPanelClass} .${styles.projectTableConfigPrimary} {
+                  background: transparent !important;
+                  box-shadow: none !important;
+                  border: none !important;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigInput},
+                .${menuPanelClass} .${styles.projectTableConfigSelect},
+                .${menuPanelClass} .${styles.projectTableConfigOptionInput} {
+                  background: transparent !important;
+                  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+                  border-radius: 10px !important;
+                  color: var(--text);
+                  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+                  padding: 4px 6px;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigSelect} {
+                  appearance: none;
+                  -webkit-appearance: none;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigInput}:focus,
+                .${menuPanelClass} .${styles.projectTableConfigSelect}:focus,
+                .${menuPanelClass} .${styles.projectTableConfigOptionInput}:focus,
+                .${menuPanelClass} .${styles.projectTableConfigInput}:focus-visible,
+                .${menuPanelClass} .${styles.projectTableConfigSelect}:focus-visible,
+                .${menuPanelClass} .${styles.projectTableConfigOptionInput}:focus-visible {
+                  outline: none !important;
+                  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+                  background: transparent !important;
+                }
+                .${menuPanelClass} button:focus-visible,
+                .${menuPanelClass} button:focus,
+                .${menuPanelClass} button:active,
+                .${menuPanelClass} input:focus-visible,
+                .${menuPanelClass} input:focus,
+                .${menuPanelClass} select:focus-visible,
+                .${menuPanelClass} select:focus,
+                .${menuPanelClass} textarea:focus-visible {
+                  outline: none !important;
+                  box-shadow: none !important;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigFilterList} {
+                  background: transparent !important;
+                  border: none !important;
+                  box-shadow: none !important;
+                  padding: 0;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigFilterItem} {
+                  border-radius: 0;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigFilterItem}:hover {
+                  background: transparent;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigFilterCheckbox} {
+                  background: transparent !important;
+                  box-shadow: none !important;
+                }
+                .dark .${menuPanelClass} .${styles.projectTableConfigInput},
+                .dark .${menuPanelClass} .${styles.projectTableConfigSelect},
+                .dark .${menuPanelClass} .${styles.projectTableConfigOptionInput} {
+                  border: 1px solid rgba(255, 255, 255, 0.16);
+                  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
                 }
                 .${menuPanelClass} .${styles.projectTableConfigGhost},
                 .${menuPanelClass} .${styles.projectTableConfigPrimary} {
@@ -1419,6 +1623,24 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                       <option value="video">Video</option>
                     </select>
                   </div>
+                  {activeColumn.type === "number" && (
+                    <div className={styles.projectTableConfigRow}>
+                      <label className={styles.projectTableConfigLabel}>Format</label>
+                      <select
+                        className={styles.projectTableConfigSelect}
+                        value={activeColumn.numberFormat ?? "plain"}
+                        onChange={(event) =>
+                          applyColumnPatch(activeColumn.id, {
+                            numberFormat: event.target.value as SummaryTableColumn["numberFormat"],
+                          })
+                        }
+                      >
+                        <option value="plain">Nombre</option>
+                        <option value="eur">€</option>
+                        <option value="percent">%</option>
+                      </select>
+                    </div>
+                  )}
                   {activeColumnIsChoice && (
                     <div className={styles.projectTableConfigOptionsInline}>
                       <div className={styles.projectTableConfigOptionsHeader}>
@@ -1636,10 +1858,27 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                           );
                         })}
                       </div>
+                      <button
+                        type="button"
+                        className={cx("btn-plain", styles.projectTableConfigGhost, menuButtonClass)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onFocus={(event) => event.currentTarget.blur()}
+                        tabIndex={-1}
+                        style={plainMenuButtonStyle}
+                        onClick={() => {
+                          setFilterSearch("");
+                          setFilterConfig((prev) => {
+                            if (!activeColumn) return prev;
+                            return { columnId: activeColumn.id, query: "", selected: [] };
+                          });
+                        }}
+                      >
+                        Supprimer filtre
+                      </button>
                     </div>
                   </div>
                   <div className={styles.projectTableConfigRow}>
-                    <label className={styles.projectTableConfigLabel}>Supprimer</label>
+                    <label className={styles.projectTableConfigLabel}>Supprimer colonne</label>
                     <button
                       type="button"
                       className={cx(styles.projectTableConfigTrash, menuButtonClass)}
@@ -1651,7 +1890,6 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                       style={{ ...plainMenuButtonStyle, border: "none", padding: 0 }}
                       onClick={() => {
                         removeColumnImmediate(activeColumn.id);
-                        setActiveColumnId(null);
                         setConfigOpen(false);
                       }}
                     >
@@ -2048,6 +2286,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
               onPasteRowAfter={handlePasteRowAfter}
               onPasteColumnBefore={handlePasteColumnBefore}
               onPasteTable={handlePasteTable}
+              onCopyTable={handleCopyTable}
               onDuplicateRowAfter={duplicateRowAfter}
               onDuplicateColumnAfter={duplicateColumnAfter}
               editMode={configOpen}

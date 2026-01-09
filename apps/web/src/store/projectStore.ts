@@ -66,6 +66,7 @@ export type SummaryTableColumn = {
     | "multiselect"
     | "yesno";
   width?: number;
+  numberFormat?: "plain" | "eur" | "percent";
   options?: Array<{
     id: string;
     label: string;

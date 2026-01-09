@@ -20,6 +20,7 @@ export type StructuredListColumn = {
   id: string;
   label?: string;
   type: StructuredListColumnType;
+  numberFormat?: "plain" | "eur" | "percent";
   options?: Array<{
     id: string;
     label: string;
@@ -53,6 +54,7 @@ type StructuredListProps = {
   onPasteRowAfter?: (rowId: string, text: string) => void;
   onPasteColumnBefore?: (columnId: string, text: string) => void;
   onPasteTable?: (text: string) => void;
+  onCopyTable?: (text: string) => void;
   onDuplicateRowAfter?: (rowId: string) => void;
   onDuplicateColumnAfter?: (columnId: string) => void;
   onUndoTable?: () => void;
@@ -92,6 +94,29 @@ const formatLink = (value: string) => {
   }
 };
 
+const formatNumberValue = (column: StructuredListColumn, rawValue: string | boolean | undefined) => {
+  if (rawValue === "" || rawValue === undefined || rawValue === null) return "";
+  const raw = String(rawValue);
+  if (!column.numberFormat || column.numberFormat === "plain") return raw;
+  const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric)) return raw;
+  if (column.numberFormat === "eur") {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 2,
+    }).format(numeric);
+  }
+  if (column.numberFormat === "percent") {
+    const formatted = new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits: 2,
+    }).format(numeric);
+    return `${formatted} %`;
+  }
+  return raw;
+};
+
 export default function StructuredList({
   columns,
   rows,
@@ -113,6 +138,7 @@ export default function StructuredList({
   onPasteRowAfter,
   onPasteColumnBefore,
   onPasteTable,
+  onCopyTable,
   onDuplicateRowAfter,
   onDuplicateColumnAfter,
   onUndoTable,
@@ -293,7 +319,7 @@ export default function StructuredList({
         .join(", ");
     }
     if (column.type === "image" || column.type === "video") return String(value ?? "");
-    if (column.type === "number") return value === "" || value === undefined ? "" : String(value);
+    if (column.type === "number") return formatNumberValue(column, value);
     return String(value ?? "");
   };
 
@@ -645,7 +671,12 @@ export default function StructuredList({
             className={cx("icon-button", styles.structuredCopyIcon)}
             onClick={(event) => {
               event.stopPropagation();
-              copyText(getTableText());
+              const text = getTableText();
+              if (onCopyTable) {
+                onCopyTable(text);
+              } else {
+                copyText(text);
+              }
               setOpenMenu(null);
             }}
             aria-label="Copier le tableau"
@@ -1257,8 +1288,9 @@ export default function StructuredList({
       return renderMultiValues(column, raw);
     }
     if (column.type === "number") {
-      if (value === "" || value === undefined) return null;
-      return <span className={styles.structuredValue}>{String(value)}</span>;
+      const formatted = formatNumberValue(column, value);
+      if (!formatted) return null;
+      return <span className={styles.structuredValue}>{formatted}</span>;
     }
     if (column.type === "text") {
       if (!value) return null;
@@ -1295,7 +1327,7 @@ export default function StructuredList({
     if (column.type === "select" || column.type === "multiselect") {
       return renderValue(column, value) ?? "";
     }
-    if (column.type === "number") return value === "" || value === undefined ? "" : String(value);
+    if (column.type === "number") return formatNumberValue(column, value);
     if (column.type === "text") return String(value ?? "");
     if (column.type === "image" || column.type === "video") {
       return renderValue(column, value);

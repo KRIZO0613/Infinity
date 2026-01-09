@@ -717,15 +717,16 @@
   width: 300px;
   pointer-events: auto;
   transform: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  backdrop-filter: blur(8px) saturate(1.02);
+  -webkit-backdrop-filter: blur(8px) saturate(1.02);
 }
 
 .projectTableConfigTitle {
   font-size: 10px;
-  letter-spacing: 0.2em;
+  font-weight: 600;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: rgba(0, 0, 0, 0.6);
+  color: rgba(0, 0, 0, 0.45);
   margin-bottom: 10px;
 }
 
@@ -743,9 +744,10 @@
 
 .projectTableConfigLabel {
   font-size: 10px;
-  letter-spacing: 0.12em;
+  font-weight: 600;
+  letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(0, 0, 0, 0.4);
 }
 
 .projectTableConfigInput,
@@ -755,13 +757,15 @@
   width: 100%;
   height: 28px;
   line-height: 1;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 10px;
-  background: transparent;
+  border: none;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.04);
   color: var(--text);
   font-size: 11px;
-  padding: 6px 8px;
+  padding: 6px 10px;
   align-self: stretch;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .projectTableConfigFilter {
@@ -777,7 +781,11 @@
   gap: 6px;
   max-height: 160px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
 }
 
 .projectTableConfigFilterItem {
@@ -786,6 +794,13 @@
   gap: 6px;
   font-size: 11px;
   color: var(--text);
+  padding: 4px 6px;
+  border-radius: 10px;
+  transition: background 0.2s ease;
+}
+
+.projectTableConfigFilterItem:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .projectTableConfigFilterCheckbox {
@@ -793,8 +808,8 @@
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.35);
-  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: rgba(255, 255, 255, 0.8);
   cursor: pointer;
 }
 
@@ -907,12 +922,14 @@
   flex: 1;
   min-width: 0;
   height: 24px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  background: transparent;
+  border: none;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.04);
   color: var(--text);
   font-size: 10px;
   padding: 4px 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .projectTableConfigOptionColor {
@@ -2147,29 +2164,43 @@
 }
 
 :global(.dark) .projectTableConfigTitle {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-:global(.dark) .projectTableConfigLabel {
   color: rgba(255, 255, 255, 0.55);
 }
 
+:global(.dark) .projectTableConfigLabel {
+  color: rgba(255, 255, 255, 0.5);
+}
+
 :global(.dark) .projectTableConfigInput,
-:global(.dark) .projectTableConfigSelect {
-  border-color: rgba(255, 255, 255, 0.12);
+:global(.dark) .projectTableConfigSelect,
+:global(.dark) .projectTableConfigOptionInput {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
 :global(.dark) .projectTableConfigFilterItem,
 :global(.dark) .projectTableConfigFilterText {
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 :global(.dark) .projectTableConfigFilterCheckbox {
-  border-color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 :global(.dark) .projectTableConfigFilterEmpty {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectTableConfigFilterList {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+:global(.dark) .projectTableConfigFilterItem:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 :global(.dark) .projectTableConfigDrag {
@@ -2182,7 +2213,6 @@
 }
 
 :global(.dark) .projectTableConfigOptionInput {
-  border-color: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.85);
 }
 
