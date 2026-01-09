@@ -1221,7 +1221,11 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
                               ? "Carte"
                               : "Vidéo";
                     return (
-                      <div key={block.id} className={styles.projectSummaryBlock}>
+                      <div
+                        key={block.id}
+                        className={styles.projectSummaryBlock}
+                        id={block.type === "table" ? `summary-table-${block.id}` : undefined}
+                      >
                         {block.type !== "card" &&
                           block.type !== "image" &&
                           block.type !== "text" &&
@@ -1248,6 +1252,7 @@ export default function ProjectEditor({ projectId }: ProjectEditorProps) {
                         {block.type === "table" && (
                           <SummaryTableBlock
                             block={block}
+                            projectId={projectId}
                             onChange={(patch) => handleSummaryBlockUpdate(section.id, block.id, patch)}
                             onDelete={() => handleSummaryBlockRemove(section.id, block.id)}
                           />

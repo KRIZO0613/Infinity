@@ -85,10 +85,10 @@ export default function DashboardPage() {
   const editingItem = allItems.find((item) => item.id === editingId) ?? null;
 
   // ✅ On filtre en local, mémoïsé → plus d’erreur getSnapshot
-  const pinnedItems = useMemo(
-    () => allItems.filter((i) => i.pinned),
-    [allItems],
-  );
+  const pinnedItems = useMemo(() => {
+    if (!hasLoadedLayout || !itemsHydrated || !hasLoadedOrder) return [];
+    return allItems.filter((i) => i.pinned);
+  }, [allItems, hasLoadedLayout, itemsHydrated, hasLoadedOrder]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

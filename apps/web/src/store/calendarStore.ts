@@ -24,6 +24,16 @@ export type CalendarItem = {
   pinned: boolean;
   tagId?: string;
   done?: boolean;
+  visibility?: {
+    timeline?: boolean;
+    calendar?: boolean;
+  };
+  source?: {
+    type: "table";
+    blockId: string;
+    rowId: string;
+    projectId?: string;
+  };
 };
 
 type CalendarState = {

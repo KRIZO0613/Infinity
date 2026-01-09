@@ -84,6 +84,13 @@ export type SummaryTableData = {
   rows: SummaryTableRow[];
 };
 
+export type SummaryTableSync = {
+  timeline?: boolean;
+  calendar?: boolean;
+  columns?: string[];
+  dateColumnId?: string | null;
+};
+
 export type SummaryBlock = {
   id: string;
   type: SummaryBlockType;
@@ -98,6 +105,7 @@ export type SummaryBlock = {
   images?: SummaryImageEntry[];
   videos?: SummaryVideoEntry[];
   table?: SummaryTableData;
+  tableSync?: SummaryTableSync;
 };
 
 export type SummarySection = {

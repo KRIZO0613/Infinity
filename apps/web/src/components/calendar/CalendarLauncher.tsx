@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 
 import {
   useCalendarStore,
@@ -10,6 +11,7 @@ import {
   type Tag,
   type ItemType,
 } from "@/store/calendarStore";
+import { useProjectStore } from "@/store/projectStore";
 
 /* --------------------------------------- */
 /*               CONSTANTES                */
@@ -362,6 +364,7 @@ function RadialTimePicker({ value, onChange }: RadialTimePickerProps) {
 /* --------------------------------------- */
 
 export default function CalendarLauncher() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -369,6 +372,32 @@ export default function CalendarLauncher() {
 
   const { items, tags, addItem, updateItem, deleteItem, addTag } =
     useCalendarStore();
+  const projects = useProjectStore((s) => s.projects);
+  const visibleItems = useMemo(
+    () => items.filter((item) => item.visibility?.calendar !== false),
+    [items],
+  );
+  const projectIdByBlockId = useMemo(() => {
+    const map = new Map<string, string>();
+    const addSections = (projectId: string, sections?: { blocks?: { id?: string }[] }[]) => {
+      if (!sections) return;
+      sections.forEach((section) => {
+        section.blocks?.forEach((block) => {
+          if (block?.id && !map.has(block.id)) {
+            map.set(block.id, projectId);
+          }
+        });
+      });
+    };
+    projects.forEach((project) => {
+      const projectId =
+        project.id !== null && project.id !== undefined ? String(project.id) : "";
+      if (!projectId) return;
+      addSections(projectId, project.summarySections);
+      project.pages?.forEach((page) => addSections(projectId, page.summarySections));
+    });
+    return map;
+  }, [projects]);
 
   const [currentRefDate, setCurrentRefDate] = useState<Date>(
     () => new Date(2025, 0, 1),
@@ -418,7 +447,7 @@ export default function CalendarLauncher() {
       const itemId = customEvent.detail?.itemId;
       if (!itemId) return;
 
-      const item = items.find((i) => i.id === itemId);
+      const item = visibleItems.find((i) => i.id === itemId);
       if (!item) return;
 
       setOpen(true);
@@ -430,7 +459,24 @@ export default function CalendarLauncher() {
 
     window.addEventListener("infinity:calendar-open", handleOpen);
     return () => window.removeEventListener("infinity:calendar-open", handleOpen);
-  }, [items]);
+  }, [visibleItems]);
+
+  useEffect(() => {
+    if (projectIdByBlockId.size === 0) return;
+    items.forEach((item) => {
+      if (item.source?.type !== "table" || item.source.projectId) return;
+      const resolved = projectIdByBlockId.get(item.source.blockId);
+      if (!resolved) return;
+      updateItem(item.id, {
+        source: { ...item.source, projectId: resolved },
+      });
+    });
+  }, [items, projectIdByBlockId, updateItem]);
+
+  const resolveProjectIdForItem = (item: CalendarItem) => {
+    if (item.source?.type !== "table") return null;
+    return item.source.projectId ?? projectIdByBlockId.get(item.source.blockId) ?? null;
+  };
 
   /* --------------------------------------- */
   /*           DONNÉES DÉRIVÉES              */
@@ -471,7 +517,7 @@ export default function CalendarLauncher() {
 
   const itemsForSelectedDate = useMemo(
     () =>
-      items
+      visibleItems
         .filter((i) => i.date === selectedDateKey)
         .sort((a, b) => {
           if (a.type !== b.type) {
@@ -479,7 +525,7 @@ export default function CalendarLauncher() {
           }
           return a.time.localeCompare(b.time);
         }),
-    [items, selectedDateKey],
+    [visibleItems, selectedDateKey],
   );
 
   const eventsForSelectedDate = useMemo(
@@ -498,7 +544,7 @@ export default function CalendarLauncher() {
     const query = location.trim().toLowerCase();
     if (!query) return [];
 
-    const allLocations = items
+    const allLocations = visibleItems
       .map((i) => i.location?.trim())
       .filter((loc): loc is string => !!loc);
 
@@ -511,7 +557,7 @@ export default function CalendarLauncher() {
           loc.toLowerCase() !== query,
       )
       .slice(0, 5);
-  }, [items, location]);
+  }, [visibleItems, location]);
 
   function getTagForItem(item: CalendarItem): Tag | undefined {
     if (!item.tagId) return undefined;
@@ -618,7 +664,7 @@ export default function CalendarLauncher() {
   }
 
   function handleToggleTaskDone(itemId: string) {
-    const target = items.find((i) => i.id === itemId);
+    const target = visibleItems.find((i) => i.id === itemId);
     if (!target || target.type !== "task") return;
 
     updateItem(itemId, {
@@ -752,7 +798,7 @@ export default function CalendarLauncher() {
           const isSelected = key === selectedDateKey;
           const dayNumber = cell.date.getDate();
 
-          const cellItems = items
+          const cellItems = visibleItems
             .filter((item) => item.date === key)
             .sort((a, b) => {
               if (a.type !== b.type) {
@@ -762,7 +808,7 @@ export default function CalendarLauncher() {
             })
             .slice(0, 3);
 
-          const totalCount = items.filter((item) => item.date === key).length;
+          const totalCount = visibleItems.filter((item) => item.date === key).length;
 
           const hasOpenedItem = cellItems.some(
             (item) => item.id === openedInCalendarId,
@@ -1495,6 +1541,7 @@ export default function CalendarLauncher() {
                       {eventsForSelectedDate.map((item) => {
                         const tag = getTagForItem(item);
                         const color = tag?.color ?? "#6366f1";
+                        const resolvedProjectId = resolveProjectIdForItem(item);
 
                         return (
                           <div
@@ -1549,6 +1596,43 @@ export default function CalendarLauncher() {
                                 </p>
                               )}
                             </button>
+                            {resolvedProjectId && item.source?.blockId && (
+                              <button
+                                type="button"
+                                aria-label="Ouvrir le tableau"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  router.push(
+                                    `/projects/${encodeURIComponent(resolvedProjectId)}#summary-table-${item.source.blockId}`,
+                                  );
+                                }}
+                                className="inline-flex items-center justify-center p-0 leading-none"
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: 0,
+                                  color: "var(--text)",
+                                  opacity: 0.75,
+                                }}
+                                title="Ouvrir le tableau"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M14 3h7v7" />
+                                  <path d="M21 3l-9 9" />
+                                  <path d="M5 7v12h12" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -1565,6 +1649,7 @@ export default function CalendarLauncher() {
                         const tag = getTagForItem(item);
                         const color = tag?.color ?? "#6366f1";
                         const isDone = !!item.done;
+                        const resolvedProjectId = resolveProjectIdForItem(item);
 
                         return (
                           <div
@@ -1622,6 +1707,43 @@ export default function CalendarLauncher() {
                                 {isDone ? "Fait" : "À faire"}
                               </p>
                             </button>
+                            {resolvedProjectId && item.source?.blockId && (
+                              <button
+                                type="button"
+                                aria-label="Ouvrir le tableau"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  router.push(
+                                    `/projects/${encodeURIComponent(resolvedProjectId)}#summary-table-${item.source.blockId}`,
+                                  );
+                                }}
+                                className="inline-flex items-center justify-center p-0 leading-none"
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: 0,
+                                  color: "var(--text)",
+                                  opacity: 0.75,
+                                }}
+                                title="Ouvrir le tableau"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  width="13"
+                                  height="13"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M14 3h7v7" />
+                                  <path d="M21 3l-9 9" />
+                                  <path d="M5 7v12h12" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         );
                       })}

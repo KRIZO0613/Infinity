@@ -719,6 +719,8 @@
   transform: none;
   backdrop-filter: blur(8px) saturate(1.02);
   -webkit-backdrop-filter: blur(8px) saturate(1.02);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
 }
 
 .projectTableConfigTitle {

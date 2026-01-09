@@ -8,7 +8,9 @@ import type {
   SummaryTableColumn,
   SummaryTableData,
   SummaryTableRow,
+  SummaryTableSync,
 } from "@/store/projectStore";
+import { useCalendarStore, type CalendarItem } from "@/store/calendarStore";
 import StructuredList from "@/components/ui/StructuredList";
 import styles from "./ProjectEditor.module.css";
 
@@ -16,6 +18,7 @@ type SummaryTableBlockProps = {
   block: SummaryBlock;
   onChange: (patch: Partial<SummaryBlock>) => void;
   onDelete?: () => void;
+  projectId?: string;
 };
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
@@ -311,12 +314,161 @@ const normalizeSearchValue = (
 const defaultValueForType = (type: SummaryTableColumn["type"]) =>
   type === "checkbox" ? false : "";
 
-export default function SummaryTableBlock({ block, onChange, onDelete }: SummaryTableBlockProps) {
+const formatDateValue = (value: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+};
+
+const formatLinkValue = (value: string) => {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return url.hostname.replace("www.", "");
+  } catch {
+    return value;
+  }
+};
+
+const formatNumberValue = (column: SummaryTableColumn, rawValue: string | boolean | undefined) => {
+  if (rawValue === "" || rawValue === undefined || rawValue === null) return "";
+  const raw = String(rawValue);
+  if (!column.numberFormat || column.numberFormat === "plain") return raw;
+  const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric)) return raw;
+  if (column.numberFormat === "eur") {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 2,
+    }).format(numeric);
+  }
+  if (column.numberFormat === "percent") {
+    const formatted = new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits: 2,
+    }).format(numeric);
+    return `${formatted} %`;
+  }
+  return raw;
+};
+
+const formatSyncValue = (column: SummaryTableColumn, rawValue: string | boolean | undefined) => {
+  if (rawValue === undefined || rawValue === null || rawValue === "") return "";
+  if (column.type === "checkbox") {
+    if (typeof rawValue === "boolean") return rawValue ? "Oui" : "Non";
+    const normalized = String(rawValue).toLowerCase();
+    return ["1", "true", "oui", "yes"].includes(normalized) ? "Oui" : "Non";
+  }
+  if (column.type === "yesno") {
+    if (typeof rawValue === "boolean") return rawValue ? "Oui" : "Non";
+    return String(rawValue);
+  }
+  if (column.type === "date") return formatDateValue(String(rawValue));
+  if (column.type === "number") return formatNumberValue(column, rawValue);
+  if (column.type === "link") return formatLinkValue(String(rawValue));
+  if (column.type === "image") return rawValue ? "Image" : "";
+  if (column.type === "video") return rawValue ? "Video" : "";
+  return String(rawValue);
+};
+
+const normalizeDateValue = (value: string | boolean | undefined) => {
+  if (!value || typeof value === "boolean") return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const date = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return raw;
+};
+
+const resolveDateColumnId = (
+  columns: SummaryTableColumn[],
+  preferred?: string | null,
+) => {
+  const dateColumns = columns.filter((column) => column.type === "date");
+  if (preferred && dateColumns.some((column) => column.id === preferred)) {
+    return preferred;
+  }
+  return dateColumns[0]?.id ?? null;
+};
+
+const getDefaultSyncColumns = (
+  columns: SummaryTableColumn[],
+  dateColumnId: string | null,
+) => {
+  const nonMedia = columns.filter(
+    (column) => column.type !== "image" && column.type !== "video",
+  );
+  const filtered = dateColumnId
+    ? nonMedia.filter((column) => column.id !== dateColumnId)
+    : nonMedia;
+  if (filtered.length > 0) return filtered.map((column) => column.id);
+  return nonMedia.map((column) => column.id);
+};
+
+const areArraysEqual = (a?: string[], b?: string[]) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  return a.every((value, index) => value === b[index]);
+};
+
+const isTableSyncEqual = (a?: SummaryTableSync, b?: SummaryTableSync) => {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  return (
+    Boolean(a.timeline) === Boolean(b.timeline) &&
+    Boolean(a.calendar) === Boolean(b.calendar) &&
+    (a.dateColumnId ?? null) === (b.dateColumnId ?? null) &&
+    areArraysEqual(a.columns, b.columns)
+  );
+};
+
+const sanitizeTableSync = (
+  sync: SummaryTableSync | undefined,
+  columns: SummaryTableColumn[],
+) => {
+  if (!sync) return undefined;
+  const columnIds = new Set(columns.map((column) => column.id));
+  const dateColumns = columns.filter((column) => column.type === "date");
+  const next: SummaryTableSync = {
+    timeline: sync.timeline,
+    calendar: sync.calendar,
+  };
+  if (sync.columns !== undefined) {
+    next.columns = sync.columns.filter((id) => columnIds.has(id));
+  }
+  if (sync.dateColumnId && dateColumns.some((column) => column.id === sync.dateColumnId)) {
+    next.dateColumnId = sync.dateColumnId;
+  } else if (dateColumns.length > 0) {
+    next.dateColumnId = dateColumns[0].id;
+  } else if (sync.dateColumnId !== undefined) {
+    next.dateColumnId = null;
+  }
+  return next;
+};
+
+const defaultSyncTime = "09:00";
+
+export default function SummaryTableBlock({
+  block,
+  onChange,
+  onDelete,
+  projectId,
+}: SummaryTableBlockProps) {
   const blockRef = useRef<HTMLDivElement | null>(null);
   const configAnchorRef = useRef<HTMLButtonElement | null>(null);
   const menuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const configPanelRef = useRef<HTMLDivElement | null>(null);
   const configSnapshotRef = useRef<SummaryTableData | null>(null);
+  const configMetaSnapshotRef = useRef<{ title?: string; tableSync?: SummaryTableSync } | null>(
+    null,
+  );
   const seedRef = useRef<SummaryTableData | null>(null);
   const ignoreOutsideRef = useRef(false);
   const clipboardBufferRef = useRef<HTMLTextAreaElement | null>(null);
@@ -343,11 +495,16 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [optionsExpanded, setOptionsExpanded] = useState(false);
   const [optionsOpenById, setOptionsOpenById] = useState<Record<string, boolean>>({});
+  const [draftTitle, setDraftTitle] = useState(block.title ?? "");
+  const [draftTableSync, setDraftTableSync] = useState<SummaryTableSync | undefined>(
+    block.tableSync,
+  );
   const [history, setHistory] = useState<{ past: SummaryTableData[]; future: SummaryTableData[] }>(
     { past: [], future: [] },
   );
   const isHistoryActionRef = useRef(false);
   const historyRef = useRef(history);
+  const { items, addItem, updateItem, deleteItem } = useCalendarStore();
 
   const ensureClipboardBuffer = () => {
     if (clipboardBufferRef.current && document.body.contains(clipboardBufferRef.current)) {
@@ -467,6 +624,40 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     : false;
   const activeColumnIsYesNo = activeColumn?.type === "yesno";
   const activeColumnOptions = activeColumn?.options ?? [];
+  const configColumns =
+    configOpen && draftColumns.length > 0 ? draftColumns : table.columns;
+  const draftDateColumnId = useMemo(
+    () => resolveDateColumnId(configColumns, draftTableSync?.dateColumnId),
+    [configColumns, draftTableSync?.dateColumnId],
+  );
+  const draftSyncColumns = useMemo(() => {
+    if (!configColumns.length) return [];
+    if (draftTableSync?.columns !== undefined) {
+      return draftTableSync.columns.filter((id) =>
+        configColumns.some((column) => column.id === id),
+      );
+    }
+    return getDefaultSyncColumns(configColumns, draftDateColumnId);
+  }, [configColumns, draftDateColumnId, draftTableSync?.columns]);
+  const syncDateColumnId = useMemo(
+    () => resolveDateColumnId(table.columns, block.tableSync?.dateColumnId),
+    [block.tableSync?.dateColumnId, table.columns],
+  );
+  const syncColumns = useMemo(() => {
+    if (!block.tableSync) return [];
+    const valid = new Set(table.columns.map((column) => column.id));
+    if (block.tableSync.columns !== undefined) {
+      return block.tableSync.columns.filter((id) => valid.has(id));
+    }
+    return getDefaultSyncColumns(table.columns, syncDateColumnId);
+  }, [block.tableSync, syncDateColumnId, table.columns]);
+  const syncVisibility = useMemo(
+    () => ({
+      timeline: Boolean(block.tableSync?.timeline),
+      calendar: Boolean(block.tableSync?.calendar),
+    }),
+    [block.tableSync?.calendar, block.tableSync?.timeline],
+  );
   useEffect(() => {
     if (!activeColumnIsChoice) return;
     setOptionsExpanded(false);
@@ -540,6 +731,133 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   }, [table]);
 
   useEffect(() => {
+    if (block.tableSync) return;
+    const tableItems = items.filter(
+      (item) => item.source?.type === "table" && item.source.blockId === block.id,
+    );
+    if (tableItems.length === 0) return;
+    tableItems.forEach((item) => deleteItem(item.id));
+  }, [block.id, block.tableSync, deleteItem, items]);
+
+  useEffect(() => {
+    if (!block.tableSync) return;
+    const dateColumnId = syncDateColumnId;
+    const tableTitle = block.title?.trim() ? block.title.trim() : "Tableau";
+    const columnsById = new Map(table.columns.map((column) => [column.id, column]));
+    const tableItems = items.filter(
+      (item) => item.source?.type === "table" && item.source.blockId === block.id,
+    );
+    const itemsByRow = new Map<string, CalendarItem>();
+    tableItems.forEach((item) => {
+      if (item.source?.rowId) {
+        itemsByRow.set(item.source.rowId, item);
+      }
+    });
+
+    if (!dateColumnId) {
+      const hiddenVisibility = { timeline: false, calendar: false };
+      tableItems.forEach((item) => {
+        const visibilityChanged =
+          item.visibility?.timeline !== hiddenVisibility.timeline ||
+          item.visibility?.calendar !== hiddenVisibility.calendar;
+        if (visibilityChanged) {
+          updateItem(item.id, { visibility: hiddenVisibility });
+        }
+      });
+      return;
+    }
+
+    const desiredRowIds = new Set<string>();
+
+    table.rows.forEach((row) => {
+      const dateValue = normalizeDateValue(row.values[dateColumnId]);
+      if (!dateValue) return;
+      desiredRowIds.add(row.id);
+      const existing = itemsByRow.get(row.id);
+      const descriptionParts = syncColumns
+        .map((columnId) => {
+          const column = columnsById.get(columnId);
+          if (!column) return null;
+          const formatted = formatSyncValue(column, row.values[column.id]);
+          if (!formatted) return null;
+          return formatted;
+        })
+        .filter(Boolean) as string[];
+      const nextDescription =
+        descriptionParts.length > 0 ? descriptionParts.join(" · ") : undefined;
+
+      if (!existing) {
+        addItem({
+          id: `table-${block.id}-${row.id}`,
+          date: dateValue,
+          time: defaultSyncTime,
+          type: "event",
+          title: tableTitle,
+          description: nextDescription,
+          pinned: false,
+          visibility: syncVisibility,
+          source: {
+            type: "table",
+            blockId: block.id,
+            rowId: row.id,
+            projectId,
+          },
+        });
+        return;
+      }
+
+      const patch: Partial<CalendarItem> = {};
+      if (existing.date !== dateValue) patch.date = dateValue;
+      if (existing.title !== tableTitle) patch.title = tableTitle;
+      if ((existing.description ?? "") !== (nextDescription ?? "")) {
+        patch.description = nextDescription;
+      }
+      if (!existing.time) patch.time = defaultSyncTime;
+      const visibilityChanged =
+        existing.visibility?.timeline !== syncVisibility.timeline ||
+        existing.visibility?.calendar !== syncVisibility.calendar;
+      if (visibilityChanged) patch.visibility = syncVisibility;
+      if (
+        !existing.source ||
+        existing.source.blockId !== block.id ||
+        existing.source.rowId !== row.id ||
+        existing.source.projectId !== projectId
+      ) {
+        patch.source = {
+          type: "table",
+          blockId: block.id,
+          rowId: row.id,
+          projectId,
+        };
+      }
+      if (Object.keys(patch).length > 0) {
+        updateItem(existing.id, patch);
+      }
+    });
+
+    tableItems.forEach((item) => {
+      const rowId = item.source?.rowId;
+      if (!rowId || !desiredRowIds.has(rowId)) {
+        deleteItem(item.id);
+      }
+    });
+  }, [
+    addItem,
+    block.id,
+    block.tableSync,
+    block.title,
+    deleteItem,
+    items,
+    syncColumns,
+    syncDateColumnId,
+    syncVisibility,
+    table.columns,
+    table.rows,
+    updateItem,
+    projectId,
+  ]);
+
+  useEffect(() => {
     if (!blockActive && !configOpen) return;
     const handleOutside = (event: PointerEvent) => {
       if (configOpen) return;
@@ -582,12 +900,19 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   }, [configOpen, table.columns, table.rows.length]);
 
   useEffect(() => {
+    if (!configOpen) return;
+    setDraftTitle(block.title ?? "");
+    setDraftTableSync(block.tableSync);
+  }, [block.tableSync, block.title, configOpen]);
+
+  useEffect(() => {
     setPortalReady(true);
   }, []);
 
   useEffect(() => {
     if (configOpen) return;
     configSnapshotRef.current = null;
+    configMetaSnapshotRef.current = null;
   }, [configOpen]);
 
   useEffect(() => {
@@ -617,15 +942,22 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
   useEffect(() => {
     if (!configOpen) return;
     const handleOutside = (event: PointerEvent) => {
-      if (ignoreOutsideRef.current) return;
       const target = event.target as Node | null;
       if (!target) return;
       if (configPanelRef.current?.contains(target)) return;
       if (configAnchorRef.current?.contains(target)) return;
+      ignoreOutsideRef.current = false;
       setConfigOpen(false);
     };
+    const resetIgnore = () => {
+      ignoreOutsideRef.current = false;
+    };
     window.addEventListener("pointerdown", handleOutside, true);
-    return () => window.removeEventListener("pointerdown", handleOutside, true);
+    window.addEventListener("pointerup", resetIgnore, true);
+    return () => {
+      window.removeEventListener("pointerdown", handleOutside, true);
+      window.removeEventListener("pointerup", resetIgnore, true);
+    };
   }, [configOpen]);
 
   useEffect(() => {
@@ -651,7 +983,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     };
   }, []);
 
-  const updateTable = (next: SummaryTableData) => {
+  const updateTable = (next: SummaryTableData, patch: Partial<SummaryBlock> = {}) => {
     const currentTable = tableRef.current ?? table;
     if (!isHistoryActionRef.current) {
       setHistory((prev) => {
@@ -661,7 +993,7 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
         return { past: trimmedPast, future: [] };
       });
     }
-    onChange({ table: next });
+    onChange({ table: next, ...patch });
   };
 
   const handleUndoTable = () => {
@@ -1156,6 +1488,49 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
     );
   };
 
+  const toggleDraftSyncFlag = (key: "timeline" | "calendar") => {
+    setDraftTableSync((prev) => {
+      const next: SummaryTableSync = { ...(prev ?? {}) };
+      const nextValue = !(prev?.[key] ?? false);
+      next[key] = nextValue;
+      if (nextValue && !next.dateColumnId) {
+        const fallback = resolveDateColumnId(configColumns, prev?.dateColumnId);
+        if (fallback) next.dateColumnId = fallback;
+      }
+      if (next.columns === undefined && (next.timeline || next.calendar)) {
+        next.columns = getDefaultSyncColumns(configColumns, next.dateColumnId ?? null);
+      }
+      return next;
+    });
+  };
+
+  const updateDraftSyncDateColumn = (columnId: string) => {
+    setDraftTableSync((prev) => {
+      const next: SummaryTableSync = { ...(prev ?? {}) };
+      next.dateColumnId = columnId;
+      if (next.columns === undefined && (next.timeline || next.calendar)) {
+        next.columns = getDefaultSyncColumns(configColumns, columnId);
+      }
+      return next;
+    });
+  };
+
+  const toggleDraftSyncColumn = (columnId: string) => {
+    setDraftTableSync((prev) => {
+      const baseColumns =
+        prev?.columns !== undefined
+          ? prev.columns
+          : getDefaultSyncColumns(configColumns, draftDateColumnId);
+      const nextSet = new Set(baseColumns);
+      if (nextSet.has(columnId)) {
+        nextSet.delete(columnId);
+      } else {
+        nextSet.add(columnId);
+      }
+      return { ...(prev ?? {}), columns: Array.from(nextSet) };
+    });
+  };
+
   const applyConfig = () => {
     const nextColumns = draftColumns.length > 0 ? draftColumns : [createColumn()];
     const prevTypes = new Map(table.columns.map((column) => [column.id, column.type]));
@@ -1174,14 +1549,33 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
       };
     });
     const ensuredRows = nextRows.length > 0 ? nextRows : [createRow(nextColumns)];
-    updateTable({ columns: nextColumns, rows: ensuredRows });
+    const nextTitle = draftTitle.trim() ? draftTitle.trim() : undefined;
+    const nextTableSync = sanitizeTableSync(draftTableSync, nextColumns);
+    const metaPatch: Partial<SummaryBlock> = {};
+    const currentTitle = block.title?.trim() ? block.title?.trim() : undefined;
+    if (currentTitle !== nextTitle) metaPatch.title = nextTitle;
+    if (!isTableSyncEqual(nextTableSync, block.tableSync)) {
+      metaPatch.tableSync = nextTableSync;
+    }
+    updateTable({ columns: nextColumns, rows: ensuredRows }, metaPatch);
     setActiveColumnId(null);
     setConfigOpen(false);
   };
 
   const cancelConfig = () => {
+    const metaSnapshot = configMetaSnapshotRef.current;
     if (configSnapshotRef.current) {
-      updateTable(configSnapshotRef.current);
+      updateTable(
+        configSnapshotRef.current,
+        metaSnapshot
+          ? {
+              title: metaSnapshot.title,
+              tableSync: metaSnapshot.tableSync,
+            }
+          : {},
+      );
+    } else if (metaSnapshot) {
+      onChange({ title: metaSnapshot.title, tableSync: metaSnapshot.tableSync });
     }
     setActiveColumnId(null);
     setConfigOpen(false);
@@ -1395,6 +1789,19 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                 if (!configSnapshotRef.current) {
                   configSnapshotRef.current = cloneTable(table);
                 }
+                if (!configMetaSnapshotRef.current) {
+                  configMetaSnapshotRef.current = {
+                    title: block.title,
+                    tableSync: block.tableSync
+                      ? {
+                          ...block.tableSync,
+                          columns: block.tableSync.columns
+                            ? [...block.tableSync.columns]
+                            : undefined,
+                        }
+                      : undefined,
+                  };
+                }
                 setConfigPosition(getPanelPosition(menuAnchorRef.current, blockRef.current));
               }
               setActiveColumnId(null);
@@ -1460,6 +1867,8 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                       zIndex: 10000,
                       pointerEvents: "auto",
                       transform: "none",
+                      maxHeight: "calc(100vh - 24px)",
+                      overflowY: "auto",
                     }
                   : undefined
               }
@@ -1578,6 +1987,10 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                 .${menuPanelClass} .${styles.projectTableConfigFilterCheckbox} {
                   background: transparent !important;
                   box-shadow: none !important;
+                }
+                .${menuPanelClass} .${styles.projectTableConfigFilterCheckbox}:checked {
+                  background: rgba(22, 163, 74, 0.9) !important;
+                  border-color: rgba(22, 163, 74, 0.9) !important;
                 }
                 .dark .${menuPanelClass} .${styles.projectTableConfigInput},
                 .dark .${menuPanelClass} .${styles.projectTableConfigSelect},
@@ -1796,8 +2209,22 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                       }}
                     >
                       <option value="">Aucun</option>
-                      <option value="asc">A → Z</option>
-                      <option value="desc">Z → A</option>
+                      {activeColumn.type === "date" ? (
+                        <>
+                          <option value="desc">Plus recent</option>
+                          <option value="asc">Plus ancien</option>
+                        </>
+                      ) : activeColumn.type === "number" ? (
+                        <>
+                          <option value="asc">Croissant</option>
+                          <option value="desc">Decroissant</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="asc">A → Z</option>
+                          <option value="desc">Z → A</option>
+                        </>
+                      )}
                     </select>
                   </div>
                   <div className={styles.projectTableConfigRow}>
@@ -1916,6 +2343,19 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
               ) : (
                 <>
                   <div className={styles.projectTableConfigRow}>
+                    <label className={styles.projectTableConfigLabel} htmlFor={`${block.id}-title`}>
+                      Titre
+                    </label>
+                    <input
+                      id={`${block.id}-title`}
+                      type="text"
+                      className={styles.projectTableConfigInput}
+                      value={draftTitle}
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      placeholder="Titre du tableau"
+                    />
+                  </div>
+                  <div className={styles.projectTableConfigRow}>
                     <label className={styles.projectTableConfigLabel} htmlFor={`${block.id}-cols`}>
                       Champs
                     </label>
@@ -1952,6 +2392,86 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                     >
                       + Champ
                     </button>
+                  </div>
+                  <div className={styles.projectTableConfigRow}>
+                    <label className={styles.projectTableConfigLabel}>Synchronisation</label>
+                    <div className={styles.projectTableConfigFilter}>
+                      <label className={styles.projectTableConfigFilterItem}>
+                        <input
+                          type="checkbox"
+                          className={styles.projectTableConfigFilterCheckbox}
+                          checked={draftTableSync?.timeline ?? false}
+                          onChange={() => toggleDraftSyncFlag("timeline")}
+                        />
+                        <span className={styles.projectTableConfigFilterText}>
+                          Afficher au timeline
+                        </span>
+                      </label>
+                      <label className={styles.projectTableConfigFilterItem}>
+                        <input
+                          type="checkbox"
+                          className={styles.projectTableConfigFilterCheckbox}
+                          checked={draftTableSync?.calendar ?? false}
+                          onChange={() => toggleDraftSyncFlag("calendar")}
+                        />
+                        <span className={styles.projectTableConfigFilterText}>
+                          Rattacher au calendrier
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className={styles.projectTableConfigRow}>
+                    <label className={styles.projectTableConfigLabel}>Date</label>
+                    {configColumns.some((column) => column.type === "date") ? (
+                      <select
+                        className={styles.projectTableConfigSelect}
+                        value={draftDateColumnId ?? ""}
+                        onChange={(event) => updateDraftSyncDateColumn(event.target.value)}
+                      >
+                        {configColumns
+                          .filter((column) => column.type === "date")
+                          .map((column) => (
+                            <option key={column.id} value={column.id}>
+                              {column.label?.trim() || "Date"}
+                            </option>
+                          ))}
+                      </select>
+                    ) : (
+                      <div className={styles.projectTableConfigFilterEmpty}>
+                        Ajoutez une colonne date.
+                      </div>
+                    )}
+                  </div>
+                  <div className={styles.projectTableConfigRow}>
+                    <label className={styles.projectTableConfigLabel}>Champs affiches</label>
+                    <div className={styles.projectTableConfigFilter}>
+                      <div className={styles.projectTableConfigFilterList}>
+                        {configColumns.length === 0 && (
+                          <div className={styles.projectTableConfigFilterEmpty}>
+                            Aucun champ disponible.
+                          </div>
+                        )}
+                        {configColumns.map((column) => {
+                          const isChecked = draftSyncColumns.includes(column.id);
+                          return (
+                            <label
+                              key={column.id}
+                              className={styles.projectTableConfigFilterItem}
+                            >
+                              <input
+                                type="checkbox"
+                                className={styles.projectTableConfigFilterCheckbox}
+                                checked={isChecked}
+                                onChange={() => toggleDraftSyncColumn(column.id)}
+                              />
+                              <span className={styles.projectTableConfigFilterText}>
+                                {column.label?.trim() || "Champ"}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                   <div className={styles.projectTableConfigGrid}>
                     {draftColumns.map((column, index) => (
@@ -2261,6 +2781,19 @@ export default function SummaryTableBlock({ block, onChange, onDelete }: Summary
                 configAnchorRef.current = anchor as HTMLButtonElement;
                 if (!configSnapshotRef.current) {
                   configSnapshotRef.current = cloneTable(table);
+                }
+                if (!configMetaSnapshotRef.current) {
+                  configMetaSnapshotRef.current = {
+                    title: block.title,
+                    tableSync: block.tableSync
+                      ? {
+                          ...block.tableSync,
+                          columns: block.tableSync.columns
+                            ? [...block.tableSync.columns]
+                            : undefined,
+                        }
+                      : undefined,
+                  };
                 }
                 setConfigPosition(getPanelPosition(anchor as HTMLElement, blockRef.current));
                 setActiveColumnId(columnId ?? null);

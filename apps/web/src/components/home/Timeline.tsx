@@ -2,7 +2,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCalendarStore, type CalendarItem } from "@/store/calendarStore";
+import { useProjectStore } from "@/store/projectStore";
 
 type EditDraft = {
   title: string;
@@ -24,8 +26,10 @@ type DateOption = {
 };
 
 export function Timeline() {
+  const router = useRouter();
   const { items, tags, updateItem, deleteItem } = useCalendarStore();
-  const [selected, setSelected] = useState<typeof items[number] | null>(null);
+  const projects = useProjectStore((s) => s.projects);
+  const [selected, setSelected] = useState<CalendarItem | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft>({
     title: "",
@@ -43,19 +47,47 @@ export function Timeline() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const feedbackTimers = useRef<Record<string, number[]>>({});
   const datePulseTimer = useRef<number | null>(null);
-  const editingItem = items.find((item) => item.id === editingId) ?? null;
+  const baseItems = useMemo(
+    () => items.filter((item) => item.visibility?.timeline !== false),
+    [items],
+  );
+  const editingItem = baseItems.find((item) => item.id === editingId) ?? null;
   const rescheduleItems = useMemo(
-    () => rescheduleIds.map((id) => items.find((item) => item.id === id)).filter(Boolean) as CalendarItem[],
-    [items, rescheduleIds],
+    () =>
+      rescheduleIds
+        .map((id) => baseItems.find((item) => item.id === id))
+        .filter(Boolean) as CalendarItem[],
+    [baseItems, rescheduleIds],
   );
   const rescheduleItem = rescheduleItems[0] ?? null;
+  const projectIdByBlockId = useMemo(() => {
+    const map = new Map<string, string>();
+    const addSections = (projectId: string, sections?: { blocks?: { id?: string }[] }[]) => {
+      if (!sections) return;
+      sections.forEach((section) => {
+        section.blocks?.forEach((block) => {
+          if (block?.id && !map.has(block.id)) {
+            map.set(block.id, projectId);
+          }
+        });
+      });
+    };
+    projects.forEach((project) => {
+      const projectId =
+        project.id !== null && project.id !== undefined ? String(project.id) : "";
+      if (!projectId) return;
+      addSections(projectId, project.summarySections);
+      project.pages?.forEach((page) => addSections(projectId, page.summarySections));
+    });
+    return map;
+  }, [projects]);
 
   const sorted = useMemo(() => {
-    return [...items].sort((a, b) => {
+    return [...baseItems].sort((a, b) => {
       if (a.date !== b.date) return a.date.localeCompare(b.date);
       return a.time.localeCompare(b.time);
     });
-  }, [items]);
+  }, [baseItems]);
 
   const todayStart = useMemo(() => {
     const now = new Date();
@@ -138,7 +170,7 @@ export function Timeline() {
     return d >= todayStart && d <= weekEnd;
   };
 
-  const visibleItems = useMemo(() => {
+  const filteredItems = useMemo(() => {
     return sorted.filter((item) => {
       const overdue = isOverdue(item);
       const dueSoon = isDueWithinWeek(item);
@@ -159,7 +191,7 @@ export function Timeline() {
       later: [],
     };
 
-    visibleItems.forEach((item) => {
+    filteredItems.forEach((item) => {
       if (isOverdue(item)) {
         groups.overdue.push(item);
         return;
@@ -196,7 +228,7 @@ export function Timeline() {
       { key: "week", label: "Cette semaine", items: groups.week },
       { key: "later", label: "Plus tard", items: groups.later },
     ].filter((group) => group.items.length > 0);
-  }, [visibleItems, todayStart, tomorrowStart, weekEnd]);
+  }, [filteredItems, todayStart, tomorrowStart, weekEnd]);
 
   function getTagName(id?: string) {
     if (!id) return undefined;
@@ -216,11 +248,23 @@ export function Timeline() {
 
   useEffect(() => {
     if (!selected) return;
-    const fresh = items.find((item) => item.id === selected.id);
+    const fresh = filteredItems.find((item) => item.id === selected.id);
     if (fresh) {
       setSelected(fresh);
     }
-  }, [items, selected?.id]);
+  }, [filteredItems, selected?.id]);
+
+  useEffect(() => {
+    if (projectIdByBlockId.size === 0) return;
+    items.forEach((item) => {
+      if (item.source?.type !== "table" || item.source.projectId) return;
+      const resolved = projectIdByBlockId.get(item.source.blockId);
+      if (!resolved) return;
+      updateItem(item.id, {
+        source: { ...item.source, projectId: resolved },
+      });
+    });
+  }, [items, projectIdByBlockId, updateItem]);
 
   useEffect(() => {
     if (editingId && !editingItem) {
@@ -393,7 +437,7 @@ export function Timeline() {
     const unique = Array.from(new Set(ids)).filter(Boolean);
     if (unique.length === 0) return;
     setRescheduleIds(unique);
-    const primary = items.find((item) => item.id === unique[0]);
+    const primary = filteredItems.find((item) => item.id === unique[0]);
     setRescheduleDate(primary?.date ?? "");
     setRescheduleTime(primary?.time || "09:00");
     setEditingId(null);
@@ -403,7 +447,7 @@ export function Timeline() {
   const handleBulkDone = () => {
     const ids = Array.from(selectedIds);
     ids.forEach((id) => {
-      const item = items.find((entry) => entry.id === id);
+      const item = filteredItems.find((entry) => entry.id === id);
       if (!item || item.done) return;
       updateItem(item.id, { done: true });
       showFeedback(
@@ -690,6 +734,49 @@ export function Timeline() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {(() => {
+              if (item.source?.type !== "table") return null;
+              const resolvedProjectId =
+                item.source.projectId ?? projectIdByBlockId.get(item.source.blockId);
+              if (!resolvedProjectId) return null;
+              return (
+              <button
+                type="button"
+                aria-label="Ouvrir le tableau"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  router.push(
+                    `/projects/${encodeURIComponent(resolvedProjectId)}#summary-table-${item.source.blockId}`,
+                  );
+                }}
+                className="inline-flex items-center justify-center p-0 leading-none"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--text)",
+                  opacity: 0.75,
+                }}
+                title="Ouvrir le tableau"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M14 3h7v7" />
+                  <path d="M21 3l-9 9" />
+                  <path d="M5 7v12h12" />
+                </svg>
+              </button>
+              );
+            })()}
             <button
               type="button"
               aria-label={item.pinned ? "Désépingler" : "Épingler"}
@@ -835,7 +922,7 @@ export function Timeline() {
             <p className="text-[12px] font-semibold text-slate-900 dark:text-[rgba(235,240,248,0.92)]">Timeline</p>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-slate-600 dark:text-[rgba(235,240,248,0.7)]">
-                {visibleItems.length} élément(s)
+                {filteredItems.length} élément(s)
               </span>
               <button
                 type="button"
@@ -972,7 +1059,7 @@ export function Timeline() {
         </div>
 
         <div className="space-y-3">
-          {visibleItems.length === 0 && (
+          {filteredItems.length === 0 && (
             <p className="text-[11px] text-slate-500">
               Aucun élément pour ce filtre.
             </p>
