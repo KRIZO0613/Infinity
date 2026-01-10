@@ -11,7 +11,12 @@ import type {
   SummaryTableSync,
 } from "@/store/projectStore";
 import { useCalendarStore, type CalendarItem } from "@/store/calendarStore";
-import StructuredList from "@/components/ui/StructuredList";
+import StructuredList, {
+  type StructuredListAnalysisConfig,
+  type StructuredListAnalysisMap,
+  type StructuredListResultRowStyle,
+  type StructuredListTableStyle,
+} from "@/components/ui/StructuredList";
 import styles from "./ProjectEditor.module.css";
 
 type SummaryTableBlockProps = {
@@ -34,6 +39,17 @@ const plainMenuButtonStyle: CSSProperties = {
 
 const menuButtonClass = "table-menu-plain";
 const menuPanelClass = "table-menu-panel";
+const defaultAnalysisConfig: StructuredListAnalysisConfig = {
+  type: "sum",
+  showResult: false,
+  color: "#22c55e",
+};
+const defaultTableStyle: StructuredListTableStyle = {
+  background: "",
+  backgroundOpacity: 100,
+  border: "",
+  text: "",
+};
 
 const createId = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -465,6 +481,8 @@ export default function SummaryTableBlock({
   const configAnchorRef = useRef<HTMLButtonElement | null>(null);
   const menuAnchorRef = useRef<HTMLButtonElement | null>(null);
   const configPanelRef = useRef<HTMLDivElement | null>(null);
+  const paletteAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const palettePanelRef = useRef<HTMLDivElement | null>(null);
   const configSnapshotRef = useRef<SummaryTableData | null>(null);
   const configMetaSnapshotRef = useRef<{ title?: string; tableSync?: SummaryTableSync } | null>(
     null,
@@ -492,6 +510,16 @@ export default function SummaryTableBlock({
   } | null>(null);
   const [filterSearch, setFilterSearch] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
+  const [analysisConfig, setAnalysisConfig] = useState<StructuredListAnalysisMap>({});
+  const [resultRowStyle, setResultRowStyle] = useState<StructuredListResultRowStyle>({
+    background: "",
+    color: "",
+  });
+  const [tableStyle, setTableStyle] = useState<StructuredListTableStyle>(defaultTableStyle);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [palettePosition, setPalettePosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
   const [optionsExpanded, setOptionsExpanded] = useState(false);
   const [optionsOpenById, setOptionsOpenById] = useState<Record<string, boolean>>({});
@@ -587,6 +615,24 @@ export default function SummaryTableBlock({
     return { top, left };
   };
 
+  const getPalettePosition = (anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    const panelWidth = 240;
+    const gutter = 12;
+    let left = rect.left;
+    if (left + panelWidth > window.innerWidth - gutter) {
+      left = Math.max(gutter, window.innerWidth - panelWidth - gutter);
+    }
+    if (left < gutter) left = gutter;
+    let top = rect.top + rect.height + 8;
+    const panelHeight = palettePanelRef.current?.offsetHeight ?? 0;
+    const maxTop = window.innerHeight - panelHeight - gutter;
+    if (panelHeight > 0 && top > maxTop) {
+      top = Math.max(gutter, maxTop);
+    }
+    return { top, left };
+  };
+
   if (!block.table && !seedRef.current) {
     const baseColumns = [createColumn()];
     const contentRows =
@@ -624,6 +670,28 @@ export default function SummaryTableBlock({
     : false;
   const activeColumnIsYesNo = activeColumn?.type === "yesno";
   const activeColumnOptions = activeColumn?.options ?? [];
+  const activeAnalysisConfig = activeColumn ? analysisConfig[activeColumn.id] : undefined;
+  const analysisSelectValue =
+    activeColumn && activeAnalysisConfig?.showResult
+      ? activeAnalysisConfig.type
+      : "none";
+  const analysisOptions: Array<{ value: StructuredListAnalysisConfig["type"]; label: string }> =
+    activeColumn?.type === "number"
+      ? [
+          { value: "sum", label: "Somme" },
+          { value: "average", label: "Moyenne" },
+          { value: "difference", label: "Différence" },
+          { value: "min", label: "Min" },
+          { value: "max", label: "Max" },
+          { value: "count", label: "Nombre" },
+        ]
+      : [{ value: "count", label: "Nombre" }];
+  const isDefaultTableStyle =
+    tableStyle.background === defaultTableStyle.background &&
+    (tableStyle.backgroundOpacity ?? defaultTableStyle.backgroundOpacity) ===
+      defaultTableStyle.backgroundOpacity &&
+    tableStyle.border === defaultTableStyle.border &&
+    tableStyle.text === defaultTableStyle.text;
   const configColumns =
     configOpen && draftColumns.length > 0 ? draftColumns : table.columns;
   const draftDateColumnId = useMemo(
@@ -936,16 +1004,35 @@ export default function SummaryTableBlock({
   }, [configOpen, draftColumns.length, portalReady]);
 
   useEffect(() => {
+    if (!paletteOpen) {
+      setPalettePosition(null);
+      return;
+    }
+    if (!portalReady) return;
+    const updatePosition = () => {
+      const anchor = paletteAnchorRef.current;
+      if (!anchor) return;
+      setPalettePosition(getPalettePosition(anchor));
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [paletteOpen, portalReady]);
+
+  useEffect(() => {
     setFilterSearch("");
   }, [activeColumnId, configOpen]);
 
   useEffect(() => {
     if (!configOpen) return;
     const handleOutside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (!target) return;
-      if (configPanelRef.current?.contains(target)) return;
-      if (configAnchorRef.current?.contains(target)) return;
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (configPanelRef.current && path.includes(configPanelRef.current)) return;
+      if (configAnchorRef.current && path.includes(configAnchorRef.current)) return;
       ignoreOutsideRef.current = false;
       setConfigOpen(false);
     };
@@ -959,6 +1046,21 @@ export default function SummaryTableBlock({
       window.removeEventListener("pointerup", resetIgnore, true);
     };
   }, [configOpen]);
+
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (palettePanelRef.current?.contains(target)) return;
+      if (paletteAnchorRef.current?.contains(target as Node)) return;
+      setPaletteOpen(false);
+    };
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => {
+      window.removeEventListener("pointerdown", handleOutside, true);
+    };
+  }, [paletteOpen]);
 
   useEffect(() => {
     if (!configOpen) return;
@@ -1826,6 +1928,33 @@ export default function SummaryTableBlock({
               <path d="M5 12h14" />
             </svg>
           </button>
+          <button
+            type="button"
+            className={cx("icon-button", styles.cardToolbarButton)}
+            ref={paletteAnchorRef}
+            onClick={() => {
+              if (!paletteOpen && paletteAnchorRef.current) {
+                setPalettePosition(getPalettePosition(paletteAnchorRef.current));
+              }
+              setPaletteOpen((prev) => !prev);
+            }}
+            aria-label="Palette du tableau"
+            title="Palette du tableau"
+          >
+            <svg
+              aria-hidden="true"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
           {onDelete && (
             <button
               type="button"
@@ -2302,6 +2431,52 @@ export default function SummaryTableBlock({
                       >
                         Supprimer filtre
                       </button>
+                      <label
+                        className={styles.projectTableConfigLabel}
+                        htmlFor={`${block.id}-analysis-${activeColumn.id}`}
+                      >
+                        Calcul
+                      </label>
+                      <select
+                        id={`${block.id}-analysis-${activeColumn.id}`}
+                        className={styles.projectTableConfigSelect}
+                        value={analysisSelectValue}
+                        onChange={(event) => {
+                          const nextValue = event.target.value as
+                            | StructuredListAnalysisConfig["type"]
+                            | "none";
+                          setAnalysisConfig((prev) => {
+                            const current = prev[activeColumn.id];
+                            if (nextValue === "none") {
+                              if (!current) return prev;
+                              return {
+                                ...prev,
+                                [activeColumn.id]: {
+                                  ...defaultAnalysisConfig,
+                                  ...current,
+                                  showResult: false,
+                                },
+                              };
+                            }
+                            return {
+                              ...prev,
+                              [activeColumn.id]: {
+                                ...defaultAnalysisConfig,
+                                ...current,
+                                type: nextValue,
+                                showResult: true,
+                              },
+                            };
+                          });
+                        }}
+                      >
+                        <option value="none">Aucun</option>
+                        {analysisOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <div className={styles.projectTableConfigRow}>
@@ -2763,6 +2938,98 @@ export default function SummaryTableBlock({
             document.body,
           )
         : null}
+      {paletteOpen && portalReady
+        ? createPortal(
+            <div
+              className={cx("panel-glass p-3", styles.projectTablePalette)}
+              style={
+                palettePosition
+                  ? {
+                      ...palettePosition,
+                      position: "fixed",
+                      zIndex: 9999,
+                      pointerEvents: "auto",
+                      transform: "none",
+                    }
+                  : undefined
+              }
+              ref={palettePanelRef}
+            >
+              <div className={styles.projectTableConfigTitle}>Palette</div>
+              <div className={styles.projectTablePaletteRow}>
+                <label className={styles.projectTableConfigLabel}>Mode</label>
+                <label className={styles.projectTablePaletteToggle}>
+                  <input
+                    type="checkbox"
+                    className={styles.projectTableConfigFilterCheckbox}
+                    checked={isDefaultTableStyle}
+                    onChange={(event) => {
+                      if (event.target.checked) {
+                        setTableStyle({ ...defaultTableStyle });
+                      }
+                    }}
+                  />
+                  <span className={styles.projectTablePaletteToggleText}>Par defaut</span>
+                </label>
+              </div>
+              <div className={styles.projectTablePaletteRow}>
+                <label className={styles.projectTableConfigLabel}>Fond</label>
+                <input
+                  type="color"
+                  className={styles.projectTablePaletteColor}
+                  value={tableStyle.background || "#ffffff"}
+                  onChange={(event) =>
+                    setTableStyle((prev) => ({ ...prev, background: event.target.value }))
+                  }
+                />
+              </div>
+              <div className={styles.projectTablePaletteRow}>
+                <label className={styles.projectTableConfigLabel}>Transparence</label>
+                <div className={styles.projectTablePaletteRangeWrap}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    className={styles.projectTablePaletteRange}
+                    value={tableStyle.backgroundOpacity ?? 100}
+                    onChange={(event) =>
+                      setTableStyle((prev) => ({
+                        ...prev,
+                        backgroundOpacity: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  <span className={styles.projectTablePaletteValue}>
+                    {tableStyle.backgroundOpacity ?? 100}%
+                  </span>
+                </div>
+              </div>
+              <div className={styles.projectTablePaletteRow}>
+                <label className={styles.projectTableConfigLabel}>Bordure</label>
+                <input
+                  type="color"
+                  className={styles.projectTablePaletteColor}
+                  value={tableStyle.border || "#e5e7eb"}
+                  onChange={(event) =>
+                    setTableStyle((prev) => ({ ...prev, border: event.target.value }))
+                  }
+                />
+              </div>
+              <div className={styles.projectTablePaletteRow}>
+                <label className={styles.projectTableConfigLabel}>Texte</label>
+                <input
+                  type="color"
+                  className={styles.projectTablePaletteColor}
+                  value={tableStyle.text || "#111827"}
+                  onChange={(event) =>
+                    setTableStyle((prev) => ({ ...prev, text: event.target.value }))
+                  }
+                />
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       <div className={styles.projectTableShell}>
         <div className={styles.projectTableFrame}>
           <div className={styles.projectTableScroll}>
@@ -2827,6 +3094,12 @@ export default function SummaryTableBlock({
               minListWidth={minListWidth}
               showAddButton={false}
               showQuickAdd
+              analysisConfig={analysisConfig}
+              onAnalysisConfigChange={setAnalysisConfig}
+              showResultRowColorPicker
+              resultRowStyle={resultRowStyle}
+              onResultRowStyleChange={setResultRowStyle}
+              tableStyle={tableStyle}
             />
           </div>
         </div>

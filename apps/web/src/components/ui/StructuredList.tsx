@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CSSProperties, FocusEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent, ReactNode, MouseEvent } from "react";
 import styles from "./StructuredList.module.css";
 
@@ -33,6 +34,28 @@ export type StructuredListRow = {
   values: Record<string, string | boolean>;
 };
 
+export type StructuredListAnalysisType = "sum" | "average" | "min" | "max" | "difference" | "count";
+
+export type StructuredListAnalysisConfig = {
+  type: StructuredListAnalysisType;
+  showResult?: boolean;
+  color?: string;
+};
+
+export type StructuredListAnalysisMap = Record<string, StructuredListAnalysisConfig>;
+
+export type StructuredListResultRowStyle = {
+  background?: string;
+  color?: string;
+};
+
+export type StructuredListTableStyle = {
+  background?: string;
+  backgroundOpacity?: number;
+  border?: string;
+  text?: string;
+};
+
 type StructuredListProps = {
   columns: StructuredListColumn[];
   rows: StructuredListRow[];
@@ -49,6 +72,12 @@ type StructuredListProps = {
   addLabel?: string;
   showAddButton?: boolean;
   showQuickAdd?: boolean;
+  analysisConfig?: StructuredListAnalysisMap;
+  onAnalysisConfigChange?: (next: StructuredListAnalysisMap) => void;
+  resultRowStyle?: StructuredListResultRowStyle;
+  onResultRowStyleChange?: (next: StructuredListResultRowStyle) => void;
+  showResultRowColorPicker?: boolean;
+  tableStyle?: StructuredListTableStyle;
   showHeaderControls?: boolean;
   showCopyControls?: boolean;
   onPasteRowAfter?: (rowId: string, text: string) => void;
@@ -117,6 +146,73 @@ const formatNumberValue = (column: StructuredListColumn, rawValue: string | bool
   return raw;
 };
 
+const parseNumericValue = (value: string | boolean | undefined) => {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean") return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const clampNumber = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const toRgba = (color: string, alpha: number) => {
+  const trimmed = color.trim();
+  if (!trimmed) return "";
+  if (!trimmed.startsWith("#")) {
+    return trimmed;
+  }
+  const hex = trimmed.slice(1);
+  if (hex.length === 3) {
+    const r = Number.parseInt(hex[0] + hex[0], 16);
+    const g = Number.parseInt(hex[1] + hex[1], 16);
+    const b = Number.parseInt(hex[2] + hex[2], 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (hex.length === 6) {
+    const r = Number.parseInt(hex.slice(0, 2), 16);
+    const g = Number.parseInt(hex.slice(2, 4), 16);
+    const b = Number.parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return trimmed;
+};
+
+const getPopoverPosition = (
+  anchor: HTMLElement,
+  panel: HTMLElement | null,
+  panelWidth: number,
+) => {
+  const rect = anchor.getBoundingClientRect();
+  const gutter = 12;
+  let left = rect.left;
+  if (left + panelWidth > window.innerWidth - gutter) {
+    left = Math.max(gutter, window.innerWidth - panelWidth - gutter);
+  }
+  if (left < gutter) left = gutter;
+  let top = rect.bottom + 8;
+  const panelHeight = panel?.offsetHeight ?? 0;
+  const maxTop = window.innerHeight - panelHeight - gutter;
+  if (panelHeight > 0 && top > maxTop) {
+    top = rect.top - panelHeight - 8;
+  }
+  if (top < gutter) top = gutter;
+  return { top, left };
+};
+
+const defaultAnalysisConfig: StructuredListAnalysisConfig = {
+  type: "sum",
+  showResult: false,
+  color: "#22c55e",
+};
+const defaultResultRowStyle: StructuredListResultRowStyle = {
+  background: "",
+  color: "",
+};
+
 export default function StructuredList({
   columns,
   rows,
@@ -133,6 +229,12 @@ export default function StructuredList({
   addLabel = "+ Ajouter un element",
   showAddButton = true,
   showQuickAdd = false,
+  analysisConfig,
+  onAnalysisConfigChange,
+  resultRowStyle,
+  onResultRowStyleChange,
+  showResultRowColorPicker = false,
+  tableStyle,
   showHeaderControls = false,
   showCopyControls = false,
   onPasteRowAfter,
@@ -171,6 +273,49 @@ export default function StructuredList({
     startX: number;
     startWidth: number;
   } | null>(null);
+  const [analysisState, setAnalysisState] = useState<StructuredListAnalysisMap>({});
+  const isAnalysisControlled = analysisConfig !== undefined;
+  const analysisMap = analysisConfig ?? analysisState;
+  const setAnalysisMap = (
+    updater:
+      | StructuredListAnalysisMap
+      | ((prev: StructuredListAnalysisMap) => StructuredListAnalysisMap),
+  ) => {
+    const next = typeof updater === "function" ? updater(analysisMap) : updater;
+    if (!isAnalysisControlled) {
+      setAnalysisState(next);
+    }
+    onAnalysisConfigChange?.(next);
+  };
+  const [resultRowStyleState, setResultRowStyleState] = useState<StructuredListResultRowStyle>({
+    background: "",
+    color: "",
+  });
+  const [resultRowPaletteOpen, setResultRowPaletteOpen] = useState(false);
+  const [resultRowPalettePosition, setResultRowPalettePosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [portalReady, setPortalReady] = useState(false);
+  const resultRowPalettePanelRef = useRef<HTMLDivElement | null>(null);
+  const resultRowPaletteAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const isResultRowStyleControlled = resultRowStyle !== undefined;
+  const resolvedResultRowStyle = resultRowStyle ?? resultRowStyleState;
+  const setResolvedResultRowStyle = (
+    updater:
+      | StructuredListResultRowStyle
+      | ((prev: StructuredListResultRowStyle) => StructuredListResultRowStyle),
+  ) => {
+    const next =
+      typeof updater === "function" ? updater(resolvedResultRowStyle) : updater;
+    if (!isResultRowStyleControlled) {
+      setResultRowStyleState(next);
+    }
+    onResultRowStyleChange?.(next);
+  };
+  const isDefaultResultRowStyle =
+    (resolvedResultRowStyle.background ?? "") === defaultResultRowStyle.background &&
+    (resolvedResultRowStyle.color ?? "") === defaultResultRowStyle.color;
   const copyBufferRef = useRef<HTMLTextAreaElement | null>(null);
 
   const layout = useMemo(() => {
@@ -395,6 +540,61 @@ export default function StructuredList({
 
   const canRemoveColumn = Boolean(onRemoveColumn && columns.length > 1);
   const shouldShowColumnMenu = showCopyControls || canRemoveColumn;
+  const computeAnalysisValue = (column: StructuredListColumn, type: StructuredListAnalysisType) => {
+    if (type === "count") {
+      const count = rows.reduce((total, row) => {
+        const value = row.values[column.id];
+        if (value === undefined || value === null) return total;
+        if (typeof value === "boolean") return total + (value ? 1 : 0);
+        const trimmed = String(value).trim();
+        return trimmed ? total + 1 : total;
+      }, 0);
+      return String(count);
+    }
+    if (column.type !== "number") return null;
+    const numericValues = rows
+      .map((row) => parseNumericValue(row.values[column.id]))
+      .filter((value): value is number => value !== null);
+    if (numericValues.length === 0) return null;
+    let result = 0;
+    if (type === "min") {
+      result = Math.min(...numericValues);
+    } else if (type === "max") {
+      result = Math.max(...numericValues);
+    } else if (type === "average") {
+      const sum = numericValues.reduce((total, value) => total + value, 0);
+      result = sum / numericValues.length;
+    } else if (type === "difference") {
+      result = Math.max(...numericValues) - Math.min(...numericValues);
+    } else {
+      result = numericValues.reduce((total, value) => total + value, 0);
+    }
+    return formatNumberValue(column, result);
+  };
+  const analysisValues = useMemo(() => {
+    const results: Record<string, string | null> = {};
+    Object.entries(analysisMap).forEach(([columnId, config]) => {
+      if (!config.showResult) return;
+      const column = columnById.get(columnId);
+      if (!column) return;
+      results[columnId] = computeAnalysisValue(column, config.type);
+    });
+    return results;
+  }, [analysisMap, columnById, rows]);
+  const showAnalysisRow = Object.entries(analysisMap).some(
+    ([columnId, config]) => config.showResult && columnById.has(columnId),
+  );
+  const getAnalysisDisplay = (columnId: string) => {
+    const config = analysisMap[columnId];
+    if (!config?.showResult) return null;
+    const value = analysisValues[columnId];
+    if (value === null || value === undefined) return null;
+    const useRowColor = Boolean(resolvedResultRowStyle.color);
+    return {
+      value,
+      color: useRowColor ? undefined : config.color ?? defaultAnalysisConfig.color,
+    };
+  };
 
   const isMenuOpen = (type: "column" | "row" | "table", id?: string) =>
     openMenu?.type === type && openMenu?.id === id;
@@ -967,6 +1167,10 @@ export default function StructuredList({
   }, [openMenu]);
 
   useEffect(() => {
+    setPortalReady(true);
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (copyBufferRef.current) {
         copyBufferRef.current.remove();
@@ -974,6 +1178,40 @@ export default function StructuredList({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!resultRowPaletteOpen) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (resultRowPalettePanelRef.current?.contains(target)) return;
+      if (resultRowPaletteAnchorRef.current?.contains(target as Node)) return;
+      setResultRowPaletteOpen(false);
+    };
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => window.removeEventListener("pointerdown", handleOutside, true);
+  }, [resultRowPaletteOpen]);
+
+  useEffect(() => {
+    if (!resultRowPaletteOpen) {
+      setResultRowPalettePosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const anchor = resultRowPaletteAnchorRef.current;
+      if (!anchor) return;
+      setResultRowPalettePosition(
+        getPopoverPosition(anchor, resultRowPalettePanelRef.current, 220),
+      );
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [resultRowPaletteOpen]);
 
   const handleRowBlur = (rowId: string) => (event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget as Node | null;
@@ -1547,47 +1785,147 @@ export default function StructuredList({
     minWidth: `${Math.max(minWidthPx, minListWidth ?? 0)}px`,
     width: "100%",
   };
+  const resultRowInlineStyle: CSSProperties = {
+    ...rowStyle,
+    ...(resolvedResultRowStyle.background
+      ? { background: resolvedResultRowStyle.background }
+      : {}),
+    ...(resolvedResultRowStyle.color ? { color: resolvedResultRowStyle.color } : {}),
+  };
+  const tableStyleVars = useMemo(() => {
+    if (!tableStyle) return {};
+    const vars: CSSProperties = {};
+    if (tableStyle.background) {
+      const alpha = clampNumber((tableStyle.backgroundOpacity ?? 100) / 100, 0, 1);
+      const base = toRgba(tableStyle.background, alpha);
+      if (base) {
+        const hover = toRgba(tableStyle.background, clampNumber(alpha + 0.08, 0, 1));
+        const active = toRgba(tableStyle.background, clampNumber(alpha + 0.12, 0, 1));
+        vars["--structured-row-bg" as string] = base;
+        vars["--structured-row-bg-hover" as string] = hover;
+        vars["--structured-row-bg-active" as string] = active;
+      }
+    }
+    if (tableStyle.border) {
+      vars["--structured-row-border" as string] = toRgba(tableStyle.border, 1);
+    }
+    if (tableStyle.text) {
+      vars["--structured-text-color" as string] = tableStyle.text;
+      vars["--structured-muted-color" as string] = toRgba(tableStyle.text, 0.7);
+      vars["--structured-header-color" as string] = tableStyle.text;
+    }
+    return vars;
+  }, [tableStyle]);
+  const tableHeaderStyle: CSSProperties = { ...rowStyle, ...tableStyleVars };
+  const tableRowStyle: CSSProperties = { ...rowStyle, ...tableStyleVars };
   const resolvedMinWidth = Math.max(minWidthPx, minListWidth ?? 0);
   const listStyle: CSSProperties = { minWidth: `${resolvedMinWidth}px` };
 
+  const resultRowPalettePortal =
+    portalReady && resultRowPaletteOpen && resultRowPalettePosition
+      ? createPortal(
+          <div
+            className={cx("panel-glass", styles.structuredResultPanel)}
+            ref={resultRowPalettePanelRef}
+            style={{
+              position: "fixed",
+              top: resultRowPalettePosition.top,
+              left: resultRowPalettePosition.left,
+              zIndex: 10000,
+              transform: "none",
+            }}
+          >
+            <div className={styles.structuredResultPanelRow}>
+              <span className={styles.structuredResultControl}>Mode</span>
+              <label className={styles.structuredResultPanelToggle}>
+                <input
+                  type="checkbox"
+                  className={styles.structuredCheckbox}
+                  checked={isDefaultResultRowStyle}
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      setResolvedResultRowStyle({ ...defaultResultRowStyle });
+                    }
+                  }}
+                />
+                <span className={styles.structuredResultToggleText}>Par defaut</span>
+              </label>
+            </div>
+            <div className={styles.structuredResultPanelRow}>
+              <span className={styles.structuredResultControl}>Fond</span>
+              <input
+                type="color"
+                className={styles.structuredResultColorInput}
+                value={resolvedResultRowStyle.background || "#ffffff"}
+                onChange={(event) =>
+                  setResolvedResultRowStyle((prev) => ({
+                    ...prev,
+                    background: event.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className={styles.structuredResultPanelRow}>
+              <span className={styles.structuredResultControl}>Texte</span>
+              <input
+                type="color"
+                className={styles.structuredResultColorInput}
+                value={resolvedResultRowStyle.color || "#111827"}
+                onChange={(event) =>
+                  setResolvedResultRowStyle((prev) => ({
+                    ...prev,
+                    color: event.target.value,
+                  }))
+                }
+              />
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
-    <div
-      ref={scrollerRef}
-      className={cx(styles.structuredScroller, isPanning && styles.structuredScrollerActive)}
-      style={scrollerStyle}
-      onPointerDown={handleScrollerPointerDown}
-      onPointerMove={handleScrollerPointerMove}
-      onPointerUp={handleScrollerPointerUp}
-      onPointerCancel={handleScrollerPointerUp}
-    >
+    <>
       <div
+        ref={scrollerRef}
         className={cx(
-          styles.structuredList,
-          editMode && styles.structuredListEdit,
-          editingRowId && styles.structuredListActive,
+          styles.structuredScroller,
+          isPanning && styles.structuredScrollerActive,
         )}
-        style={listStyle}
-        onContextMenu={handleContextMenu}
+        style={scrollerStyle}
+        onPointerDown={handleScrollerPointerDown}
+        onPointerMove={handleScrollerPointerMove}
+        onPointerUp={handleScrollerPointerUp}
+        onPointerCancel={handleScrollerPointerUp}
       >
-      {showColumnLabels && columns.length > 0 && (
-        <div className={styles.structuredHeader} style={rowStyle}>
-          {layout.meta && (
-            <div
-              className={cx(
-                styles.structuredHeaderCell,
-                allowColumnMove && styles.structuredHeaderCellDraggable,
-                selectedColumnId === layout.meta.id && styles.structuredHeaderCellSelected,
-                draggingColumnId === layout.meta.id && styles.structuredHeaderCellDragging,
-                dragOverColumnId === layout.meta.id && styles.structuredHeaderCellDragOver,
-              )}
-              data-header-column-id={layout.meta.id}
-              draggable={allowColumnMove}
-              onDragStart={(event) => handleHeaderDragStart(event, layout.meta!.id)}
-              onDragOver={(event) => handleHeaderDragOver(event, layout.meta!.id)}
-              onDrop={(event) => handleHeaderDrop(event, layout.meta!.id)}
-              onDragEnd={handleHeaderDragEnd}
-              onClick={(event) => handleHeaderSelect(event, layout.meta!.id)}
-            >
+        <div
+          className={cx(
+            styles.structuredList,
+            editMode && styles.structuredListEdit,
+            editingRowId && styles.structuredListActive,
+          )}
+          style={listStyle}
+          onContextMenu={handleContextMenu}
+        >
+        {showColumnLabels && columns.length > 0 && (
+          <div className={styles.structuredHeader} style={tableHeaderStyle}>
+            {layout.meta && (
+              <div
+                className={cx(
+                  styles.structuredHeaderCell,
+                  allowColumnMove && styles.structuredHeaderCellDraggable,
+                  selectedColumnId === layout.meta.id && styles.structuredHeaderCellSelected,
+                  draggingColumnId === layout.meta.id && styles.structuredHeaderCellDragging,
+                  dragOverColumnId === layout.meta.id && styles.structuredHeaderCellDragOver,
+                )}
+                data-header-column-id={layout.meta.id}
+                draggable={allowColumnMove}
+                onDragStart={(event) => handleHeaderDragStart(event, layout.meta!.id)}
+                onDragOver={(event) => handleHeaderDragOver(event, layout.meta!.id)}
+                onDrop={(event) => handleHeaderDrop(event, layout.meta!.id)}
+                onDragEnd={handleHeaderDragEnd}
+                onClick={(event) => handleHeaderSelect(event, layout.meta!.id)}
+              >
               <span className={styles.structuredHeaderLabel}>{labelFor(layout.meta)}</span>
               {showHeaderControls && onOpenConfig && (
                 <button
@@ -1870,7 +2208,7 @@ export default function StructuredList({
             }}
             onBlur={handleRowBlur(row.id)}
             tabIndex={-1}
-            style={rowStyle}
+            style={tableRowStyle}
           >
             {layout.meta && (
               <div className={styles.structuredCell} data-cell-id={layout.meta.id}>
@@ -2112,9 +2450,100 @@ export default function StructuredList({
           </div>
         );
       })}
+      {showAnalysisRow && (
+        <div className={cx(styles.structuredRow, styles.structuredResultRow)} style={resultRowInlineStyle}>
+          {layout.meta && (
+            <div className={styles.structuredCell}>
+              {(() => {
+                const display = getAnalysisDisplay(layout.meta.id);
+                if (!display) return null;
+                return (
+                  <span className={styles.structuredResultValue} style={{ color: display.color }}>
+                    {display.value}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          {layout.primary && (
+            <div className={styles.structuredCell}>
+              {(() => {
+                const display = getAnalysisDisplay(layout.primary.id);
+                if (!display) return null;
+                return (
+                  <span className={styles.structuredResultValue} style={{ color: display.color }}>
+                    {display.value}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          {layout.secondary && (
+            <div className={styles.structuredCell}>
+              {(() => {
+                const display = getAnalysisDisplay(layout.secondary.id);
+                if (!display) return null;
+                return (
+                  <span className={styles.structuredResultValue} style={{ color: display.color }}>
+                    {display.value}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          {layout.values.map((column) => (
+            <div key={column.id} className={styles.structuredCell}>
+              {(() => {
+                const display = getAnalysisDisplay(column.id);
+                if (!display) return null;
+                return (
+                  <span className={styles.structuredResultValue} style={{ color: display.color }}>
+                    {display.value}
+                  </span>
+                );
+              })()}
+            </div>
+          ))}
+          {showResultRowColorPicker ? (
+            <div className={styles.structuredResultControls} data-no-pan="true">
+              <button
+                type="button"
+                className={cx("icon-button", styles.structuredResultToggle)}
+                ref={resultRowPaletteAnchorRef}
+                onClick={() => setResultRowPaletteOpen((prev) => !prev)}
+                aria-label="Palette des resultats"
+                title="Palette des resultats"
+              >
+                <svg
+                  aria-hidden="true"
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+          ) : showHeaderControls ? (
+            <div className={styles.structuredActions} aria-hidden="true" />
+          ) : (
+            <div className={styles.structuredRowSpacer} aria-hidden="true" />
+          )}
+        </div>
+      )}
 
       {showQuickAdd && (
-        <div className={styles.structuredQuickActions}>
+        <div
+          className={cx(
+            styles.structuredQuickActions,
+          )}
+          data-no-pan="true"
+        >
           <button
             type="button"
             className={styles.structuredQuickAdd}
@@ -2150,5 +2579,7 @@ export default function StructuredList({
       )}
       </div>
     </div>
+    {resultRowPalettePortal}
+  </>
   );
 }
