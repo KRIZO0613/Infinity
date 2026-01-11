@@ -461,6 +461,332 @@
   background: transparent;
 }
 
+.projectTableAnalysisToggleRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.projectTableAnalysisToggle {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none !important;
+  background: transparent !important;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none !important;
+}
+
+.projectTableAnalysisToggle:hover,
+.projectTableAnalysisToggle:focus,
+.projectTableAnalysisToggle:active,
+.projectTableAnalysisToggle:focus-visible {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.projectTableAnalysisToggleDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.projectTableAnalysisPanel {
+  margin-top: 6px;
+  border-radius: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.projectTableAnalysisGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.projectTableAnalysisGroupTitle {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+  font-weight: 600;
+}
+
+.projectTableAnalysisRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.projectTableAnalysisRow + .projectTableAnalysisRow {
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.projectTableAnalysisCard {
+  min-width: 90px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.projectTableAnalysisMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.projectTableAnalysisMetric {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.projectTableAnalysisMetricLabel {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectTableAnalysisMetricValue {
+  font-weight: 600;
+}
+
+.projectTableAnalysisFilterList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 auto;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.projectTableAnalysisFilterListInline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+:global(.dark) .projectTableAnalysisFilterList {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.projectTableAnalysisFilterRow {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  font-size: 11px;
+  color: var(--text);
+  padding: 4px 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.projectTableAnalysisFilterRow + .projectTableAnalysisFilterRow {
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+
+.projectTableAnalysisFilterRowInline {
+  width: auto;
+  padding: 0;
+  border-top: none;
+}
+
+.projectTableAnalysisFilterRowInline + .projectTableAnalysisFilterRowInline {
+  border-top: none;
+}
+
+.projectTableAnalysisFilterRow:hover {
+  background: transparent;
+}
+
+.projectTableAnalysisFilterRow.projectTableConfigFilterItem {
+  background: transparent !important;
+}
+
+.projectTableAnalysisFilterRow.projectTableConfigFilterItem:hover {
+  background: transparent !important;
+}
+
+.projectTableAnalysisFilterLabel {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 40%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projectTableAnalysisFilterLabel .projectTableConfigFilterText {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.projectTableAnalysisFilterValue {
+  font-weight: 600;
+  color: var(--text);
+  text-align: left;
+  flex: 0 0 auto;
+}
+
+.projectTableAnalysisFilterToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.projectTableAnalysisFilterToggleActive {
+  color: rgba(22, 163, 74, 0.9);
+}
+
+.projectTableAnalysisFilterToggleText {
+  font-size: 9px;
+}
+
+.projectTableAnalysisLinkBadge {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.projectTableAnalysisLinkBadgeActive {
+  border: none;
+  color: rgba(22, 163, 74, 0.9);
+}
+
+.projectTableAnalysisEmpty {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.projectTableAnalysisPopover {
+  width: 260px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.projectTableAnalysisPopover.panel-glass {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:global(.panel-glass).projectTableAnalysisPopover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.projectTableAnalysisPopoverTitle {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.45);
+  font-weight: 600;
+}
+
+.projectTableAnalysisPopoverSearch {
+  width: 100%;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: transparent;
+  font-size: 11px;
+  padding: 4px 8px;
+  color: var(--text);
+}
+
+.projectTableAnalysisPopoverList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.projectTableAnalysisPopoverGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.projectTableAnalysisPopoverGroupTitle {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.4);
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.projectTableAnalysisPopoverItem {
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text);
+  padding: 2px 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.projectTableAnalysisPopoverItem:hover {
+  background: transparent;
+}
+
+.projectTableAnalysisPopoverEmpty {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  padding: 4px 6px;
+}
+
 .projectTableScroll :global(.structuredScroller::-webkit-scrollbar) {
   height: 2px;
 }
@@ -717,8 +1043,8 @@
   width: 300px;
   pointer-events: auto;
   transform: none;
-  backdrop-filter: blur(8px) saturate(1.02);
-  -webkit-backdrop-filter: blur(8px) saturate(1.02);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   max-height: calc(100vh - 24px);
   overflow-y: auto;
 }
@@ -733,23 +1059,43 @@
 }
 
 .projectTableConfigRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 112px 1fr;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  column-gap: 12px;
+  row-gap: 6px;
+  margin-bottom: 12px;
 }
 
 .projectTableConfigRowStack {
-  align-items: flex-start;
+  align-items: start;
 }
 
 .projectTableConfigLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.26em;
   text-transform: uppercase;
   color: rgba(0, 0, 0, 0.4);
+}
+
+.projectTableConfigLabel::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  flex: 0 0 6px;
+}
+
+.projectTableConfigHint {
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.45);
+  margin: -4px 0 8px;
 }
 
 .projectTableConfigInput,
@@ -777,6 +1123,11 @@
   width: 100%;
 }
 
+.projectTableConfigFilterActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .projectTableConfigFilterList {
   display: flex;
   flex-direction: column;
@@ -788,6 +1139,13 @@
   background: rgba(255, 255, 255, 0.7);
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
+}
+
+.projectTableAnalysisFilterList.projectTableConfigFilterList {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 
 .projectTableConfigFilterItem {
@@ -832,6 +1190,8 @@
 
 .projectTablePalette {
   width: 240px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .projectTablePaletteRow {
@@ -1019,9 +1379,53 @@
 }
 
 .projectTableConfigQuick {
-  display: flex;
-  gap: 10px;
-  margin-top: 6px;
+  margin: 0 0 12px;
+}
+
+.projectTableConfigQuickButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  outline: none;
+  transition: color 0.2s ease;
+  grid-column: 1 / -1;
+}
+
+.projectTableConfigQuickButton:hover,
+.projectTableConfigQuickButton:focus,
+.projectTableConfigQuickButton:focus-visible,
+.projectTableConfigQuickButton:active {
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none;
+}
+
+.projectTableConfigQuick .projectTableConfigRow:last-child {
+  margin-bottom: 0;
+}
+
+.projectTableConfigQuickButton::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  flex: 0 0 6px;
+}
+
+.projectTableConfigQuickButton:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .projectTableConfigGhost {
@@ -1212,6 +1616,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.cardCollectionTitleRow {
+  margin-bottom: 8px;
 }
 
 .cardToolbarButton {
@@ -1475,6 +1883,38 @@
   min-width: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.cardItemResults {
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.cardItemResult {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed rgba(0, 0, 0, 0.18);
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.cardItemResultLabel {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+.cardItemResultValue {
+  font-weight: 600;
+  color: var(--text);
 }
 
 .cardAddTile {
@@ -1755,6 +2195,19 @@
 }
 
 :global(.dark) .cardItemValue {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+:global(.dark) .cardItemResult {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global(.dark) .cardItemResultLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .cardItemResultValue {
   color: rgba(255, 255, 255, 0.9);
 }
 
@@ -2230,6 +2683,14 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
+:global(.dark) .projectTableConfigLabel::before {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+:global(.dark) .projectTableConfigHint {
+  color: rgba(255, 255, 255, 0.55);
+}
+
 :global(.dark) .projectTablePaletteValue {
   color: rgba(255, 255, 255, 0.55);
 }
@@ -2271,6 +2732,12 @@
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
+:global(.dark) .projectTableAnalysisFilterList.projectTableConfigFilterList {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 :global(.dark) .projectTableConfigFilterItem:hover {
   background: rgba(255, 255, 255, 0.08);
 }
@@ -2293,6 +2760,14 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+:global(.dark) .projectTableConfigQuickButton {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+:global(.dark) .projectTableConfigQuickButton::before {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
 :global(.dark) .projectTableConfigOptionsToggle {
   color: rgba(255, 255, 255, 0.75);
 }
@@ -2313,6 +2788,90 @@
 
 :global(.dark) .projectTableSearch:focus-visible {
   border-color: rgba(255, 255, 255, 0.45);
+}
+
+:global(.dark) .projectTableAnalysisPanel {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+:global(.dark) .projectTableAnalysisGroupTitle {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .projectTableAnalysisRow + .projectTableAnalysisRow {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+:global(.dark) .projectTableAnalysisMetric {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+:global(.dark) .projectTableAnalysisMetricLabel {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .projectTableAnalysisFilterToggle {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .projectTableAnalysisFilterToggleActive {
+  color: rgba(34, 197, 94, 0.9);
+}
+
+:global(.dark) .projectTableAnalysisEmpty {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectTableAnalysisLinkBadge {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+:global(.dark) .projectTableAnalysisLinkBadgeActive {
+  color: rgba(34, 197, 94, 0.9);
+}
+
+:global(.dark) .projectTableAnalysisPopoverTitle {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+:global(.dark) .projectTableAnalysisPopover {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+:global(.dark) .projectTableAnalysisPopover.panel-glass {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) :global(.panel-glass).projectTableAnalysisPopover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+:global(.dark) .projectTableAnalysisPopoverSearch {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+:global(.dark) .projectTableAnalysisPopoverGroupTitle {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+:global(.dark) .projectTableAnalysisPopoverItem {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+:global(.dark) .projectTableAnalysisPopoverItem:hover {
+  background: transparent;
+}
+
+:global(.dark) .projectTableAnalysisPopoverEmpty {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 :global(.dark) .projectBlock {
@@ -2435,4 +2994,7 @@
 :global(.dark) .projectMenuItem:hover {
   background: rgba(255, 255, 255, 0.12);
   box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55);
+}
+.projectTableConfigQuick .projectTableConfigRow {
+  margin-bottom: 6px;
 }

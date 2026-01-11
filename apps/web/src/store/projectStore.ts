@@ -64,7 +64,9 @@ export type SummaryTableColumn = {
     | "video"
     | "select"
     | "multiselect"
-    | "yesno";
+    | "yesno"
+    | "relation"
+    | "relation_multi";
   width?: number;
   numberFormat?: "plain" | "eur" | "percent";
   options?: Array<{
@@ -72,11 +74,51 @@ export type SummaryTableColumn = {
     label: string;
     color?: string;
   }>;
+  relationTargetCollectionId?: string;
+  analysisLabel?: string;
 };
+
+export type SummaryTableRelationValue = {
+  id: string;
+  count: number;
+};
+
+export type SummaryTableAnalysisType =
+  | "sum"
+  | "average"
+  | "min"
+  | "max"
+  | "difference"
+  | "count";
+
+export type SummaryTableAnalysisConfig = {
+  type: SummaryTableAnalysisType;
+  showResult?: boolean;
+  color?: string;
+};
+
+export type SummaryTableAnalysisMap = Record<string, SummaryTableAnalysisConfig>;
+
+export type SummaryTableAnalysisLink = {
+  collectionId: string;
+  cardId: string;
+};
+
+export type SummaryTableAnalysisLinkMap = Record<string, SummaryTableAnalysisLink>;
+
+export type SummaryTableRelationAnalysisLinkMap = Record<string, string[]>;
+
+export type SummaryTableCellValue =
+  | string
+  | boolean
+  | string[]
+  | null
+  | SummaryTableRelationValue
+  | SummaryTableRelationValue[];
 
 export type SummaryTableRow = {
   id: string;
-  values: Record<string, string | boolean>;
+  values: Record<string, SummaryTableCellValue>;
 };
 
 export type SummaryTableData = {
@@ -106,6 +148,9 @@ export type SummaryBlock = {
   videos?: SummaryVideoEntry[];
   table?: SummaryTableData;
   tableSync?: SummaryTableSync;
+  tableAnalysisConfig?: SummaryTableAnalysisMap;
+  tableAnalysisLinks?: SummaryTableAnalysisLinkMap;
+  tableRelationAnalysisLinks?: SummaryTableRelationAnalysisLinkMap;
 };
 
 export type SummarySection = {

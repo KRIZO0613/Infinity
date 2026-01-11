@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { CSSProperties, FocusEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent, ReactNode, MouseEvent } from "react";
+import type { CardCollection } from "@/utils/getCardCollections";
 import styles from "./StructuredList.module.css";
 
 export type StructuredListColumnType =
@@ -15,7 +16,9 @@ export type StructuredListColumnType =
   | "video"
   | "select"
   | "multiselect"
-  | "yesno";
+  | "yesno"
+  | "relation"
+  | "relation_multi";
 
 export type StructuredListColumn = {
   id: string;
@@ -27,11 +30,26 @@ export type StructuredListColumn = {
     label: string;
     color?: string;
   }>;
+  relationTargetCollectionId?: string;
+  analysisLabel?: string;
 };
+
+export type StructuredListRelationValue = {
+  id: string;
+  count: number;
+};
+
+export type StructuredListCellValue =
+  | string
+  | boolean
+  | string[]
+  | null
+  | StructuredListRelationValue
+  | StructuredListRelationValue[];
 
 export type StructuredListRow = {
   id: string;
-  values: Record<string, string | boolean>;
+  values: Record<string, StructuredListCellValue>;
 };
 
 export type StructuredListAnalysisType = "sum" | "average" | "min" | "max" | "difference" | "count";
@@ -59,7 +77,12 @@ export type StructuredListTableStyle = {
 type StructuredListProps = {
   columns: StructuredListColumn[];
   rows: StructuredListRow[];
-  onUpdateCell: (rowId: string, columnId: string, value: string | boolean) => void;
+  onUpdateCell: (
+    rowId: string,
+    columnId: string,
+    value: StructuredListCellValue,
+  ) => void;
+  onResolveRelationTarget?: (columnId: string, collectionId: string) => void;
   onAddRow: () => void;
   onRemoveRow?: (rowId: string) => void;
   onAddColumnAt?: (index: number) => void;
@@ -78,6 +101,7 @@ type StructuredListProps = {
   onResultRowStyleChange?: (next: StructuredListResultRowStyle) => void;
   showResultRowColorPicker?: boolean;
   tableStyle?: StructuredListTableStyle;
+  relationCollections?: CardCollection[];
   showHeaderControls?: boolean;
   showCopyControls?: boolean;
   onPasteRowAfter?: (rowId: string, text: string) => void;
@@ -123,9 +147,13 @@ const formatLink = (value: string) => {
   }
 };
 
-const formatNumberValue = (column: StructuredListColumn, rawValue: string | boolean | undefined) => {
+const formatNumberValue = (
+  column: StructuredListColumn,
+  rawValue: StructuredListCellValue | number | undefined,
+) => {
   if (rawValue === "" || rawValue === undefined || rawValue === null) return "";
-  const raw = String(rawValue);
+  if (typeof rawValue === "object" && !Array.isArray(rawValue)) return "";
+  const raw = Array.isArray(rawValue) ? rawValue.join(",") : String(rawValue);
   if (!column.numberFormat || column.numberFormat === "plain") return raw;
   const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
   const numeric = Number(normalized);
@@ -146,10 +174,11 @@ const formatNumberValue = (column: StructuredListColumn, rawValue: string | bool
   return raw;
 };
 
-const parseNumericValue = (value: string | boolean | undefined) => {
+const parseNumericValue = (value: StructuredListCellValue | undefined) => {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value === "boolean") return null;
-  const raw = String(value).trim();
+  if (typeof value === "object") return null;
+  const raw = (Array.isArray(value) ? value.join(",") : String(value)).trim();
   if (!raw) return null;
   const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
   const numeric = Number(normalized);
@@ -158,6 +187,17 @@ const parseNumericValue = (value: string | boolean | undefined) => {
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
+
+const clampRelationCount = (value: number, min = 1, max = 99) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
+};
+
+const isRelationValue = (value: unknown): value is StructuredListRelationValue => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as StructuredListRelationValue;
+  return typeof candidate.id === "string" && typeof candidate.count === "number";
+};
 
 const toRgba = (color: string, alpha: number) => {
   const trimmed = color.trim();
@@ -217,6 +257,7 @@ export default function StructuredList({
   columns,
   rows,
   onUpdateCell,
+  onResolveRelationTarget,
   onAddRow,
   onRemoveRow,
   onAddColumnAt,
@@ -235,6 +276,7 @@ export default function StructuredList({
   onResultRowStyleChange,
   showResultRowColorPicker = false,
   tableStyle,
+  relationCollections = [],
   showHeaderControls = false,
   showCopyControls = false,
   onPasteRowAfter,
@@ -317,6 +359,18 @@ export default function StructuredList({
     (resolvedResultRowStyle.background ?? "") === defaultResultRowStyle.background &&
     (resolvedResultRowStyle.color ?? "") === defaultResultRowStyle.color;
   const copyBufferRef = useRef<HTMLTextAreaElement | null>(null);
+  const [relationPopover, setRelationPopover] = useState<{ rowId: string; columnId: string } | null>(
+    null,
+  );
+  const [relationSearch, setRelationSearch] = useState("");
+  const [relationDraftItems, setRelationDraftItems] = useState<StructuredListRelationValue[]>([]);
+  const [relationPopoverPosition, setRelationPopoverPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const relationPopoverRef = useRef<HTMLDivElement | null>(null);
+  const relationAnchorRef = useRef<HTMLElement | null>(null);
+  const relationSelectionRef = useRef<{ rowId: string; columnId: string } | null>(null);
 
   const layout = useMemo(() => {
     if (columns.length === 0) return { meta: null, primary: null, secondary: null, values: [] as StructuredListColumn[] };
@@ -333,6 +387,27 @@ export default function StructuredList({
     return { meta, primary, secondary, values };
   }, [columns]);
   const columnById = useMemo(() => new Map(columns.map((column) => [column.id, column])), [columns]);
+  const relationCollectionsById = useMemo(
+    () => new Map(relationCollections.map((collection) => [collection.collectionId, collection])),
+    [relationCollections],
+  );
+  const relationLabelsByCollection = useMemo(() => {
+    const lookup = new Map<string, Map<string, { label: string; shortLabel: string }>>();
+    const toShort = (value: string) => value.trim().slice(0, 3);
+    relationCollections.forEach((collection) => {
+      const map = new Map<string, { label: string; shortLabel: string }>();
+      collection.items.forEach((item) => {
+        const parts = (item.fieldValues ?? []).map(toShort).filter(Boolean);
+        const shortLabel =
+          parts.length > 0
+            ? parts.slice(0, 2).join(" ")
+            : toShort(item.label || item.title || "");
+        map.set(item.id, { label: item.label, shortLabel });
+      });
+      lookup.set(collection.collectionId, map);
+    });
+    return lookup;
+  }, [relationCollections]);
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
   const columnIndexById = useMemo(
     () => new Map(columns.map((column, index) => [column.id, index])),
@@ -434,11 +509,90 @@ export default function StructuredList({
     return column.label?.trim() || "Champ";
   };
 
+  const normalizeRelationEntry = (entry: StructuredListRelationValue) => ({
+    id: entry.id.trim(),
+    count: clampRelationCount(entry.count),
+  });
+
+  const getRelationEntries = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+  ): StructuredListRelationValue[] => {
+    if (!value) return [];
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((item) => {
+          if (typeof item === "string") {
+            const trimmed = item.trim();
+            return trimmed ? [{ id: trimmed, count: 1 }] : [];
+          }
+          if (isRelationValue(item)) {
+            return [normalizeRelationEntry(item)];
+          }
+          return [];
+        })
+        .filter((entry) => entry.id);
+    }
+    if (typeof value === "string") {
+      if (column.type === "relation_multi") {
+        return value
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((id) => ({ id, count: 1 }));
+      }
+      return value.trim() ? [{ id: value.trim(), count: 1 }] : [];
+    }
+    if (isRelationValue(value)) {
+      return [normalizeRelationEntry(value)];
+    }
+    return [];
+  };
+
+  const resolveRelationEntries = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+  ) => {
+    const entries = getRelationEntries(column, value);
+    if (!column.relationTargetCollectionId) {
+      return entries.map((entry) => ({
+        id: entry.id,
+        count: entry.count,
+        label: entry.id,
+        shortLabel: entry.id,
+      }));
+    }
+    const lookup = relationLabelsByCollection.get(column.relationTargetCollectionId);
+    return entries
+      .map((entry) => {
+        const labelEntry = lookup?.get(entry.id);
+        const label = labelEntry?.label || entry.id;
+        const shortLabel = labelEntry?.shortLabel || label;
+        return {
+          id: entry.id,
+          count: entry.count,
+          label,
+          shortLabel,
+        };
+      })
+      .filter((entry) => entry.label && entry.label.trim());
+  };
+
+  const resolveRelationLabels = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+    { short }: { short?: boolean } = {},
+  ) =>
+    resolveRelationEntries(column, value).map((entry) =>
+      short ? entry.shortLabel : entry.label,
+    );
+
   const formatCopyValue = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
   ) => {
     if (value === undefined || value === null || value === "") return "";
+    if (Array.isArray(value) && value.length === 0) return "";
     if (column.type === "checkbox") return value ? "Oui" : "Non";
     if (column.type === "yesno") {
       if (typeof value === "boolean") return value ? "Oui" : "Non";
@@ -446,6 +600,11 @@ export default function StructuredList({
       if (["yes", "oui", "true", "1"].includes(normalized)) return "Oui";
       if (["no", "non", "false", "0"].includes(normalized)) return "Non";
       return String(value ?? "");
+    }
+    if (column.type === "relation" || column.type === "relation_multi") {
+      return resolveRelationEntries(column, value)
+        .map((entry) => (entry.count > 1 ? `${entry.label} x${entry.count}` : entry.label))
+        .join(", ");
     }
     if (column.type === "date") return formatDate(String(value ?? ""));
     if (column.type === "link") return String(value ?? "");
@@ -602,6 +761,110 @@ export default function StructuredList({
     setOpenMenu((prev) =>
       prev?.type === type && prev?.id === id ? null : { type, id },
     );
+  };
+
+  const openRelationPopover = (rowId: string, columnId: string, anchor: HTMLElement) => {
+    const column = columnById.get(columnId);
+    if (!column || (column.type !== "relation" && column.type !== "relation_multi")) return;
+    const row = rowById.get(rowId);
+    relationAnchorRef.current = anchor;
+    relationSelectionRef.current = { rowId, columnId };
+    const fallbackCollectionId = relationCollections[0]?.collectionId ?? "";
+    if (
+      fallbackCollectionId &&
+      (!column.relationTargetCollectionId ||
+        !relationCollectionsById.has(column.relationTargetCollectionId))
+    ) {
+      onResolveRelationTarget?.(columnId, fallbackCollectionId);
+    }
+    const rawValue = row?.values[columnId];
+    const entries = getRelationEntries(column, rawValue);
+    setRelationDraftItems(entries);
+    setRelationSearch("");
+    setRelationPopover({ rowId, columnId });
+  };
+
+  const relationColumn = relationPopover ? columnById.get(relationPopover.columnId) : null;
+  const relationCollection =
+    relationColumn?.relationTargetCollectionId
+      ? relationCollectionsById.get(relationColumn.relationTargetCollectionId)
+      : null;
+  const resolvedRelationCollection = relationCollection ?? relationCollections[0] ?? null;
+  const relationItems = resolvedRelationCollection?.items ?? [];
+  const relationQuery = relationSearch.trim().toLowerCase();
+  const relationResults = useMemo(() => {
+    if (!resolvedRelationCollection) return [] as typeof relationItems;
+    if (relationQuery.length < 2) return relationItems;
+    const startsWith: typeof relationItems = [];
+    const includes: typeof relationItems = [];
+    relationItems.forEach((item) => {
+      const label = item.label?.trim() || item.title?.trim() || "";
+      const normalized = label.toLowerCase();
+      if (!normalized) return;
+      if (normalized.startsWith(relationQuery)) {
+        startsWith.push(item);
+        return;
+      }
+      if (normalized.includes(relationQuery)) {
+        includes.push(item);
+      }
+    });
+    return [...startsWith, ...includes];
+  }, [relationItems, relationQuery, resolvedRelationCollection]);
+
+  const commitRelationSelection = (
+    value: StructuredListRelationValue | StructuredListRelationValue[] | null,
+    { close = true }: { close?: boolean } = {},
+  ) => {
+    const selection = relationPopover ?? relationSelectionRef.current;
+    if (!selection) return;
+    onUpdateCell(selection.rowId, selection.columnId, value);
+    if (close) {
+      setRelationPopover(null);
+    }
+  };
+
+  const relationDraftById = useMemo(() => {
+    const map = new Map<string, StructuredListRelationValue>();
+    relationDraftItems.forEach((entry) => {
+      map.set(entry.id, entry);
+    });
+    return map;
+  }, [relationDraftItems]);
+
+  const updateRelationDraft = (
+    next: StructuredListRelationValue[],
+    { close = false }: { close?: boolean } = {},
+  ) => {
+    setRelationDraftItems(next);
+    if (relationColumn?.type === "relation_multi") {
+      commitRelationSelection(next, { close });
+    } else {
+      commitRelationSelection(next[0] ?? null, { close });
+    }
+  };
+
+  const toggleRelationDraft = (id: string) => {
+    const existing = relationDraftById.get(id);
+    if (relationColumn?.type === "relation_multi") {
+      const next = existing
+        ? relationDraftItems.filter((item) => item.id !== id)
+        : [...relationDraftItems, { id, count: 1 }];
+      updateRelationDraft(next, { close: false });
+      return;
+    }
+    const next = existing ? [] : [{ id, count: 1 }];
+    updateRelationDraft(next, { close: false });
+  };
+
+  const updateRelationCount = (id: string, delta: number) => {
+    const existing = relationDraftById.get(id);
+    if (!existing) return;
+    const nextCount = clampRelationCount(existing.count + delta);
+    const next = relationDraftItems.map((item) =>
+      item.id === id ? { ...item, count: nextCount } : item,
+    );
+    updateRelationDraft(next, { close: false });
   };
 
   const renderColumnMenu = (column: StructuredListColumn) => {
@@ -1213,6 +1476,49 @@ export default function StructuredList({
     };
   }, [resultRowPaletteOpen]);
 
+  useEffect(() => {
+    if (!relationPopover) {
+      setRelationPopoverPosition(null);
+      return;
+    }
+    const updatePosition = () => {
+      const anchor = relationAnchorRef.current;
+      if (!anchor) return;
+      setRelationPopoverPosition(
+        getPopoverPosition(anchor, relationPopoverRef.current, 260),
+      );
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [relationPopover]);
+
+  useEffect(() => {
+    if (!relationPopover) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (target && relationPopoverRef.current?.contains(target)) return;
+      if (target && relationAnchorRef.current?.contains(target)) return;
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (relationPopoverRef.current && path.includes(relationPopoverRef.current)) return;
+      if (relationAnchorRef.current && path.includes(relationAnchorRef.current)) return;
+      setRelationPopover(null);
+    };
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => window.removeEventListener("pointerdown", handleOutside, true);
+  }, [relationPopover]);
+
+  useEffect(() => {
+    if (!relationPopover) return;
+    if (!columnById.has(relationPopover.columnId) || !rowById.has(relationPopover.rowId)) {
+      setRelationPopover(null);
+    }
+  }, [columnById, relationPopover, rowById]);
+
   const handleRowBlur = (rowId: string) => (event: FocusEvent<HTMLDivElement>) => {
     const nextTarget = event.relatedTarget as Node | null;
     if (nextTarget && event.currentTarget.contains(nextTarget)) return;
@@ -1332,10 +1638,11 @@ export default function StructuredList({
     );
   };
 
-  const isAlwaysInteractiveType = (type: StructuredListColumnType) => type === "checkbox";
+  const isAlwaysInteractiveType = (type: StructuredListColumnType) =>
+    type === "checkbox" || type === "relation" || type === "relation_multi";
   const shouldShowEmptyControl = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
   ) => {
     if (column.type === "checkbox") return false;
     if (
@@ -1349,6 +1656,9 @@ export default function StructuredList({
       column.type === "image" ||
       column.type === "video"
     ) {
+      if (Array.isArray(value)) {
+        return value.length === 0;
+      }
       return !String(value ?? "").trim();
     }
     return false;
@@ -1381,12 +1691,66 @@ export default function StructuredList({
     );
   };
 
+  const renderRelationChips = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+  ) => {
+    const entries = resolveRelationEntries(column, value);
+    if (entries.length === 0) return null;
+    const visible = entries.slice(0, 2);
+    const extra = entries.length - visible.length;
+    return (
+      <span className={styles.structuredValue}>
+        {visible
+          .map((entry) => {
+            const label = entry.shortLabel || entry.label;
+            return entry.count > 1 ? `${label} x${entry.count}` : label;
+          })
+          .join(", ")}
+        {extra > 0 ? ` +${extra}` : ""}
+      </span>
+    );
+  };
+
+  const renderRelationButton = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+    rowId: string,
+  ) => {
+    const chips = renderRelationChips(column, value);
+    const openFromEvent = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
+      event.stopPropagation();
+      openRelationPopover(rowId, column.id, event.currentTarget as HTMLElement);
+    };
+    return (
+      <span
+        className={styles.structuredRelationButton}
+        data-no-pan="true"
+        role="button"
+        tabIndex={0}
+        onClick={openFromEvent}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          openFromEvent(event);
+        }}
+      >
+        {chips ?? (
+          <span className={styles.structuredRelationPlaceholder}>Relier...</span>
+        )}
+      </span>
+    );
+  };
+
   const renderInlineControl = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
     rowId: string,
     className?: string,
   ) => {
+    if (column.type === "relation" || column.type === "relation_multi") {
+      return renderRelationButton(column, value, rowId);
+    }
     if (column.type === "checkbox") {
       return (
         <input
@@ -1473,7 +1837,10 @@ export default function StructuredList({
     return null;
   };
 
-  const renderValue = (column: StructuredListColumn, value: string | boolean | undefined) => {
+  const renderValue = (
+    column: StructuredListColumn,
+    value: StructuredListCellValue | undefined,
+  ) => {
     if (column.type === "checkbox") {
       return (
         <span
@@ -1525,6 +1892,9 @@ export default function StructuredList({
       if (!raw) return null;
       return renderMultiValues(column, raw);
     }
+    if (column.type === "relation" || column.type === "relation_multi") {
+      return renderRelationChips(column, value);
+    }
     if (column.type === "number") {
       const formatted = formatNumberValue(column, value);
       if (!formatted) return null;
@@ -1555,7 +1925,7 @@ export default function StructuredList({
 
   const renderInlineText = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
   ): ReactNode => {
     if (column.type === "checkbox" || column.type === "yesno") {
       return renderValue(column, value);
@@ -1565,6 +1935,9 @@ export default function StructuredList({
     if (column.type === "select" || column.type === "multiselect") {
       return renderValue(column, value) ?? "";
     }
+    if (column.type === "relation" || column.type === "relation_multi") {
+      return renderRelationChips(column, value);
+    }
     if (column.type === "number") return formatNumberValue(column, value);
     if (column.type === "text") return String(value ?? "");
     if (column.type === "image" || column.type === "video") {
@@ -1573,12 +1946,16 @@ export default function StructuredList({
     return "";
   };
 
-  const hasValue = (value: string | boolean | undefined) =>
-    typeof value === "boolean" ? true : value !== undefined && value !== null && value !== "";
+  const hasValue = (value: StructuredListCellValue | undefined) =>
+    Array.isArray(value)
+      ? value.length > 0
+      : typeof value === "boolean"
+        ? true
+        : value !== undefined && value !== null && value !== "";
 
   const renderSelectInput = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
     rowId: string,
   ) => {
     if (column.type === "yesno") {
@@ -1658,9 +2035,12 @@ export default function StructuredList({
 
   const renderPrimaryInput = (
     column: StructuredListColumn,
-    value: string | boolean | undefined,
+    value: StructuredListCellValue | undefined,
     rowId: string,
   ) => {
+    if (column.type === "relation" || column.type === "relation_multi") {
+      return renderRelationButton(column, value, rowId);
+    }
     if (column.type === "checkbox") {
       return (
         <input
@@ -1879,6 +2259,121 @@ export default function StructuredList({
                 }
               />
             </div>
+          </div>,
+          document.body,
+        )
+      : null;
+  const relationPopoverPortal =
+    portalReady && relationPopover && relationPopoverPosition
+      ? createPortal(
+          <div
+            className={cx("panel-glass", styles.structuredRelationPopover)}
+            ref={relationPopoverRef}
+            style={{
+              position: "fixed",
+              top: relationPopoverPosition.top,
+              left: relationPopoverPosition.left,
+              zIndex: 10000,
+              transform: "none",
+            }}
+          >
+            <div className={styles.structuredRelationHeader}>
+              <span className={styles.structuredRelationTitle}>
+                Relier a : {resolvedRelationCollection?.title ?? "—"}
+              </span>
+            </div>
+            <input
+              type="text"
+              className={styles.structuredRelationSearch}
+              value={relationSearch}
+              onChange={(event) => setRelationSearch(event.target.value)}
+              placeholder="Rechercher..."
+              autoFocus
+            />
+            <div className={styles.structuredRelationList}>
+              {!resolvedRelationCollection && (
+                <div className={styles.structuredRelationEmpty}>Cree une section Cards d'abord</div>
+              )}
+              {resolvedRelationCollection && relationResults.length === 0 && (
+                <div className={styles.structuredRelationEmpty}>Aucun resultat</div>
+              )}
+              {resolvedRelationCollection &&
+                relationResults.map((item) => {
+                  const label = item.label?.trim() || item.title?.trim() || "Sans titre";
+                  const entry = relationDraftById.get(item.id);
+                  const isSelected = Boolean(entry);
+                  const count = entry?.count ?? 1;
+                  const handleToggle = () => toggleRelationDraft(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={cx(
+                        styles.structuredRelationItem,
+                        isSelected && styles.structuredRelationItemSelected,
+                      )}
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleToggle}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        handleToggle();
+                      }}
+                    >
+                      {relationColumn?.type === "relation_multi" && (
+                        <input
+                          type="checkbox"
+                          className={styles.structuredRelationCheckbox}
+                          checked={isSelected}
+                          onChange={handleToggle}
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      )}
+                      <span className={styles.structuredRelationItemLabel}>{label}</span>
+                      <div className={styles.structuredRelationCount}>
+                        <button
+                          type="button"
+                          className={styles.structuredRelationCountButton}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            updateRelationCount(item.id, -1);
+                          }}
+                          disabled={!isSelected || count <= 1}
+                          aria-label="Diminuer"
+                        >
+                          -
+                        </button>
+                        <span className={styles.structuredRelationCountValue}>{count}</span>
+                        <button
+                          type="button"
+                          className={styles.structuredRelationCountButton}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            updateRelationCount(item.id, 1);
+                          }}
+                          disabled={!isSelected}
+                          aria-label="Augmenter"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            {relationColumn?.type === "relation_multi" && resolvedRelationCollection && (
+              <div className={styles.structuredRelationFooter}>
+                <button
+                  type="button"
+                  className={styles.structuredRelationConfirm}
+                  onClick={() => {
+                    updateRelationDraft(relationDraftItems, { close: true });
+                  }}
+                >
+                  Valider
+                </button>
+              </div>
+            )}
           </div>,
           document.body,
         )
@@ -2184,11 +2679,15 @@ export default function StructuredList({
                 panRef.current.dragged = false;
                 return;
               }
-              if (editingRowId === row.id) return;
               const target = event.target as Element | null;
               const cell = target?.closest<HTMLElement>("[data-cell-id]");
               const cellId = cell?.dataset.cellId;
               const cellType = cellId ? columnById.get(cellId)?.type : undefined;
+              if (cellId && (cellType === "relation" || cellType === "relation_multi")) {
+                openRelationPopover(row.id, cellId, cell);
+                return;
+              }
+              if (editingRowId === row.id) return;
               const shouldOpen =
                 cellType === "date" ||
                 cellType === "select" ||
@@ -2365,11 +2864,13 @@ export default function StructuredList({
                           onMediaSelect?.(row.id, column, event.target.files);
                           event.currentTarget.value = "";
                         }}
-                      />
-                    </label>
-                  );
+                        />
+                      </label>
+                    );
                 } else if (column.type === "select" || column.type === "multiselect" || column.type === "yesno") {
                   content = renderSelectInput(column, value, row.id);
+                } else if (column.type === "relation" || column.type === "relation_multi") {
+                  content = renderRelationButton(column, value, row.id);
                 }
               } else {
                 content = isAlwaysInteractiveType(column.type)
@@ -2580,6 +3081,7 @@ export default function StructuredList({
       </div>
     </div>
     {resultRowPalettePortal}
+    {relationPopoverPortal}
   </>
   );
 }

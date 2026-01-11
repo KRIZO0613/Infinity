@@ -1,7 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import type { SummaryBlock, SummaryCardEntry, SummaryCardField } from "@/store/projectStore";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useProjectStore,
+  type SummaryBlock,
+  type SummaryCardEntry,
+  type SummaryCardField,
+  type SummarySection,
+  type SummaryTableAnalysisConfig,
+  type SummaryTableCellValue,
+  type SummaryTableColumn,
+  type SummaryTableRelationValue,
+} from "@/store/projectStore";
 import styles from "./ProjectEditor.module.css";
 
 type SummaryCardBlockProps = {
@@ -66,7 +76,81 @@ const ensureCardValues = (template: SummaryCardField[], values: Record<string, s
   return next;
 };
 
+const collectBlocks = (sections?: SummarySection[]) => {
+  if (!sections) return [] as SummaryBlock[];
+  return sections.flatMap((section) => section.blocks ?? []);
+};
+
+const parseNumericValue = (value: SummaryTableCellValue | undefined) => {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean" || typeof value === "object") return null;
+  const raw = (Array.isArray(value) ? value.join(",") : String(value)).trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const clampRelationCount = (value: number, min = 1, max = 99) =>
+  Math.min(max, Math.max(min, value));
+
+const isRelationValue = (value: unknown): value is SummaryTableRelationValue => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as SummaryTableRelationValue;
+  return typeof candidate.id === "string" && typeof candidate.count === "number";
+};
+
+const normalizeRelationEntry = (entry: SummaryTableRelationValue) => ({
+  id: entry.id.trim(),
+  count: clampRelationCount(entry.count),
+});
+
+const getRelationEntries = (value: SummaryTableCellValue | undefined) => {
+  if (!value) return [] as SummaryTableRelationValue[];
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => {
+        if (typeof item === "string") {
+          const trimmed = item.trim();
+          return trimmed ? [{ id: trimmed, count: 1 }] : [];
+        }
+        if (isRelationValue(item)) return [normalizeRelationEntry(item)];
+        return [];
+      })
+      .filter((entry) => entry.id);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, count: 1 }));
+  }
+  if (isRelationValue(value)) return [normalizeRelationEntry(value)];
+  return [];
+};
+
+const formatNumberValue = (column: SummaryTableColumn, value: number) => {
+  if (!Number.isFinite(value)) return "";
+  if (!column.numberFormat || column.numberFormat === "plain") return String(value);
+  if (column.numberFormat === "eur") {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 2,
+    }).format(value);
+  }
+  if (column.numberFormat === "percent") {
+    const formatted = new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits: 2,
+    }).format(value);
+    return `${formatted} %`;
+  }
+  return String(value);
+};
+
 export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryCardBlockProps) {
+  const { projects } = useProjectStore();
   const blockRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const initRef = useRef(false);
@@ -78,8 +162,133 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
   const [blockHovered, setBlockHovered] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const project = useMemo(() => {
+    const matchesBlock = (sections?: SummarySection[]) =>
+      (sections ?? []).some((section) =>
+        (section.blocks ?? []).some((entry) => entry.id === block.id),
+      );
+    return projects.find(
+      (entry) =>
+        matchesBlock(entry.summarySections) ||
+        (entry.pages ?? []).some((page) => matchesBlock(page.summarySections)),
+    );
+  }, [block.id, projects]);
+  const analysisResultsByCardId = useMemo(() => {
+    const results = new Map<string, Array<{ id: string; label: string; value: string }>>();
+    if (!project) return results;
+    const analysisTypeLabels: Record<SummaryTableAnalysisConfig["type"], string> = {
+      sum: "Somme",
+      average: "Moyenne",
+      min: "Min",
+      max: "Max",
+      difference: "Difference",
+      count: "Nombre",
+    };
+    const tableBlocks = [
+      ...collectBlocks(project.summarySections),
+      ...(project.pages ?? []).flatMap((page) => collectBlocks(page.summarySections)),
+    ].filter((entry) => entry.type === "table" && entry.table);
+    tableBlocks.forEach((tableBlock) => {
+      const table = tableBlock.table;
+      if (!table) return;
+      const links = tableBlock.tableAnalysisLinks ?? {};
+      const analysisConfig = tableBlock.tableAnalysisConfig ?? {};
+      const columnsById = new Map(table.columns.map((column) => [column.id, column]));
+      const relationLinks = tableBlock.tableRelationAnalysisLinks ?? {};
+      Object.entries(links).forEach(([columnId, link]) => {
+        if (link.collectionId !== block.id) return;
+        const column = columnsById.get(columnId);
+        if (!column) return;
+        const config = analysisConfig[columnId];
+        if (!config?.showResult) return;
+        const numericValues = table.rows
+          .map((row) => parseNumericValue(row.values[column.id]))
+          .filter((value): value is number => value !== null);
+        let value: string | null = null;
+        if (config.type === "count") {
+          const count = table.rows.reduce((total, row) => {
+            const cellValue = row.values[column.id];
+            if (cellValue === undefined || cellValue === null) return total;
+            if (typeof cellValue === "boolean") return total + (cellValue ? 1 : 0);
+            if (Array.isArray(cellValue)) return cellValue.length > 0 ? total + 1 : total;
+            if (typeof cellValue === "object") return total + 1;
+            const trimmed = String(cellValue).trim();
+            return trimmed ? total + 1 : total;
+          }, 0);
+          value = String(count);
+        } else if (column.type === "number" && numericValues.length > 0) {
+          let result = 0;
+          if (config.type === "min") {
+            result = Math.min(...numericValues);
+          } else if (config.type === "max") {
+            result = Math.max(...numericValues);
+          } else if (config.type === "average") {
+            const sum = numericValues.reduce((total, item) => total + item, 0);
+            result = sum / numericValues.length;
+          } else if (config.type === "difference") {
+            result = Math.max(...numericValues) - Math.min(...numericValues);
+          } else {
+            result = numericValues.reduce((total, item) => total + item, 0);
+          }
+          value = formatNumberValue(column, result);
+        }
+        if (!value) return;
+        const label = column.analysisLabel?.trim() || column.label || "Champ";
+        const typeLabel = analysisTypeLabels[config.type] ?? config.type;
+        const entry = {
+          id: `${tableBlock.id}-${columnId}`,
+          label: `${label} (${typeLabel.toUpperCase()})`,
+          value,
+        };
+        const list = results.get(link.cardId) ?? [];
+        list.push(entry);
+        results.set(link.cardId, list);
+      });
+
+      const relationColumns = table.columns.filter(
+        (column) =>
+          (column.type === "relation" || column.type === "relation_multi") &&
+          column.relationTargetCollectionId === block.id,
+      );
+      if (relationColumns.length === 0) return;
+      const totalsByCard = new Map<string, Record<string, number>>();
+      table.rows.forEach((row) => {
+        relationColumns.forEach((column) => {
+          const entries = getRelationEntries(row.values[column.id]);
+          if (entries.length === 0) return;
+          entries.forEach((entry) => {
+            const cardTotals = totalsByCard.get(entry.id) ?? {};
+            cardTotals[column.id] = (cardTotals[column.id] ?? 0) + entry.count;
+            totalsByCard.set(entry.id, cardTotals);
+          });
+        });
+      });
+      totalsByCard.forEach((totals, cardId) => {
+        const linkKey = `${block.id}:${cardId}`;
+        const selectedColumns = relationLinks[linkKey] ?? [];
+        if (selectedColumns.length === 0) return;
+        selectedColumns.forEach((columnId) => {
+          const total = totals[columnId];
+          if (!total) return;
+          const column = columnsById.get(columnId);
+          if (!column) return;
+          const label = column.analysisLabel?.trim() || column.label || "Champ";
+          const entry = {
+            id: `${tableBlock.id}-${columnId}-${cardId}`,
+            label,
+            value: String(total),
+          };
+          const list = results.get(cardId) ?? [];
+          list.push(entry);
+          results.set(cardId, list);
+        });
+      });
+    });
+    return results;
+  }, [block.id, project]);
   const [draft, setDraft] = useState<SummaryCardEntry | null>(null);
   const [expandedCards, setExpandedCards] = useState<string[]>([]);
+  const [titleDraft, setTitleDraft] = useState(block.title ?? "");
 
   useEffect(() => {
     if (initRef.current) return;
@@ -157,6 +366,10 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
       return { ...prev, values: ensureCardValues(template, prev.values) };
     });
   }, [template]);
+
+  useEffect(() => {
+    setTitleDraft(block.title ?? "");
+  }, [block.title]);
 
   const openPanel = (card?: SummaryCardEntry) => {
     setEditingId(card?.id ?? null);
@@ -283,6 +496,11 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
     setExpandedCards((prev) =>
       prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId],
     );
+  };
+
+  const commitTitle = () => {
+    const nextTitle = titleDraft.trim();
+    onChange({ title: nextTitle ? nextTitle : undefined });
   };
 
   const showToolbar = blockActive || blockHovered;
@@ -438,6 +656,26 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
           </button>
         )}
       </div>
+      <div className={styles.cardCollectionTitleRow}>
+        <input
+          type="text"
+          className={styles.projectSummaryBlockInput}
+          value={titleDraft}
+          onChange={(event) => setTitleDraft(event.target.value)}
+          onBlur={commitTitle}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitTitle();
+            }
+            if (event.key === "Escape") {
+              setTitleDraft(block.title ?? "");
+              (event.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          placeholder="Nom de collection"
+        />
+      </div>
       <div
         className={cx(
           styles.cardList,
@@ -462,9 +700,11 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
           const isList = layout === "list";
           const listExpanded = isList && isExpanded;
           const listCollapsed = isList && !isExpanded;
+          const linkedResults = analysisResultsByCardId.get(card.id) ?? [];
           return (
             <div
               key={card.id}
+              id={`card-${block.id}-${card.id}`}
               className={cx(
                 styles.cardItem,
                 hasCoverImage && styles.cardItemHasImage,
@@ -796,6 +1036,16 @@ export default function SummaryCardBlock({ block, onChange, onDelete }: SummaryC
                     </span>
                   </span>
                 ))}
+                {linkedResults.length > 0 && (
+                  <div className={styles.cardItemResults}>
+                    {linkedResults.map((result) => (
+                      <span key={result.id} className={styles.cardItemResult}>
+                        <span className={styles.cardItemResultLabel}>{result.label}</span>
+                        <span className={styles.cardItemResultValue}>{result.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           );

@@ -640,6 +640,30 @@ input[type="reset"]:disabled {
   background: rgba(0, 0, 0, 0.42);
 }
 
+/* Table analysis: keep lists/popovers text-only (no glass background). */
+.panel-glass.projectTableAnalysisPopover {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.projectTableAnalysisPopoverItem,
+.projectTableAnalysisPopoverItem:hover {
+  background: transparent !important;
+}
+
+.projectTableAnalysisFilterList.projectTableConfigFilterList {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.projectTableAnalysisFilterRow.projectTableConfigFilterItem,
+.projectTableAnalysisFilterRow.projectTableConfigFilterItem:hover {
+  background: transparent !important;
+}
+
 /* ------------------------------------------------------------ */
 /* Inputs                                                       */
 /* ------------------------------------------------------------ */

@@ -3,12 +3,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type {
-  SummaryBlock,
-  SummaryTableColumn,
-  SummaryTableData,
-  SummaryTableRow,
-  SummaryTableSync,
+import {
+  useProjectStore,
+  type SummaryBlock,
+  type SummarySection,
+  type SummaryTableCellValue,
+  type SummaryTableAnalysisLinkMap,
+  type SummaryTableAnalysisMap,
+  type SummaryTableRelationAnalysisLinkMap,
+  type SummaryTableColumn,
+  type SummaryTableData,
+  type SummaryTableRelationValue,
+  type SummaryTableRow,
+  type SummaryTableSync,
 } from "@/store/projectStore";
 import { useCalendarStore, type CalendarItem } from "@/store/calendarStore";
 import StructuredList, {
@@ -17,6 +24,7 @@ import StructuredList, {
   type StructuredListResultRowStyle,
   type StructuredListTableStyle,
 } from "@/components/ui/StructuredList";
+import { getCardCollections } from "@/utils/getCardCollections";
 import styles from "./ProjectEditor.module.css";
 
 type SummaryTableBlockProps = {
@@ -61,6 +69,18 @@ const createColumn = (overrides: Partial<SummaryTableColumn> = {}): SummaryTable
   ...overrides,
 });
 
+const cloneCellValue = (value: SummaryTableCellValue): SummaryTableCellValue => {
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      item && typeof item === "object" ? { ...(item as SummaryTableRelationValue) } : item,
+    ) as SummaryTableCellValue;
+  }
+  if (value && typeof value === "object") {
+    return { ...(value as SummaryTableRelationValue) };
+  }
+  return value;
+};
+
 const cloneTable = (source: SummaryTableData): SummaryTableData => ({
   columns: source.columns.map((col) => ({
     ...col,
@@ -68,7 +88,9 @@ const cloneTable = (source: SummaryTableData): SummaryTableData => ({
   })),
   rows: source.rows.map((row) => ({
     ...row,
-    values: { ...row.values },
+    values: Object.fromEntries(
+      Object.entries(row.values).map(([key, value]) => [key, cloneCellValue(value)]),
+    ),
   })),
 });
 
@@ -97,7 +119,16 @@ const defaultOptionsForType = (type: SummaryTableColumn["type"]) => {
 const createRow = (columns: SummaryTableColumn[]): SummaryTableRow => ({
   id: createId("row"),
   values: Object.fromEntries(
-    columns.map((col) => [col.id, col.type === "checkbox" ? false : ""]),
+    columns.map((col) => [
+      col.id,
+      col.type === "checkbox"
+        ? false
+        : col.type === "relation_multi"
+          ? []
+          : col.type === "relation"
+            ? null
+            : "",
+    ]),
   ),
 });
 
@@ -130,6 +161,8 @@ type ClipboardColumnPayload = {
   type?: SummaryTableColumn["type"];
   numberFormat?: SummaryTableColumn["numberFormat"];
   options?: ClipboardColumnOption[];
+  relationTargetCollectionId?: string;
+  analysisLabel?: string;
 };
 
 const columnTypes: SummaryTableColumn["type"][] = [
@@ -143,6 +176,8 @@ const columnTypes: SummaryTableColumn["type"][] = [
   "link",
   "image",
   "video",
+  "relation",
+  "relation_multi",
 ];
 
 const isColumnType = (value: string): value is SummaryTableColumn["type"] =>
@@ -158,6 +193,8 @@ const serializeColumnForClipboard = (column: SummaryTableColumn) =>
       label: column.label ?? "",
       type: column.type,
       numberFormat: column.numberFormat,
+      relationTargetCollectionId: column.relationTargetCollectionId,
+      analysisLabel: column.analysisLabel,
       options: (column.options ?? []).map((option) => ({
         label: option.label,
         color: option.color,
@@ -194,7 +231,13 @@ const parseColumnFromClipboard = (text: string) => {
           ),
         )
       : undefined;
-    return { label, type, options, numberFormat };
+    const relationTargetCollectionId =
+      typeof parsed.column.relationTargetCollectionId === "string"
+        ? parsed.column.relationTargetCollectionId
+        : undefined;
+    const analysisLabel =
+      typeof parsed.column.analysisLabel === "string" ? parsed.column.analysisLabel : undefined;
+    return { label, type, options, numberFormat, relationTargetCollectionId, analysisLabel };
   } catch {
     return null;
   }
@@ -238,6 +281,16 @@ const coerceClipboardValue = (column: SummaryTableColumn, raw: string) => {
       .map((part) => part.trim())
       .filter(Boolean);
     return parts.join(", ");
+  }
+  if (column.type === "relation_multi") {
+    return value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((id) => ({ id, count: 1 }));
+  }
+  if (column.type === "relation") {
+    return value ? { id: value, count: 1 } : null;
   }
   return value;
 };
@@ -300,8 +353,59 @@ const readVideoDataUrl = (file: File) =>
 const clampCount = (value: number, min = 1, max = 40) =>
   Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
 
+const clampRelationCount = (value: number, min = 1, max = 99) => {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, Math.round(value)));
+};
+
+const isRelationCountValue = (value: unknown): value is SummaryTableRelationValue => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as SummaryTableRelationValue;
+  return typeof candidate.id === "string" && typeof candidate.count === "number";
+};
+
+const normalizeRelationEntry = (entry: SummaryTableRelationValue) => ({
+  id: entry.id.trim(),
+  count: clampRelationCount(entry.count),
+});
+
+const getRelationEntries = (
+  column: SummaryTableColumn,
+  value: SummaryTableCellValue | undefined,
+): SummaryTableRelationValue[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => {
+        if (typeof item === "string") {
+          const trimmed = item.trim();
+          return trimmed ? [{ id: trimmed, count: 1 }] : [];
+        }
+        if (isRelationCountValue(item)) {
+          return [normalizeRelationEntry(item)];
+        }
+        return [];
+      })
+      .filter((entry) => entry.id);
+  }
+  if (typeof value === "string") {
+    if (column.type === "relation_multi") {
+      return value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((id) => ({ id, count: 1 }));
+    }
+    return value.trim() ? [{ id: value.trim(), count: 1 }] : [];
+  }
+  if (isRelationCountValue(value)) {
+    return [normalizeRelationEntry(value)];
+  }
+  return [];
+};
+
 const normalizeValue = (
-  value: string | boolean | undefined,
+  value: SummaryTableCellValue | undefined,
   type: SummaryTableColumn["type"],
 ) => {
   if (type === "checkbox") return Boolean(value);
@@ -309,12 +413,52 @@ const normalizeValue = (
     if (typeof value === "boolean") return value ? "Oui" : "Non";
     return value ?? "";
   }
+  if (type === "relation") {
+    if (Array.isArray(value)) {
+      const first = value[0];
+      if (typeof first === "string") {
+        return first.trim() ? { id: first.trim(), count: 1 } : null;
+      }
+      if (isRelationCountValue(first)) return normalizeRelationEntry(first);
+      return null;
+    }
+    if (typeof value === "string") {
+      return value.trim() ? { id: value.trim(), count: 1 } : null;
+    }
+    if (isRelationCountValue(value)) return normalizeRelationEntry(value);
+    return null;
+  }
+  if (type === "relation_multi") {
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((item) => {
+          if (typeof item === "string") {
+            const trimmed = item.trim();
+            return trimmed ? [{ id: trimmed, count: 1 }] : [];
+          }
+          if (isRelationCountValue(item)) {
+            return [normalizeRelationEntry(item)];
+          }
+          return [];
+        })
+        .filter((entry) => entry.id);
+    }
+    if (typeof value === "string") {
+      return value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((id) => ({ id, count: 1 }));
+    }
+    if (isRelationCountValue(value)) return [normalizeRelationEntry(value)];
+    return [];
+  }
   if (typeof value === "boolean") return "";
   return value ?? "";
 };
 
 const normalizeSearchValue = (
-  value: string | boolean | undefined,
+  value: SummaryTableCellValue | undefined,
   type: SummaryTableColumn["type"],
 ) => {
   if (value === undefined || value === null) return "";
@@ -323,12 +467,24 @@ const normalizeSearchValue = (
     if (typeof value === "boolean") return value ? "oui" : "non";
     return String(value).toLowerCase();
   }
+  if (type === "relation_multi") {
+    return getRelationEntries({ type } as SummaryTableColumn, value)
+      .map((entry) => entry.id)
+      .join(",")
+      .toLowerCase();
+  }
+  if (type === "relation") {
+    return getRelationEntries({ type } as SummaryTableColumn, value)
+      .map((entry) => entry.id)
+      .join(",")
+      .toLowerCase();
+  }
   if (typeof value === "boolean") return value ? "oui" : "non";
   return String(value).toLowerCase();
 };
 
 const defaultValueForType = (type: SummaryTableColumn["type"]) =>
-  type === "checkbox" ? false : "";
+  type === "checkbox" ? false : type === "relation_multi" ? [] : type === "relation" ? null : "";
 
 const formatDateValue = (value: string) => {
   if (!value) return "";
@@ -351,9 +507,13 @@ const formatLinkValue = (value: string) => {
   }
 };
 
-const formatNumberValue = (column: SummaryTableColumn, rawValue: string | boolean | undefined) => {
+const formatNumberValue = (
+  column: SummaryTableColumn,
+  rawValue: SummaryTableCellValue | number | undefined,
+) => {
   if (rawValue === "" || rawValue === undefined || rawValue === null) return "";
-  const raw = String(rawValue);
+  if (typeof rawValue === "object" && !Array.isArray(rawValue)) return "";
+  const raw = Array.isArray(rawValue) ? rawValue.join(",") : String(rawValue);
   if (!column.numberFormat || column.numberFormat === "plain") return raw;
   const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
   const numeric = Number(normalized);
@@ -374,7 +534,20 @@ const formatNumberValue = (column: SummaryTableColumn, rawValue: string | boolea
   return raw;
 };
 
-const formatSyncValue = (column: SummaryTableColumn, rawValue: string | boolean | undefined) => {
+const parseNumericValue = (value: SummaryTableCellValue | undefined) => {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean" || typeof value === "object") return null;
+  const raw = (Array.isArray(value) ? value.join(",") : String(value)).trim();
+  if (!raw) return null;
+  const normalized = raw.includes(",") ? raw.replace(",", ".") : raw;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const formatSyncValue = (
+  column: SummaryTableColumn,
+  rawValue: SummaryTableCellValue | undefined,
+) => {
   if (rawValue === undefined || rawValue === null || rawValue === "") return "";
   if (column.type === "checkbox") {
     if (typeof rawValue === "boolean") return rawValue ? "Oui" : "Non";
@@ -390,11 +563,19 @@ const formatSyncValue = (column: SummaryTableColumn, rawValue: string | boolean 
   if (column.type === "link") return formatLinkValue(String(rawValue));
   if (column.type === "image") return rawValue ? "Image" : "";
   if (column.type === "video") return rawValue ? "Video" : "";
+  if (column.type === "relation") {
+    return getRelationEntries(column, rawValue).map((entry) => entry.id).join(", ");
+  }
+  if (column.type === "relation_multi") {
+    return getRelationEntries(column, rawValue).map((entry) => entry.id).join(", ");
+  }
   return String(rawValue);
 };
 
-const normalizeDateValue = (value: string | boolean | undefined) => {
-  if (!value || typeof value === "boolean") return null;
+const normalizeDateValue = (value: SummaryTableCellValue | undefined) => {
+  if (!value || typeof value === "boolean" || Array.isArray(value) || typeof value === "object") {
+    return null;
+  }
   const raw = String(value).trim();
   if (!raw) return null;
   const date = new Date(`${raw}T00:00:00`);
@@ -483,6 +664,11 @@ export default function SummaryTableBlock({
   const configPanelRef = useRef<HTMLDivElement | null>(null);
   const paletteAnchorRef = useRef<HTMLButtonElement | null>(null);
   const palettePanelRef = useRef<HTMLDivElement | null>(null);
+  const analysisLinkAnchorRef = useRef<HTMLElement | null>(null);
+  const analysisLinkPopoverRef = useRef<HTMLDivElement | null>(null);
+  const pendingAnalysisConfigRef = useRef<SummaryTableAnalysisMap | null>(null);
+  const pendingAnalysisLinksRef = useRef<SummaryTableAnalysisLinkMap | null>(null);
+  const pendingRelationAnalysisLinksRef = useRef<SummaryTableRelationAnalysisLinkMap | null>(null);
   const configSnapshotRef = useRef<SummaryTableData | null>(null);
   const configMetaSnapshotRef = useRef<{ title?: string; tableSync?: SummaryTableSync } | null>(
     null,
@@ -510,7 +696,16 @@ export default function SummaryTableBlock({
   } | null>(null);
   const [filterSearch, setFilterSearch] = useState("");
   const [globalSearch, setGlobalSearch] = useState("");
-  const [analysisConfig, setAnalysisConfig] = useState<StructuredListAnalysisMap>({});
+  const [analysisConfig, setAnalysisConfig] = useState<StructuredListAnalysisMap>(
+    block.tableAnalysisConfig ?? {},
+  );
+  const [analysisLinks, setAnalysisLinks] = useState<SummaryTableAnalysisLinkMap>(
+    block.tableAnalysisLinks ?? {},
+  );
+  const [relationAnalysisLinks, setRelationAnalysisLinks] = useState<SummaryTableRelationAnalysisLinkMap>(
+    block.tableRelationAnalysisLinks ?? {},
+  );
+  const [relationAnalysisOpen, setRelationAnalysisOpen] = useState(false);
   const [resultRowStyle, setResultRowStyle] = useState<StructuredListResultRowStyle>({
     background: "",
     color: "",
@@ -518,6 +713,13 @@ export default function SummaryTableBlock({
   const [tableStyle, setTableStyle] = useState<StructuredListTableStyle>(defaultTableStyle);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [palettePosition, setPalettePosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+  const [analysisLinkPopover, setAnalysisLinkPopover] = useState<{ columnId: string } | null>(
+    null,
+  );
+  const [analysisLinkSearch, setAnalysisLinkSearch] = useState("");
+  const [analysisLinkPosition, setAnalysisLinkPosition] = useState<{ top: number; left: number } | null>(
     null,
   );
   const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
@@ -533,6 +735,67 @@ export default function SummaryTableBlock({
   const isHistoryActionRef = useRef(false);
   const historyRef = useRef(history);
   const { items, addItem, updateItem, deleteItem } = useCalendarStore();
+  const projects = useProjectStore((state) => state.projects);
+  const project = useMemo(() => {
+    const direct = projects.find((item) => item.id === projectId);
+    if (direct) return direct;
+    const matchesBlock = (sections?: SummarySection[]) =>
+      (sections ?? []).some((section) =>
+        (section.blocks ?? []).some((entry) => entry.id === block.id),
+      );
+    return projects.find(
+      (entry) =>
+        matchesBlock(entry.summarySections) ||
+        (entry.pages ?? []).some((page) => matchesBlock(page.summarySections)),
+    );
+  }, [block.id, projectId, projects]);
+  const cardCollections = useMemo(() => getCardCollections(project), [project]);
+  const cardCollectionLookup = useMemo(() => {
+    const lookup = new Map<string, Map<string, string>>();
+    cardCollections.forEach((collection) => {
+      const itemLookup = new Map<string, string>();
+      collection.items.forEach((item) => {
+        itemLookup.set(item.id, item.label);
+      });
+      lookup.set(collection.collectionId, itemLookup);
+    });
+    return lookup;
+  }, [cardCollections]);
+  const cardCollectionShortLookup = useMemo(() => {
+    const lookup = new Map<string, Map<string, string>>();
+    const toShort = (value: string) => value.trim().slice(0, 3);
+    cardCollections.forEach((collection) => {
+      const itemLookup = new Map<string, string>();
+      collection.items.forEach((item) => {
+        const parts = (item.fieldValues ?? []).map(toShort).filter(Boolean);
+        const shortLabel =
+          parts.length > 0
+            ? parts.slice(0, 2).join(" ")
+            : toShort(item.label || item.title || "");
+        itemLookup.set(item.id, shortLabel || item.label || item.title || item.id);
+      });
+      lookup.set(collection.collectionId, itemLookup);
+    });
+    return lookup;
+  }, [cardCollections]);
+  const cardCollectionTitleLookup = useMemo(
+    () => new Map(cardCollections.map((collection) => [collection.collectionId, collection.title])),
+    [cardCollections],
+  );
+  const analysisCardGroups = useMemo(
+    () =>
+      cardCollections.map((collection) => ({
+        collectionId: collection.collectionId,
+        title: collection.title,
+        items: collection.items.map((item) => ({
+          id: item.id,
+          label: item.label?.trim() || item.title?.trim() || "Sans titre",
+        })),
+      })),
+    [cardCollections],
+  );
+  const hasCardCollections = cardCollections.length > 0;
+  const defaultRelationTargetId = cardCollections[0]?.collectionId ?? "";
 
   const ensureClipboardBuffer = () => {
     if (clipboardBufferRef.current && document.body.contains(clipboardBufferRef.current)) {
@@ -633,6 +896,24 @@ export default function SummaryTableBlock({
     return { top, left };
   };
 
+  const getAnalysisLinkPosition = (anchor: HTMLElement) => {
+    const rect = anchor.getBoundingClientRect();
+    const panelWidth = 260;
+    const gutter = 12;
+    let left = rect.left;
+    if (left + panelWidth > window.innerWidth - gutter) {
+      left = Math.max(gutter, window.innerWidth - panelWidth - gutter);
+    }
+    if (left < gutter) left = gutter;
+    let top = rect.bottom + 8;
+    const panelHeight = analysisLinkPopoverRef.current?.offsetHeight ?? 0;
+    const maxTop = window.innerHeight - panelHeight - gutter;
+    if (panelHeight > 0 && top > maxTop) {
+      top = Math.max(gutter, maxTop);
+    }
+    return { top, left };
+  };
+
   if (!block.table && !seedRef.current) {
     const baseColumns = [createColumn()];
     const contentRows =
@@ -670,6 +951,18 @@ export default function SummaryTableBlock({
     : false;
   const activeColumnIsYesNo = activeColumn?.type === "yesno";
   const activeColumnOptions = activeColumn?.options ?? [];
+  const resolveRelationLabels = (
+    column: SummaryTableColumn,
+    raw: SummaryTableCellValue | undefined,
+  ) => {
+    const ids = getRelationEntries(column, raw).map((entry) => entry.id);
+    if (!column.relationTargetCollectionId) return ids;
+    const lookup = cardCollectionLookup.get(column.relationTargetCollectionId);
+    if (!lookup) return ids;
+    return ids
+      .map((id) => lookup.get(id) ?? id)
+      .filter((label) => label && label.trim());
+  };
   const activeAnalysisConfig = activeColumn ? analysisConfig[activeColumn.id] : undefined;
   const analysisSelectValue =
     activeColumn && activeAnalysisConfig?.showResult
@@ -686,6 +979,39 @@ export default function SummaryTableBlock({
           { value: "count", label: "Nombre" },
         ]
       : [{ value: "count", label: "Nombre" }];
+  const handleAnalysisConfigChange = (
+    next:
+      | SummaryTableAnalysisMap
+      | ((prev: SummaryTableAnalysisMap) => SummaryTableAnalysisMap),
+  ) => {
+    setAnalysisConfig((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      pendingAnalysisConfigRef.current = resolved;
+      return resolved;
+    });
+  };
+  const updateAnalysisLinks = (
+    next:
+      | SummaryTableAnalysisLinkMap
+      | ((prev: SummaryTableAnalysisLinkMap) => SummaryTableAnalysisLinkMap),
+  ) => {
+    setAnalysisLinks((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      pendingAnalysisLinksRef.current = resolved;
+      return resolved;
+    });
+  };
+  const updateRelationAnalysisLinks = (
+    next:
+      | SummaryTableRelationAnalysisLinkMap
+      | ((prev: SummaryTableRelationAnalysisLinkMap) => SummaryTableRelationAnalysisLinkMap),
+  ) => {
+    setRelationAnalysisLinks((prev) => {
+      const resolved = typeof next === "function" ? next(prev) : next;
+      pendingRelationAnalysisLinksRef.current = resolved;
+      return resolved;
+    });
+  };
   const isDefaultTableStyle =
     tableStyle.background === defaultTableStyle.background &&
     (tableStyle.backgroundOpacity ?? defaultTableStyle.backgroundOpacity) ===
@@ -758,6 +1084,10 @@ export default function SummaryTableBlock({
     table.rows.forEach((row) => {
       const raw = row.values[activeColumn.id];
       if (raw === undefined || raw === null || raw === "") return;
+      if (activeColumn.type === "relation" || activeColumn.type === "relation_multi") {
+        resolveRelationLabels(activeColumn, raw).forEach((label) => addItem(label, label));
+        return;
+      }
       if (activeColumn.type === "multiselect") {
         String(raw)
           .split(",")
@@ -778,7 +1108,7 @@ export default function SummaryTableBlock({
       addItem(String(raw), String(raw));
     });
     return Array.from(items.values());
-  }, [activeColumn, table.rows]);
+  }, [activeColumn, cardCollectionLookup, table.rows]);
   const activeFilterOptions = useMemo(() => {
     const query = filterSearch.trim().toLowerCase();
     if (!query) return activeFilterItems;
@@ -793,6 +1123,39 @@ export default function SummaryTableBlock({
       });
     }
   }, [block.table, onChange, table]);
+
+  useEffect(() => {
+    setAnalysisConfig(block.tableAnalysisConfig ?? {});
+  }, [block.tableAnalysisConfig]);
+
+  useEffect(() => {
+    setAnalysisLinks(block.tableAnalysisLinks ?? {});
+  }, [block.tableAnalysisLinks]);
+
+  useEffect(() => {
+    setRelationAnalysisLinks(block.tableRelationAnalysisLinks ?? {});
+  }, [block.tableRelationAnalysisLinks]);
+
+  useEffect(() => {
+    if (!pendingAnalysisConfigRef.current) return;
+    const resolved = pendingAnalysisConfigRef.current;
+    pendingAnalysisConfigRef.current = null;
+    onChange({ tableAnalysisConfig: resolved });
+  }, [analysisConfig, onChange]);
+
+  useEffect(() => {
+    if (!pendingAnalysisLinksRef.current) return;
+    const resolved = pendingAnalysisLinksRef.current;
+    pendingAnalysisLinksRef.current = null;
+    onChange({ tableAnalysisLinks: resolved });
+  }, [analysisLinks, onChange]);
+
+  useEffect(() => {
+    if (!pendingRelationAnalysisLinksRef.current) return;
+    const resolved = pendingRelationAnalysisLinksRef.current;
+    pendingRelationAnalysisLinksRef.current = null;
+    onChange({ tableRelationAnalysisLinks: resolved });
+  }, [relationAnalysisLinks, onChange]);
 
   useEffect(() => {
     tableRef.current = table;
@@ -846,7 +1209,11 @@ export default function SummaryTableBlock({
         .map((columnId) => {
           const column = columnsById.get(columnId);
           if (!column) return null;
-          const formatted = formatSyncValue(column, row.values[column.id]);
+          const raw = row.values[column.id];
+          const formatted =
+            column.type === "relation" || column.type === "relation_multi"
+              ? resolveRelationLabels(column, raw).join(", ")
+              : formatSyncValue(column, raw);
           if (!formatted) return null;
           return formatted;
         })
@@ -914,6 +1281,7 @@ export default function SummaryTableBlock({
     block.id,
     block.tableSync,
     block.title,
+    cardCollectionLookup,
     deleteItem,
     items,
     syncColumns,
@@ -962,10 +1330,21 @@ export default function SummaryTableBlock({
             options: col.options && col.options.length > 0 ? col.options : defaultOptionsForType(col.type),
           };
         }
+        if ((col.type === "relation" || col.type === "relation_multi") && hasCardCollections) {
+          const hasTarget = cardCollections.some(
+            (collection) => collection.collectionId === col.relationTargetCollectionId,
+          );
+          return {
+            ...col,
+            relationTargetCollectionId: hasTarget
+              ? col.relationTargetCollectionId
+              : defaultRelationTargetId || col.relationTargetCollectionId,
+          };
+        }
         return col;
       }),
     );
-  }, [configOpen, table.columns, table.rows.length]);
+  }, [cardCollections, configOpen, defaultRelationTargetId, hasCardCollections, table.columns, table.rows.length]);
 
   useEffect(() => {
     if (!configOpen) return;
@@ -1063,6 +1442,41 @@ export default function SummaryTableBlock({
   }, [paletteOpen]);
 
   useEffect(() => {
+    if (!analysisLinkPopover) {
+      setAnalysisLinkPosition(null);
+      return;
+    }
+    if (!portalReady) return;
+    const updatePosition = () => {
+      const anchor = analysisLinkAnchorRef.current;
+      if (!anchor) return;
+      setAnalysisLinkPosition(getAnalysisLinkPosition(anchor));
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [analysisLinkPopover, portalReady]);
+
+  useEffect(() => {
+    if (!analysisLinkPopover) return;
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (analysisLinkPopoverRef.current?.contains(target)) return;
+      if (analysisLinkAnchorRef.current?.contains(target)) return;
+      setAnalysisLinkPopover(null);
+    };
+    window.addEventListener("pointerdown", handleOutside, true);
+    return () => {
+      window.removeEventListener("pointerdown", handleOutside, true);
+    };
+  }, [analysisLinkPopover]);
+
+  useEffect(() => {
     if (!configOpen) return;
     setOptionsExpanded(false);
     setOptionsOpenById({});
@@ -1097,6 +1511,44 @@ export default function SummaryTableBlock({
     }
     onChange({ table: next, ...patch });
   };
+
+  useEffect(() => {
+    if (!hasCardCollections) return;
+    const validIds = new Set(cardCollections.map((collection) => collection.collectionId));
+    const needsUpdate = table.columns.some(
+      (column) =>
+        (column.type === "relation" || column.type === "relation_multi") &&
+        (!column.relationTargetCollectionId || !validIds.has(column.relationTargetCollectionId)),
+    );
+    if (!needsUpdate) return;
+    const nextColumns = table.columns.map((column) => {
+      if (column.type !== "relation" && column.type !== "relation_multi") return column;
+      if (column.relationTargetCollectionId && validIds.has(column.relationTargetCollectionId)) {
+        return column;
+      }
+      return {
+        ...column,
+        relationTargetCollectionId:
+          defaultRelationTargetId || column.relationTargetCollectionId,
+      };
+    });
+    updateTable({ ...table, columns: nextColumns });
+    if (configOpen) {
+      setDraftColumns((prev) =>
+        prev.map((column) => {
+          if (column.type !== "relation" && column.type !== "relation_multi") return column;
+          if (column.relationTargetCollectionId && validIds.has(column.relationTargetCollectionId)) {
+            return column;
+          }
+          return {
+            ...column,
+            relationTargetCollectionId:
+              defaultRelationTargetId || column.relationTargetCollectionId,
+          };
+        }),
+      );
+    }
+  }, [cardCollections, configOpen, defaultRelationTargetId, hasCardCollections, table, updateTable]);
 
   const handleUndoTable = () => {
     const currentHistory = historyRef.current;
@@ -1152,7 +1604,16 @@ export default function SummaryTableBlock({
       type: parsed.type,
       options: parsed.options,
       numberFormat: parsed.numberFormat,
+      relationTargetCollectionId: parsed.relationTargetCollectionId,
     });
+    if ((nextColumn.type === "relation" || nextColumn.type === "relation_multi") && hasCardCollections) {
+      const hasTarget = cardCollections.some(
+        (collection) => collection.collectionId === nextColumn.relationTargetCollectionId,
+      );
+      if (!hasTarget) {
+        nextColumn.relationTargetCollectionId = defaultRelationTargetId || nextColumn.relationTargetCollectionId;
+      }
+    }
     insertDraftColumnAt(index, nextColumn);
   };
 
@@ -1253,7 +1714,9 @@ export default function SummaryTableBlock({
     const sourceRow = currentTable.rows[rowIndex];
     const duplicated = {
       id: createId("row"),
-      values: { ...sourceRow.values },
+      values: Object.fromEntries(
+        Object.entries(sourceRow.values).map(([key, value]) => [key, cloneCellValue(value)]),
+      ),
     };
     const nextRows = [...currentTable.rows];
     nextRows.splice(rowIndex + 1, 0, duplicated);
@@ -1269,6 +1732,8 @@ export default function SummaryTableBlock({
       label: sourceColumn.label?.trim() ? sourceColumn.label : "Champ",
       type: sourceColumn.type,
       width: sourceColumn.width,
+      relationTargetCollectionId: sourceColumn.relationTargetCollectionId,
+      analysisLabel: sourceColumn.analysisLabel,
       options: sourceColumn.options?.map((option) => createOption(option.label, option.color)),
     });
     const nextColumns = [...currentTable.columns];
@@ -1278,7 +1743,9 @@ export default function SummaryTableBlock({
       values: {
         ...row.values,
         [nextColumn.id]:
-          row.values[sourceColumn.id] ?? defaultValueForType(nextColumn.type),
+          row.values[sourceColumn.id] !== undefined && row.values[sourceColumn.id] !== null
+            ? cloneCellValue(row.values[sourceColumn.id])
+            : defaultValueForType(nextColumn.type),
       },
     }));
     if (configOpen) {
@@ -1287,7 +1754,11 @@ export default function SummaryTableBlock({
     updateTable({ ...currentTable, columns: nextColumns, rows: nextRows });
   };
 
-  const updateCell = (rowId: string, columnId: string, value: string | boolean) => {
+  const updateCell = (
+    rowId: string,
+    columnId: string,
+    value: SummaryTableCellValue,
+  ) => {
     const currentTable = tableRef.current ?? table;
     updateTable({
       ...currentTable,
@@ -1297,6 +1768,28 @@ export default function SummaryTableBlock({
           : row,
       ),
     });
+  };
+
+  const resolveRelationTarget = (columnId: string, collectionId: string) => {
+    if (!collectionId) return;
+    const currentTable = tableRef.current ?? table;
+    const hasColumn = currentTable.columns.some((column) => column.id === columnId);
+    if (!hasColumn) return;
+    const nextColumns = currentTable.columns.map((column) => {
+      if (column.id !== columnId) return column;
+      if (column.relationTargetCollectionId === collectionId) return column;
+      return { ...column, relationTargetCollectionId: collectionId };
+    });
+    updateTable({ ...currentTable, columns: nextColumns });
+    if (configOpen) {
+      setDraftColumns((prev) =>
+        prev.map((column) =>
+          column.id === columnId
+            ? { ...column, relationTargetCollectionId: collectionId }
+            : column,
+        ),
+      );
+    }
   };
 
   const updateColumnWidth = (columnId: string, width: number) => {
@@ -1371,7 +1864,7 @@ export default function SummaryTableBlock({
       ...row,
       values: {
         ...row.values,
-        [nextColumn.id]: nextColumn.type === "checkbox" ? false : "",
+        [nextColumn.id]: defaultValueForType(nextColumn.type),
       },
     }));
     updateTable({ columns: nextColumns, rows: nextRows });
@@ -1395,7 +1888,7 @@ export default function SummaryTableBlock({
       ...row,
       values: {
         ...row.values,
-        [nextColumn.id]: nextColumn.type === "checkbox" ? false : "",
+        [nextColumn.id]: defaultValueForType(nextColumn.type),
       },
     }));
     updateTable({ columns: nextColumns, rows: nextRows });
@@ -1479,14 +1972,37 @@ export default function SummaryTableBlock({
           } else {
             next.numberFormat = undefined;
           }
+          if (patch.type === "relation" || patch.type === "relation_multi") {
+            if (hasCardCollections) {
+              const hasTarget = cardCollections.some(
+                (collection) => collection.collectionId === next.relationTargetCollectionId,
+              );
+              next.relationTargetCollectionId = hasTarget
+                ? next.relationTargetCollectionId
+                : defaultRelationTargetId || next.relationTargetCollectionId;
+            }
+          } else {
+            next.relationTargetCollectionId = undefined;
+          }
+        }
+        if (
+          patch.relationTargetCollectionId &&
+          (patch.type === "relation" || patch.type === "relation_multi" || col.type === "relation" || col.type === "relation_multi")
+        ) {
+          next.relationTargetCollectionId = patch.relationTargetCollectionId;
         }
         return next;
       }),
     );
+    if (patch.type && filterConfig?.columnId === columnId) {
+      setFilterSearch("");
+      setFilterConfig({ columnId, query: "", selected: [] });
+    }
   };
 
   const applyColumnPatch = (columnId: string, patch: Partial<SummaryTableColumn>) => {
     const sourceColumns = configOpen ? draftColumns : table.columns;
+    const prevColumn = sourceColumns.find((col) => col.id === columnId);
     const nextColumns = sourceColumns.map((col) => {
       if (col.id !== columnId) return col;
       const next = { ...col, ...patch };
@@ -1503,22 +2019,54 @@ export default function SummaryTableBlock({
         } else {
           next.numberFormat = undefined;
         }
+        if (patch.type === "relation" || patch.type === "relation_multi") {
+          if (hasCardCollections) {
+            const hasTarget = cardCollections.some(
+              (collection) => collection.collectionId === next.relationTargetCollectionId,
+            );
+            next.relationTargetCollectionId = hasTarget
+              ? next.relationTargetCollectionId
+              : defaultRelationTargetId || next.relationTargetCollectionId;
+          }
+        } else {
+          next.relationTargetCollectionId = undefined;
+        }
       }
       if (patch.numberFormat && next.type !== "number") {
         next.numberFormat = undefined;
       }
+      if (
+        patch.relationTargetCollectionId &&
+        (patch.type === "relation" || patch.type === "relation_multi" || col.type === "relation" || col.type === "relation_multi")
+      ) {
+        next.relationTargetCollectionId = patch.relationTargetCollectionId;
+      }
       return next;
     });
+    const nextColumn = nextColumns.find((col) => col.id === columnId);
+    const shouldResetRelationValues =
+      Boolean(nextColumn) &&
+      (nextColumn?.type === "relation" || nextColumn?.type === "relation_multi") &&
+      Boolean(prevColumn) &&
+      (prevColumn?.type === "relation" || prevColumn?.type === "relation_multi") &&
+      (prevColumn?.relationTargetCollectionId ?? "") !==
+        (nextColumn?.relationTargetCollectionId ?? "");
     const nextRows = table.rows.map((row) => {
       const nextValues = { ...row.values };
       if (patch.type) {
         nextValues[columnId] = defaultValueForType(patch.type);
+      } else if (shouldResetRelationValues && nextColumn) {
+        nextValues[columnId] = defaultValueForType(nextColumn.type);
       }
       return { ...row, values: nextValues };
     });
     updateTable({ columns: nextColumns, rows: nextRows });
     if (configOpen) {
       setDraftColumns(nextColumns);
+    }
+    if (patch.type && filterConfig?.columnId === columnId) {
+      setFilterSearch("");
+      setFilterConfig({ columnId, query: "", selected: [] });
     }
   };
 
@@ -1535,7 +2083,7 @@ export default function SummaryTableBlock({
       ...row,
       values: {
         ...row.values,
-        [nextColumn.id]: nextColumn.type === "checkbox" ? false : "",
+        [nextColumn.id]: defaultValueForType(nextColumn.type),
       },
     }));
     updateTable({ columns: nextColumns, rows: nextRows });
@@ -1636,10 +2184,23 @@ export default function SummaryTableBlock({
   const applyConfig = () => {
     const nextColumns = draftColumns.length > 0 ? draftColumns : [createColumn()];
     const prevTypes = new Map(table.columns.map((column) => [column.id, column.type]));
+    const prevTargets = new Map(
+      table.columns.map((column) => [column.id, column.relationTargetCollectionId ?? ""]),
+    );
     const nextRows = table.rows.map((row) => {
-      const nextValues: Record<string, string | boolean> = {};
+      const nextValues: Record<string, SummaryTableCellValue> = {};
       nextColumns.forEach((column) => {
         if (prevTypes.get(column.id) && prevTypes.get(column.id) !== column.type) {
+          nextValues[column.id] = defaultValueForType(column.type);
+          return;
+        }
+        const prevTarget = prevTargets.get(column.id);
+        if (
+          (column.type === "relation" || column.type === "relation_multi") &&
+          prevTarget !== undefined &&
+          (prevTypes.get(column.id) === column.type || !prevTypes.has(column.id)) &&
+          prevTarget !== (column.relationTargetCollectionId ?? "")
+        ) {
           nextValues[column.id] = defaultValueForType(column.type);
           return;
         }
@@ -1741,9 +2302,19 @@ export default function SummaryTableBlock({
       if (column) {
         nextRows = nextRows.filter((row) => {
           const raw = row.values[column.id];
-          if (raw === undefined || raw === null) return false;
-          const value = String(raw).toLowerCase();
+          if (raw === undefined || raw === null) {
+            if (!query && selected.length === 0) return true;
+            return false;
+          }
+          const relationLabels =
+            column.type === "relation" || column.type === "relation_multi"
+              ? resolveRelationLabels(column, raw).map((label) => label.toLowerCase())
+              : null;
+          const value = relationLabels ? relationLabels.join(",") : String(raw).toLowerCase();
           if (selected.length > 0) {
+            if (relationLabels) {
+              return relationLabels.some((label) => selected.includes(label));
+            }
             if (column.type === "multiselect") {
               const parts = value.split(",").map((part) => part.trim());
               return parts.some((part) => selected.includes(part));
@@ -1755,6 +2326,9 @@ export default function SummaryTableBlock({
             return selected.includes(value);
           }
           if (!query) return true;
+          if (relationLabels) {
+            return relationLabels.some((label) => label.includes(query));
+          }
           if (column.type === "multiselect") {
             return value.split(",").map((part) => part.trim()).some((part) => part.includes(query));
           }
@@ -1767,6 +2341,11 @@ export default function SummaryTableBlock({
         table.columns.some((column) => {
           const raw = row.values[column.id];
           if (raw === undefined || raw === null || raw === "") return false;
+          if (column.type === "relation" || column.type === "relation_multi") {
+            return resolveRelationLabels(column, raw).some((label) =>
+              label.toLowerCase().includes(globalQuery),
+            );
+          }
           if (column.type === "multiselect") {
             return String(raw)
               .split(",")
@@ -1800,12 +2379,249 @@ export default function SummaryTableBlock({
             const bBool = String(bVal ?? "").toLowerCase();
             return aBool.localeCompare(bBool) * direction;
           }
+          if (column.type === "relation" || column.type === "relation_multi") {
+            const aLabel = resolveRelationLabels(column, aVal)[0] ?? "";
+            const bLabel = resolveRelationLabels(column, bVal)[0] ?? "";
+            return aLabel.localeCompare(bLabel) * direction;
+          }
           return String(aVal ?? "").localeCompare(String(bVal ?? "")) * direction;
         });
       }
     }
     return nextRows;
-  }, [columnMap, filterConfig, globalSearch, sortConfig, table.columns, table.rows]);
+  }, [cardCollectionLookup, columnMap, filterConfig, globalSearch, sortConfig, table.columns, table.rows]);
+
+  const analysisSummaryItems = useMemo(() => {
+    const analysisTypeLabels: Record<StructuredListAnalysisConfig["type"], string> = {
+      sum: "Somme",
+      average: "Moyenne",
+      min: "Min",
+      max: "Max",
+      difference: "Difference",
+      count: "Nombre",
+    };
+    const computeAnalysisValue = (
+      column: SummaryTableColumn,
+      type: StructuredListAnalysisConfig["type"],
+    ) => {
+      if (type === "count") {
+        const count = visibleRows.reduce((total, row) => {
+          const value = row.values[column.id];
+          if (value === undefined || value === null) return total;
+          if (typeof value === "boolean") return total + (value ? 1 : 0);
+          if (Array.isArray(value)) return value.length > 0 ? total + 1 : total;
+          if (typeof value === "object") return total + 1;
+          const trimmed = String(value).trim();
+          return trimmed ? total + 1 : total;
+        }, 0);
+        return String(count);
+      }
+      if (column.type !== "number") return null;
+      const numericValues = visibleRows
+        .map((row) => parseNumericValue(row.values[column.id]))
+        .filter((value): value is number => value !== null);
+      if (numericValues.length === 0) return null;
+      let result = 0;
+      if (type === "min") {
+        result = Math.min(...numericValues);
+      } else if (type === "max") {
+        result = Math.max(...numericValues);
+      } else if (type === "average") {
+        const sum = numericValues.reduce((total, value) => total + value, 0);
+        result = sum / numericValues.length;
+      } else if (type === "difference") {
+        result = Math.max(...numericValues) - Math.min(...numericValues);
+      } else {
+        result = numericValues.reduce((total, value) => total + value, 0);
+      }
+      return formatNumberValue(column, result);
+    };
+
+    const entries: Array<{ columnId: string; label: string; value: string; typeLabel: string }> =
+      [];
+    Object.entries(analysisConfig).forEach(([columnId, config]) => {
+      if (!config.showResult) return;
+      const column = columnMap.get(columnId);
+      if (!column) return;
+      const value = computeAnalysisValue(column, config.type);
+      if (value === null || value === undefined || value === "") return;
+      entries.push({
+        columnId,
+        label: column.analysisLabel?.trim() || column.label || "Champ",
+        value,
+        typeLabel: analysisTypeLabels[config.type] ?? config.type,
+      });
+    });
+    return entries;
+  }, [analysisConfig, columnMap, visibleRows]);
+
+  const analysisLinkGroups = useMemo(() => {
+    const query = analysisLinkSearch.trim().toLowerCase();
+    if (!query || query.length < 2) return analysisCardGroups;
+    return analysisCardGroups
+      .map((group) => {
+        const startsWith: typeof group.items = [];
+        const includes: typeof group.items = [];
+        group.items.forEach((item) => {
+          const normalized = item.label.toLowerCase();
+          if (!normalized) return;
+          if (normalized.startsWith(query)) {
+            startsWith.push(item);
+          } else if (normalized.includes(query)) {
+            includes.push(item);
+          }
+        });
+        const items = [...startsWith, ...includes];
+        return items.length > 0 ? { ...group, items } : null;
+      })
+      .filter(Boolean) as typeof analysisCardGroups;
+  }, [analysisCardGroups, analysisLinkSearch]);
+
+  const relationAnalysisGroups = useMemo(() => {
+    const relationColumns = table.columns.filter(
+      (column) =>
+        (column.type === "relation" || column.type === "relation_multi") &&
+        column.relationTargetCollectionId,
+    );
+    if (relationColumns.length === 0) return [];
+    const grouped = new Map<
+      string,
+      {
+        collectionId: string;
+        title: string;
+        columns: SummaryTableColumn[];
+        cards: Map<string, { id: string; label: string; totals: Record<string, number> }>;
+      }
+    >();
+
+    relationColumns.forEach((column) => {
+      const collectionId = column.relationTargetCollectionId ?? "";
+      if (!collectionId) return;
+      const group = grouped.get(collectionId) ?? {
+        collectionId,
+        title: cardCollectionTitleLookup.get(collectionId) ?? "Collection",
+        columns: [],
+        cards: new Map(),
+      };
+      if (!group.columns.some((entry) => entry.id === column.id)) {
+        group.columns.push(column);
+      }
+      grouped.set(collectionId, group);
+    });
+
+    visibleRows.forEach((row) => {
+      relationColumns.forEach((column) => {
+        const collectionId = column.relationTargetCollectionId ?? "";
+        if (!collectionId) return;
+        const entries = getRelationEntries(column, row.values[column.id]);
+        if (entries.length === 0) return;
+        const group = grouped.get(collectionId);
+        if (!group) return;
+        entries.forEach((entry) => {
+          const label =
+            cardCollectionShortLookup.get(collectionId)?.get(entry.id) ??
+            cardCollectionLookup.get(collectionId)?.get(entry.id) ??
+            entry.id;
+          const card = group.cards.get(entry.id) ?? { id: entry.id, label, totals: {} };
+          card.totals[column.id] = (card.totals[column.id] ?? 0) + entry.count;
+          group.cards.set(entry.id, card);
+        });
+      });
+    });
+
+    return Array.from(grouped.values()).map((group) => ({
+      ...group,
+      cards: Array.from(group.cards.values()).sort((a, b) => a.label.localeCompare(b.label)),
+    }));
+  }, [
+    cardCollectionLookup,
+    cardCollectionShortLookup,
+    cardCollectionTitleLookup,
+    table.columns,
+    visibleRows,
+  ]);
+
+  const hasRelationColumns = useMemo(
+    () =>
+      table.columns.some(
+        (column) =>
+          (column.type === "relation" || column.type === "relation_multi") &&
+          column.relationTargetCollectionId,
+      ),
+    [table.columns],
+  );
+  const hasAnalysisSummary = analysisSummaryItems.length > 0;
+  const canShowAnalysisPanel = hasRelationColumns || hasAnalysisSummary;
+
+  const scrollToCard = (collectionId: string, cardId: string) => {
+    const target = document.getElementById(`card-${collectionId}-${cardId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const openAnalysisLinkPopover = (columnId: string, anchor: HTMLElement) => {
+    analysisLinkAnchorRef.current = anchor;
+    setAnalysisLinkSearch("");
+    setAnalysisLinkPopover({ columnId });
+  };
+
+  const applyAnalysisLink = (
+    columnId: string,
+    collectionId: string | null,
+    cardId: string | null,
+  ) => {
+    updateAnalysisLinks((prev) => {
+      const next = { ...prev };
+      if (!collectionId || !cardId) {
+        delete next[columnId];
+      } else {
+        next[columnId] = { collectionId, cardId };
+      }
+      return next;
+    });
+    setAnalysisLinkPopover(null);
+  };
+
+  const getRelationLinkKey = (collectionId: string, cardId: string) =>
+    `${collectionId}:${cardId}`;
+
+  const isRelationMetricLinked = (
+    collectionId: string,
+    cardId: string,
+    columnId: string,
+  ) => {
+    const key = getRelationLinkKey(collectionId, cardId);
+    const selected = relationAnalysisLinks[key] ?? [];
+    return selected.includes(columnId);
+  };
+
+  const toggleRelationMetricLink = (
+    collectionId: string,
+    cardId: string,
+    columnId: string,
+  ) => {
+    const key = getRelationLinkKey(collectionId, cardId);
+    updateRelationAnalysisLinks((prev) => {
+      const current = prev[key] ?? [];
+      const exists = current.includes(columnId);
+      const nextColumns = exists
+        ? current.filter((id) => id !== columnId)
+        : [...current, columnId];
+      const next = { ...prev };
+      if (nextColumns.length === 0) {
+        delete next[key];
+      } else {
+        next[key] = nextColumns;
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!canShowAnalysisPanel && relationAnalysisOpen) {
+      setRelationAnalysisOpen(false);
+    }
+  }, [canShowAnalysisPanel, relationAnalysisOpen]);
 
   const handleCopyTable = async (text: string) => {
     const snapshotColumns = columnsForView.map((column) => ({
@@ -1817,7 +2633,9 @@ export default function SummaryTableBlock({
       values: Object.fromEntries(
         snapshotColumns.map((column) => [
           column.id,
-          row.values[column.id] ?? (column.type === "checkbox" ? false : ""),
+          row.values[column.id] !== undefined && row.values[column.id] !== null
+            ? cloneCellValue(row.values[column.id])
+            : defaultValueForType(column.type),
         ]),
       ),
     }));
@@ -2143,6 +2961,17 @@ export default function SummaryTableBlock({
               {activeColumn ? (
                 <>
                   <div className={cx(styles.projectTableConfigRow, styles.projectTableConfigRowStack)}>
+                    <label className={styles.projectTableConfigLabel}>Nom</label>
+                    <input
+                      className={styles.projectTableConfigInput}
+                      value={activeColumn.label}
+                      onChange={(event) =>
+                        applyColumnPatch(activeColumn.id, { label: event.target.value })
+                      }
+                      placeholder="Nom du champ"
+                    />
+                  </div>
+                  <div className={cx(styles.projectTableConfigRow, styles.projectTableConfigRowStack)}>
                     <label className={styles.projectTableConfigLabel}>Colonne</label>
                     <select
                       className={styles.projectTableConfigSelect}
@@ -2160,11 +2989,63 @@ export default function SummaryTableBlock({
                       <option value="yesno">Oui / Non</option>
                       <option value="select">Liste</option>
                       <option value="multiselect">Liste multiple</option>
+                      <option value="relation" disabled={!hasCardCollections}>
+                        Relation
+                      </option>
+                      <option value="relation_multi" disabled={!hasCardCollections}>
+                        Relation multiple
+                      </option>
                       <option value="link">Lien</option>
                       <option value="image">Image</option>
                       <option value="video">Video</option>
                     </select>
                   </div>
+                  {!hasCardCollections && (
+                    <div className={styles.projectTableConfigHint}>
+                      Cree une section Cards d'abord
+                    </div>
+                  )}
+                  {(activeColumn.type === "relation" || activeColumn.type === "relation_multi") && (
+                    <>
+                      <div className={styles.projectTableConfigRow}>
+                        <label className={styles.projectTableConfigLabel}>Relier a</label>
+                        <select
+                          className={styles.projectTableConfigSelect}
+                          value={activeColumn.relationTargetCollectionId ?? ""}
+                          onChange={(event) =>
+                            applyColumnPatch(activeColumn.id, {
+                              relationTargetCollectionId: event.target.value,
+                            })
+                          }
+                        >
+                          <option value="" disabled>
+                            Choisir...
+                          </option>
+                          {cardCollections.map((collection) => (
+                            <option key={collection.collectionId} value={collection.collectionId}>
+                              {collection.title}
+                              {typeof collection.items?.length === "number"
+                                ? ` (${collection.items.length})`
+                                : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className={styles.projectTableConfigRow}>
+                        <label className={styles.projectTableConfigLabel}>Nom analyse</label>
+                        <input
+                          className={styles.projectTableConfigInput}
+                          value={activeColumn.analysisLabel ?? ""}
+                          onChange={(event) =>
+                            applyColumnPatch(activeColumn.id, {
+                              analysisLabel: event.target.value,
+                            })
+                          }
+                          placeholder="Nom analyse"
+                        />
+                      </div>
+                    </>
+                  )}
                   {activeColumn.type === "number" && (
                     <div className={styles.projectTableConfigRow}>
                       <label className={styles.projectTableConfigLabel}>Format</label>
@@ -2294,32 +3175,34 @@ export default function SummaryTableBlock({
                     </div>
                   )}
                   <div className={styles.projectTableConfigQuick}>
-                    <button
-                      type="button"
-                      className={cx("btn-plain", styles.projectTableConfigGhost, menuButtonClass)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onFocus={(event) => event.currentTarget.blur()}
-                      tabIndex={-1}
-                      style={plainMenuButtonStyle}
-                      onClick={() => {
-                        if (activeColumnIndex >= 0) insertColumnImmediate(activeColumnIndex);
-                      }}
-                    >
-                      + Colonne gauche
-                    </button>
-                    <button
-                      type="button"
-                      className={cx("btn-plain", styles.projectTableConfigGhost, menuButtonClass)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onFocus={(event) => event.currentTarget.blur()}
-                      tabIndex={-1}
-                      style={plainMenuButtonStyle}
-                      onClick={() => {
-                        if (activeColumnIndex >= 0) insertColumnImmediate(activeColumnIndex + 1);
-                      }}
-                    >
-                      + Colonne droite
-                    </button>
+                    <div className={styles.projectTableConfigRow}>
+                      <button
+                        type="button"
+                        className={styles.projectTableConfigQuickButton}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onFocus={(event) => event.currentTarget.blur()}
+                        tabIndex={-1}
+                        onClick={() => {
+                          if (activeColumnIndex >= 0) insertColumnImmediate(activeColumnIndex);
+                        }}
+                      >
+                        + Colonne gauche
+                      </button>
+                    </div>
+                    <div className={styles.projectTableConfigRow}>
+                      <button
+                        type="button"
+                        className={styles.projectTableConfigQuickButton}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onFocus={(event) => event.currentTarget.blur()}
+                        tabIndex={-1}
+                        onClick={() => {
+                          if (activeColumnIndex >= 0) insertColumnImmediate(activeColumnIndex + 1);
+                        }}
+                      >
+                        + Colonne droite
+                      </button>
+                    </div>
                   </div>
                   <div className={styles.projectTableConfigRow}>
                     <label className={styles.projectTableConfigLabel}>Trier</label>
@@ -2379,12 +3262,17 @@ export default function SummaryTableBlock({
                       />
                       <div className={styles.projectTableConfigFilterList}>
                         {activeFilterOptions.length === 0 && (
-                          <div className={styles.projectTableConfigFilterEmpty}>Aucun resultat</div>
+                          <div className={styles.projectTableConfigFilterEmpty}>
+                            Aucun resultat
+                          </div>
                         )}
                         {activeFilterOptions.map((item) => {
                           const isChecked = activeFilterSelected.includes(item.value);
                           return (
-                            <label key={item.value} className={styles.projectTableConfigFilterItem}>
+                            <label
+                              key={item.value}
+                              className={styles.projectTableConfigFilterItem}
+                            >
                               <input
                                 type="checkbox"
                                 className={styles.projectTableConfigFilterCheckbox}
@@ -2409,75 +3297,81 @@ export default function SummaryTableBlock({
                                   });
                                 }}
                               />
-                              <span className={styles.projectTableConfigFilterText}>{item.label}</span>
+                              <span className={styles.projectTableConfigFilterText}>
+                                {item.label}
+                              </span>
                             </label>
                           );
                         })}
                       </div>
-                      <button
-                        type="button"
-                        className={cx("btn-plain", styles.projectTableConfigGhost, menuButtonClass)}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onFocus={(event) => event.currentTarget.blur()}
-                        tabIndex={-1}
-                        style={plainMenuButtonStyle}
-                        onClick={() => {
-                          setFilterSearch("");
-                          setFilterConfig((prev) => {
-                            if (!activeColumn) return prev;
-                            return { columnId: activeColumn.id, query: "", selected: [] };
-                          });
-                        }}
-                      >
-                        Supprimer filtre
-                      </button>
-                      <label
-                        className={styles.projectTableConfigLabel}
-                        htmlFor={`${block.id}-analysis-${activeColumn.id}`}
-                      >
-                        Calcul
-                      </label>
-                      <select
-                        id={`${block.id}-analysis-${activeColumn.id}`}
-                        className={styles.projectTableConfigSelect}
-                        value={analysisSelectValue}
-                        onChange={(event) => {
-                          const nextValue = event.target.value as
-                            | StructuredListAnalysisConfig["type"]
-                            | "none";
-                          setAnalysisConfig((prev) => {
-                            const current = prev[activeColumn.id];
-                            if (nextValue === "none") {
-                              if (!current) return prev;
-                              return {
-                                ...prev,
-                                [activeColumn.id]: {
-                                  ...defaultAnalysisConfig,
-                                  ...current,
-                                  showResult: false,
-                                },
-                              };
-                            }
+                      <div className={styles.projectTableConfigFilterActions}>
+                        <button
+                          type="button"
+                          className={cx("btn-plain", styles.projectTableConfigGhost, menuButtonClass)}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onFocus={(event) => event.currentTarget.blur()}
+                          tabIndex={-1}
+                          style={plainMenuButtonStyle}
+                          onClick={() => {
+                            setFilterSearch("");
+                            setFilterConfig((prev) => {
+                              if (!activeColumn) return prev;
+                              return { columnId: activeColumn.id, query: "", selected: [] };
+                            });
+                          }}
+                        >
+                          Supprimer filtre
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={styles.projectTableConfigRow}>
+                    <label
+                      className={styles.projectTableConfigLabel}
+                      htmlFor={`${block.id}-analysis-${activeColumn.id}`}
+                    >
+                      Calcul
+                    </label>
+                    <select
+                      id={`${block.id}-analysis-${activeColumn.id}`}
+                      className={styles.projectTableConfigSelect}
+                      value={analysisSelectValue}
+                      onChange={(event) => {
+                        const nextValue = event.target.value as
+                          | StructuredListAnalysisConfig["type"]
+                          | "none";
+                        handleAnalysisConfigChange((prev) => {
+                          const current = prev[activeColumn.id];
+                          if (nextValue === "none") {
+                            if (!current) return prev;
                             return {
                               ...prev,
                               [activeColumn.id]: {
                                 ...defaultAnalysisConfig,
                                 ...current,
-                                type: nextValue,
-                                showResult: true,
+                                showResult: false,
                               },
                             };
-                          });
-                        }}
-                      >
-                        <option value="none">Aucun</option>
-                        {analysisOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                          }
+                          return {
+                            ...prev,
+                            [activeColumn.id]: {
+                              ...defaultAnalysisConfig,
+                              ...current,
+                              type: nextValue,
+                              showResult: true,
+                            },
+                          };
+                        });
+                      }}
+                    >
+                      <option value="none">Aucun</option>
+                      {analysisOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div className={styles.projectTableConfigRow}>
                     <label className={styles.projectTableConfigLabel}>Supprimer colonne</label>
@@ -2721,10 +3615,39 @@ export default function SummaryTableBlock({
                           <option value="yesno">Oui / Non</option>
                           <option value="select">Liste</option>
                           <option value="multiselect">Liste multiple</option>
+                          <option value="relation" disabled={!hasCardCollections}>
+                            Relation
+                          </option>
+                          <option value="relation_multi" disabled={!hasCardCollections}>
+                            Relation multiple
+                          </option>
                           <option value="link">Lien</option>
                           <option value="image">Image</option>
                           <option value="video">Vidéo</option>
                         </select>
+                        {(column.type === "relation" || column.type === "relation_multi") && (
+                          <select
+                            className={styles.projectTableConfigSelect}
+                            value={column.relationTargetCollectionId ?? ""}
+                            onChange={(event) =>
+                              updateDraftColumn(column.id, {
+                                relationTargetCollectionId: event.target.value,
+                              })
+                            }
+                          >
+                            <option value="" disabled>
+                              Relier a...
+                            </option>
+                            {cardCollections.map((collection) => (
+                              <option key={collection.collectionId} value={collection.collectionId}>
+                                {collection.title}
+                                {typeof collection.items?.length === "number"
+                                  ? ` (${collection.items.length})`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         {draftColumns.length > 1 && (
                           <button
                             type="button"
@@ -3030,6 +3953,71 @@ export default function SummaryTableBlock({
             document.body,
           )
         : null}
+      {analysisLinkPopover && portalReady
+        ? createPortal(
+            <div
+              className={styles.projectTableAnalysisPopover}
+              style={
+                analysisLinkPosition
+                  ? {
+                      ...analysisLinkPosition,
+                      position: "fixed",
+                      zIndex: 10000,
+                      pointerEvents: "auto",
+                      transform: "none",
+                    }
+                  : undefined
+              }
+              ref={analysisLinkPopoverRef}
+            >
+              <div className={styles.projectTableAnalysisPopoverTitle}>Lier a une fiche</div>
+              <input
+                type="text"
+                className={styles.projectTableAnalysisPopoverSearch}
+                value={analysisLinkSearch}
+                onChange={(event) => setAnalysisLinkSearch(event.target.value)}
+                placeholder="Rechercher..."
+                autoFocus
+              />
+              <div className={styles.projectTableAnalysisPopoverList}>
+                <button
+                  type="button"
+                  className={cx("btn-plain", styles.projectTableAnalysisPopoverItem)}
+                  onClick={() =>
+                    applyAnalysisLink(analysisLinkPopover.columnId, null, null)
+                  }
+                >
+                  Aucune
+                </button>
+                {analysisLinkGroups.map((group) => (
+                  <div key={group.collectionId} className={styles.projectTableAnalysisPopoverGroup}>
+                    <div className={styles.projectTableAnalysisPopoverGroupTitle}>
+                      {group.title}
+                    </div>
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={cx("btn-plain", styles.projectTableAnalysisPopoverItem)}
+                        onClick={() =>
+                          applyAnalysisLink(analysisLinkPopover.columnId, group.collectionId, item.id)
+                        }
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+                {analysisLinkGroups.length === 0 && (
+                  <div className={styles.projectTableAnalysisPopoverEmpty}>
+                    Aucun resultat
+                  </div>
+                )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       <div className={styles.projectTableShell}>
         <div className={styles.projectTableFrame}>
           <div className={styles.projectTableScroll}>
@@ -3095,13 +4083,219 @@ export default function SummaryTableBlock({
               showAddButton={false}
               showQuickAdd
               analysisConfig={analysisConfig}
-              onAnalysisConfigChange={setAnalysisConfig}
+              onAnalysisConfigChange={handleAnalysisConfigChange}
               showResultRowColorPicker
               resultRowStyle={resultRowStyle}
               onResultRowStyleChange={setResultRowStyle}
               tableStyle={tableStyle}
+              relationCollections={cardCollections}
+              onResolveRelationTarget={resolveRelationTarget}
             />
           </div>
+          <div className={styles.projectTableAnalysisToggleRow}>
+            <button
+              type="button"
+              className={cx(
+                "icon-button",
+                styles.projectTableAnalysisToggle,
+                !canShowAnalysisPanel && styles.projectTableAnalysisToggleDisabled,
+              )}
+              onClick={() => {
+                if (!canShowAnalysisPanel) return;
+                setRelationAnalysisOpen((prev) => !prev);
+              }}
+              aria-label="Afficher l'analyse"
+              title="Analyse"
+              disabled={!canShowAnalysisPanel}
+            >
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M4 19V9" />
+                <path d="M10 19V5" />
+                <path d="M16 19v-7" />
+                <path d="M22 19v-3" />
+              </svg>
+            </button>
+          </div>
+          {relationAnalysisOpen && (
+            <div className={styles.projectTableAnalysisPanel}>
+              {analysisSummaryItems.length > 0 && (
+                <div className={styles.projectTableAnalysisGroup}>
+                  <div className={styles.projectTableAnalysisGroupTitle}>Resultats</div>
+                  <div
+                    className={cx(
+                      styles.projectTableAnalysisFilterList,
+                      styles.projectTableAnalysisFilterListInline,
+                    )}
+                  >
+                    {analysisSummaryItems.map((item) => {
+                      const link = analysisLinks[item.columnId];
+                      const linkLabel = link
+                        ? cardCollectionLookup.get(link.collectionId)?.get(link.cardId) ?? "Fiche"
+                        : "";
+                      const isLinked = Boolean(link);
+                      const toggleLabel = isLinked ? "Ajoute a fiche" : "Lier a fiche";
+                      return (
+                        <div
+                          key={item.columnId}
+                          className={cx(
+                            styles.projectTableAnalysisFilterRow,
+                            styles.projectTableAnalysisFilterRowInline,
+                          )}
+                        >
+                          <span className={styles.projectTableAnalysisFilterLabel}>
+                            <span className={styles.projectTableConfigFilterText}>
+                              {item.label} ({item.typeLabel.toUpperCase()})
+                            </span>
+                          </span>
+                          <span className={styles.projectTableAnalysisFilterValue}>{item.value}</span>
+                          <label
+                            className={cx(
+                              styles.projectTableAnalysisFilterToggle,
+                              isLinked && styles.projectTableAnalysisFilterToggleActive,
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              className={styles.projectTableConfigFilterCheckbox}
+                              checked={isLinked}
+                              onChange={(event) => {
+                                if (isLinked) {
+                                  applyAnalysisLink(item.columnId, null, null);
+                                } else {
+                                  openAnalysisLinkPopover(item.columnId, event.currentTarget);
+                                }
+                              }}
+                              aria-label={`Ajouter ${item.label} a une fiche`}
+                            />
+                            <span className={styles.projectTableAnalysisFilterToggleText}>
+                              {toggleLabel}
+                            </span>
+                          </label>
+                          {link && (
+                            <button
+                              type="button"
+                              className={cx(
+                                "btn-plain",
+                                styles.projectTableAnalysisLinkBadge,
+                                styles.projectTableAnalysisLinkBadgeActive,
+                              )}
+                              onClick={() => scrollToCard(link.collectionId, link.cardId)}
+                            >
+                              {linkLabel}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {relationAnalysisGroups.length === 0 ? (
+                analysisSummaryItems.length === 0 ? (
+                  <div className={styles.projectTableAnalysisEmpty}>
+                    Aucune donnee pour l'analyse.
+                  </div>
+                ) : null
+              ) : (
+                relationAnalysisGroups.map((group) => (
+                  <div key={group.collectionId} className={styles.projectTableAnalysisGroup}>
+                    <div className={styles.projectTableAnalysisGroupTitle}>{group.title}</div>
+                    {group.cards.map((card) => {
+                      const metrics = group.columns
+                        .map((column) => {
+                          const total = card.totals[column.id] ?? 0;
+                          if (!total) return null;
+                          return {
+                            id: column.id,
+                            label: column.analysisLabel?.trim() || column.label || "Champ",
+                            total,
+                          };
+                        })
+                        .filter(Boolean) as Array<{ id: string; label: string; total: number }>;
+                      if (metrics.length === 0) return null;
+                      return (
+                        <div key={card.id} className={styles.projectTableAnalysisRow}>
+                          <button
+                            type="button"
+                            className={cx("btn-plain", styles.projectTableAnalysisCard)}
+                            onClick={() => scrollToCard(group.collectionId, card.id)}
+                          >
+                            Fiche : {card.label}
+                          </button>
+                          <div
+                            className={cx(
+                              styles.projectTableAnalysisFilterList,
+                              styles.projectTableAnalysisFilterListInline,
+                            )}
+                          >
+                            {metrics.map((metric) => {
+                              const isLinked = isRelationMetricLinked(
+                                group.collectionId,
+                                card.id,
+                                metric.id,
+                              );
+                              const toggleLabel = isLinked ? "Ajoute a fiche" : "Lier a fiche";
+                              return (
+                                <div
+                                  key={metric.id}
+                                  className={cx(
+                                    styles.projectTableAnalysisFilterRow,
+                                    styles.projectTableAnalysisFilterRowInline,
+                                  )}
+                                >
+                                  <span className={styles.projectTableAnalysisFilterLabel}>
+                                    <span className={styles.projectTableConfigFilterText}>
+                                      {metric.label}
+                                    </span>
+                                  </span>
+                                  <span className={styles.projectTableAnalysisFilterValue}>
+                                    {metric.total}
+                                  </span>
+                                  <label
+                                    className={cx(
+                                      styles.projectTableAnalysisFilterToggle,
+                                      isLinked && styles.projectTableAnalysisFilterToggleActive,
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className={styles.projectTableConfigFilterCheckbox}
+                                      checked={isLinked}
+                                      onChange={() =>
+                                        toggleRelationMetricLink(
+                                          group.collectionId,
+                                          card.id,
+                                          metric.id,
+                                        )
+                                      }
+                                      aria-label={`Ajouter ${metric.label} a la fiche`}
+                                    />
+                                    <span className={styles.projectTableAnalysisFilterToggleText}>
+                                      {toggleLabel}
+                                    </span>
+                                  </label>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
