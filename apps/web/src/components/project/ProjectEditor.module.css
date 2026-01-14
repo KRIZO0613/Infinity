@@ -700,27 +700,9 @@
 
 .projectTableAnalysisPopover {
   width: 260px;
-  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-.projectTableAnalysisPopover.panel-glass {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-:global(.panel-glass).projectTableAnalysisPopover {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
 }
 
 .projectTableAnalysisPopoverTitle {
@@ -2832,24 +2814,6 @@
 
 :global(.dark) .projectTableAnalysisPopoverTitle {
   color: rgba(255, 255, 255, 0.55);
-}
-
-:global(.dark) .projectTableAnalysisPopover {
-  background: transparent;
-  border: none;
-  box-shadow: none;
-}
-
-:global(.dark) .projectTableAnalysisPopover.panel-glass {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-:global(.dark) :global(.panel-glass).projectTableAnalysisPopover {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
 }
 
 :global(.dark) .projectTableAnalysisPopoverSearch {

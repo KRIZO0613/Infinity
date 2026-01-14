@@ -3956,7 +3956,7 @@ export default function SummaryTableBlock({
       {analysisLinkPopover && portalReady
         ? createPortal(
             <div
-              className={styles.projectTableAnalysisPopover}
+              className={cx("panel-glass p-3", styles.projectTableAnalysisPopover)}
               style={
                 analysisLinkPosition
                   ? {
