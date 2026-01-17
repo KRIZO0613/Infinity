@@ -1,26 +1,20 @@
 @import "tailwindcss";
 
+/* Thème global aligné sur ton header (bg-slate-950) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #020617; /* noir bleu profond */
+  --foreground: #e5e7eb; /* texte clair type slate-200 */
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* On force ce fond partout */
+html,
 body {
-  background: var(--background);
+  min-height: 100%;
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Optionnel : sécuriser le body */
+body {
+  margin: 0;
 }
