@@ -2,171 +2,125 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import {
-  getActiveClubId,
-  clearActiveClubId,
-  setActiveClubId,
-} from "@/lib/activeClub";
 import DashboardLayout from "@/app/_components/DashboardLayout";
 import InfoCard from "@/app/_components/InfoCard";
 import InfoField from "@/app/_components/InfoField";
 
-type Club = {
-  id: string;
+// même shape que ce que tu utilises déjà dans la sidebar
+type MyClub = {
+  club_id: string;
+  club: {
+    name: string | null;
+    type?: string | null;
+    plan?: string | null;
+    city?: string | null;
+    country?: string | null;
+    address?: string | null;
+  } | null;
+};
+
+type ClubUI = {
   name: string;
-  type?: string | null;
-  plan?: string | null;
-  city?: string | null;
-  country?: string | null;
-  address?: string | null;
 };
 
 export default function ClubPage() {
   const router = useRouter();
-  const [club, setClub] = useState<Club | null>(null);
+  const [club, setClub] = useState<ClubUI | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    let mounted = true;
 
     async function load() {
       try {
         setLoading(true);
 
-        let clubId = getActiveClubId();
+        // ✅ Même source que la sidebar
+        const { getMyClubs } = await import("@/lib/myClubs");
+        const myClubs: MyClub[] = await getMyClubs();
 
-        // Même logique que sur le dashboard
-        if (!clubId) {
-          const { getMyClubs } = await import("@/lib/myClubs");
-          const myClubs = await getMyClubs();
+        if (!mounted) return;
 
-          if (!myClubs.length) {
-            clearActiveClubId();
-            if (!cancelled) setLoading(false);
-            router.replace("/onboarding?reason=no_club");
-            return;
-          }
-
-          clubId = myClubs[0].club_id;
-          if (!clubId) {
-            clearActiveClubId();
-            if (!cancelled) setLoading(false);
-            router.replace("/onboarding?reason=no_club");
-            return;
-          }
-
-          setActiveClubId(clubId);
+        if (myClubs.length && myClubs[0].club?.name) {
+          setClub({ name: myClubs[0].club.name });
+        } else {
+          setClub(null);
         }
 
-        const { data, error } = await supabase
-          .from("clubs")
-          .select("id,name,type,plan,city,country,address")
-          .eq("id", clubId)
-          .single();
-
-        if (error || !data) {
-          console.error("Erreur chargement club:", error);
-          clearActiveClubId();
-          if (!cancelled) setLoading(false);
-          router.replace("/onboarding?reason=club_error");
-          return;
-        }
-
-        if (!cancelled) {
-          setClub(data as Club);
-          setLoading(false);
-        }
+        setLoading(false);
       } catch (e) {
-        console.error("Erreur ClubPage:", e);
-        clearActiveClubId();
-        if (!cancelled) setLoading(false);
-        router.replace("/onboarding?reason=error");
+        console.error("ClubPage load error:", e);
+        if (!mounted) return;
+        setClub(null);
+        setLoading(false);
       }
     }
 
     load();
     return () => {
-      cancelled = true;
+      mounted = false;
     };
-  }, [router]);
+  }, []);
 
-  const isSolo = (club?.plan ?? "").toLowerCase() === "solo";
+  const title = club?.name ?? (loading ? "Chargement…" : "Mon club");
 
-  const subtitle = isSolo
-    ? "Vue simple de ton club lorsque tu utilises Infinity Foot comme coach individuel."
-    : "Vue club complète (équipes, licences, etc.) — à venir.";
-
-  const clubName = club?.name ?? (loading ? "Chargement…" : "Mon club");
-
-  // 🔹 Helpers pour InfoField (string only)
-  const cityCountry =
-    club?.city || club?.country
-      ? [club?.city, club?.country].filter(Boolean).join(" • ")
-      : "Non renseigné";
-
-  const address = club?.address || "Non renseignée";
-  const clubIdValue = club?.id ?? "—";
+  const subtitle = club
+    ? "Club enregistré dans ton espace. Pas encore associé officiellement (clé d’accès)."
+    : "Aucun club enregistré pour l’instant. Tu pourras en ajouter / associer un plus tard.";
 
   return (
-    <DashboardLayout
-      eyebrow="Mon club"
-      title={clubName}
-      subtitle={subtitle}
-    >
+    <DashboardLayout eyebrow="CLUB" title={title} subtitle={subtitle}>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)]">
         {/* FICHE INFO PRINCIPALE */}
-        <InfoCard
-          title="Mon club"
-          description="Ces infos s’affichent dans la page “Mon club”."
-          actions={
-            <button
-              type="button"
-              onClick={() => router.push("/app/account")}
-              className="rounded-full border border-[#8b5cf6]/60 bg-transparent px-4 py-2 text-xs font-medium text-[#c4b5fd] shadow-[0_0_16px_rgba(139,92,246,0.55)] transition hover:bg-white/5"
-            >
-              Modifier
-            </button>
-          }
-        >
-          <div className="grid gap-4 md:grid-cols-2">
-            <InfoField label="Nom du club" value={club?.name ?? "—"} />
-            <InfoField label="Type" value={club?.type ?? "—"} />
-            <InfoField label="Plan" value={club?.plan ?? "—"} />
-            <InfoField label="Ville / pays" value={cityCountry} />
-            <InfoField label="Adresse" value={address} />
-            <InfoField label="Identifiant club" value={clubIdValue} />
-          </div>
-
-          {loading && (
-            <p className="mt-4 text-xs text-slate-500">
+        <InfoCard title="⚽ Infos du club">
+          {loading ? (
+            <p className="text-sm text-slate-400">
               Chargement des informations du club…
             </p>
+          ) : !club ? (
+            <p className="text-sm text-slate-400">
+              Aucun club n’est encore enregistré sur ce compte.
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              <InfoField label="Nom du club" value={club.name} />
+ {/* Statut (custom pour pouvoir mettre le rond) */}
+<div className="rounded-2xl border border-white/10 bg-white/5/5 p-4">
+  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+    Statut
+  </p>
+
+  <div className="mt-2 inline-flex items-center gap-2 text-sm text-slate-200">
+    {/* 🔴 tant que pas de clé */}
+    <span className="h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
+    <span>Pas encore associé (clé non configurée)</span>
+  </div>
+</div>
+
+              {/* Bouton pour associer ce club */}
+              <div className="md:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => router.push("/app/club/associate")}
+                  className="mt-1 inline-flex items-center gap-2 rounded-full border border-[#8b5cf6]/60 bg-white/5 px-4 py-2 text-xs font-semibold text-[#c4b5fd] shadow-[0_8px_18px_rgba(139,92,246,0.25)] transition hover:border-[#8b5cf6]/80 hover:bg-white/10"
+                >
+                  🔑 Associer ce club
+                </button>
+              </div>
+            </div>
           )}
         </InfoCard>
 
-        {/* FICHE “À VENIR” */}
+        {/* BLOC À VENIR */}
         <InfoCard
-          title={isSolo ? "À venir pour les coachs perso" : "Vue club avancée"}
-          description={
-            isSolo
-              ? "Des raccourcis et modules spécifiques à ton usage individuel."
-              : "Statistiques et gestion avancée du club."
-          }
+          title="🔮 À venir"
+          description="Quand ton club sera officiellement associé, tu retrouveras ici les infos avancées."
         >
-          {isSolo ? (
-            <ul className="list-disc space-y-1 pl-4 text-[13px] text-slate-400">
-              <li>Lien rapide vers ton groupe principal / catégorie.</li>
-              <li>Raccourcis vers les prochains entraînements.</li>
-              <li>Bloc de notes rapides lié à ton club.</li>
-            </ul>
-          ) : (
-            <ul className="list-disc space-y-1 pl-4 text-[13px] text-slate-400">
-              <li>Nombre d’équipes et catégories.</li>
-              <li>Licences utilisées / disponibles.</li>
-              <li>Répartition par coach, catégorie et niveau.</li>
-            </ul>
-          )}
+          <ul className="list-disc space-y-1 pl-4 text-[13px] text-slate-400">
+            <li>Équipes et catégories</li>
+            <li>Licences et accès coachs</li>
+            <li>Stats globales du club</li>
+          </ul>
         </InfoCard>
       </div>
     </DashboardLayout>

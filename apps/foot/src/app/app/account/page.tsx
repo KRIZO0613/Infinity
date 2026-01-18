@@ -95,13 +95,17 @@ export default function AccountPage() {
   return (
     <div className="space-y-6">
       {/* Fiche profil */}
-      <InfoCard title="Mon profil">
+      <InfoCard
+        title="Mon profil"
+        description="Tu peux modifier ces informations à tout moment."
+      >
         <ProfileForm />
       </InfoCard>
 
       {/* Fiche club actif */}
       <InfoCard
         title="Mon club"
+        description='Ces infos s’affichent dans la page "Mon club".'
         actions={
           <button
             type="button"
