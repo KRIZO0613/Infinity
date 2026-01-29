@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import ProfileForm from "@/app/_components/ProfileForm";
 import InfoCard from "@/app/_components/InfoCard";
 import InfoField from "@/app/_components/InfoField";
+import { getSession, signOut } from "@/lib/auth";
 import {
   getActiveClubId,
   setActiveClubId,
@@ -23,6 +24,8 @@ export default function AccountPage() {
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
   const [clubLoading, setClubLoading] = useState(true);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +95,44 @@ export default function AccountPage() {
     };
   }, []);
 
+  async function handleDeleteAccount() {
+    if (deletingAccount) return;
+    const confirmDelete = window.confirm(
+      "Supprimer ton compte ? Cette action est irreversible.",
+    );
+    if (!confirmDelete) return;
+
+    setDeletingAccount(true);
+    setDeleteError(null);
+
+    const session = await getSession();
+    const token = session?.access_token;
+
+    if (!token) {
+      setDeleteError("Session expiree, reconnecte-toi.");
+      setDeletingAccount(false);
+      return;
+    }
+
+    const response = await fetch("/api/account/delete", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      setDeleteError(payload.error ?? "Suppression impossible.");
+      setDeletingAccount(false);
+      return;
+    }
+
+    await signOut();
+    clearActiveClubId();
+    router.replace("/login");
+  }
+
   return (
     <div className="space-y-6">
       {/* Fiche profil */}
@@ -151,6 +192,28 @@ export default function AccountPage() {
               <InfoField label="Plan" value={club.plan ?? "—"} />
             </div>
           )}
+        </div>
+      </InfoCard>
+
+      <InfoCard title="Zone sensible">
+        <div className="flex flex-col gap-4 text-sm text-slate-300">
+          <p>
+            Supprime ton compte Supabase pour repartir de zero et refaire
+            l'onboarding.
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={deletingAccount}
+              className="rounded-full border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-200 transition hover:border-rose-400/70 hover:bg-rose-500/20 disabled:opacity-60"
+            >
+              {deletingAccount ? "Suppression..." : "Supprimer mon compte"}
+            </button>
+            {deleteError ? (
+              <span className="text-xs text-rose-300">{deleteError}</span>
+            ) : null}
+          </div>
         </div>
       </InfoCard>
     </div>

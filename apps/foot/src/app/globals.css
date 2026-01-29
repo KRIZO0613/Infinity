@@ -18,3 +18,69 @@ body {
 body {
   margin: 0;
 }
+/* === Onglets de sélection d'équipe intégrés dans la carte === */
+
+.team-folder-wrapper {
+  position: relative;
+}
+
+/* rangée d’onglets posée sur le bord haut de la carte */
+.team-folder-tabs-row {
+  position: absolute;
+  top: -22px;           /* remonte au-dessus du bord de la carte */
+  left: 32px;           /* petit décalage vers la droite */
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 30;
+}
+
+/* base commune */
+.team-folder-tab {
+  position: relative;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* onglet actif = forme "dossier" */
+.team-folder-tab--active {
+  padding: 10px 18px 12px;
+  color: #f9fafb;
+}
+
+/* on dessine la forme avec ::before + clip-path */
+.team-folder-tab--active::before {
+  content: "";
+  position: absolute;
+  inset: -18px 0 0 0; /* remonte dans la carte */
+  background: linear-gradient(135deg, #38bdf8, #6366f1);
+  border-top-left-radius: 22px;
+  border-top-right-radius: 18px;
+  border-bottom-right-radius: 18px;
+  clip-path: polygon(
+    0% 100%,
+    0% 30%,
+    0% 0%,
+    100% 0%,
+    100% 100%
+  );
+  z-index: -1;
+}
+
+/* onglet inactif = pilule simple */
+.team-folder-tab--inactive {
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  color: rgba(248, 250, 252, 0.7);
+}
+
+/* + Ajouter */
+.team-folder-tab--add {
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.95);
+  color: rgba(248, 250, 252, 0.85);
+}

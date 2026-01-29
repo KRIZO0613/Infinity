@@ -1,13 +1,16 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   LayoutGrid,
   Shield,
+  Users,
   CircleDot,
   Calendar,
   BarChart3,
+  ChevronsLeft,
+  ChevronsRight,
 } from "lucide-react";
 
 /* ================= TYPES ================= */
@@ -39,6 +42,11 @@ const items: Item[] = [
     icon: <Shield size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
   },
   {
+    label: "Équipes",
+    href: "/app/teams",
+    icon: <Users size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
+  },
+  {
     label: "Matchs",
     href: "/app/matches",
     icon: <CircleDot size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
@@ -57,7 +65,7 @@ const items: Item[] = [
 
 /* ================= DESKTOP (SIDEBAR GAUCHE) ================= */
 
-function DesktopLink({ item }: { item: Item }) {
+function DesktopLink({ item, collapsed }: { item: Item; collapsed: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const active = pathname === item.href;
@@ -65,9 +73,11 @@ function DesktopLink({ item }: { item: Item }) {
   return (
     <button
       type="button"
+      aria-label={item.label}
       onClick={() => router.push(item.href)}
       className={[
-        "group flex w-full items-center gap-2 rounded-2xl px-3 py-2 text-left transition",
+        "group flex w-full items-center rounded-2xl text-left transition",
+        collapsed ? "justify-center px-2 py-2" : "gap-2 px-3 py-2",
         active
           ? `
             bg-white/5
@@ -90,9 +100,11 @@ function DesktopLink({ item }: { item: Item }) {
       </span>
 
       {/* Label */}
-      <span className="text-sm font-medium text-slate-100">
-        {item.label}
-      </span>
+      {!collapsed ? (
+        <span className="text-sm font-medium text-slate-100">
+          {item.label}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -160,21 +172,46 @@ function TopNav({ showText }: { showText: boolean }) {
 /* ================= EXPORT ================= */
 
 export default function SidebarNav({ variant = "desktop" }: SidebarNavProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
   if (variant === "mobile") return <TopNav showText={false} />;
   if (variant === "tablet") return <TopNav showText={true} />;
 
   // Desktop : colonne gauche
   return (
-    <aside className="
-      rounded-3xl
-      bg-[#050716]/80
-      p-2
-      backdrop-blur
-      shadow-[0_0_80px_rgba(0,0,0,0.7)]
-    ">
+    <aside
+      className="
+        rounded-3xl
+        bg-[#050716]/80
+        p-2
+        backdrop-blur
+        shadow-[0_0_80px_rgba(0,0,0,0.7)]
+        transition-[width] duration-200
+      "
+      style={{ width: collapsed ? "68px" : "220px" }}
+    >
+      <div
+        className={[
+          "flex items-center pb-2",
+          collapsed ? "justify-center" : "justify-end",
+        ].join(" ")}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed((prev) => !prev)}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-slate-300 transition hover:text-slate-100"
+          aria-label={collapsed ? "Déplier le menu" : "Réduire le menu"}
+        >
+          {collapsed ? (
+            <ChevronsRight size={16} strokeWidth={1.7} />
+          ) : (
+            <ChevronsLeft size={16} strokeWidth={1.7} />
+          )}
+        </button>
+      </div>
       <nav className="flex flex-col gap-2">
         {items.map((item) => (
-          <DesktopLink key={item.href} item={item} />
+          <DesktopLink key={item.href} item={item} collapsed={collapsed} />
         ))}
       </nav>
     </aside>
