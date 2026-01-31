@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import DashboardLayout from "@/app/_components/DashboardLayout";
 import GameCardShell from "@/app/_components/cards/GameCardShell";
+import TeamInfoPanel, {
+  type CustomField,
+} from "@/app/_components/cards/TeamInfoPanel";
 import { supabase } from "@/lib/supabaseClient";
 
 type Team = {
@@ -12,6 +15,7 @@ type Team = {
   category: string | null;
   photo_url: string | null;
   players_count: number;
+  custom_fields: CustomField[] | null;
 };
 
 const DEFAULT_TEAM_IMAGE = "/images/teams/FOOTINFINEPH.jpg";
@@ -26,6 +30,20 @@ const resolveTeamImage = (src: string | null) => {
     return src;
   }
   return DEFAULT_TEAM_IMAGE;
+};
+
+const getAutoStatsConfig = (fields: CustomField[] | null) => {
+  const config = { players_count: true };
+  if (!Array.isArray(fields)) return config;
+  fields.forEach((field) => {
+    if (field?.kind !== "auto") return;
+    if (field?.key === "players_count") {
+      if (typeof field.visible === "boolean") {
+        config.players_count = field.visible;
+      }
+    }
+  });
+  return config;
 };
 
 export default function TeamDetailPage() {
@@ -66,7 +84,7 @@ export default function TeamDetailPage() {
 
       const { data, error } = await supabase
         .from("teams")
-        .select("id,name,category,photo_url,players_count")
+        .select("id,name,category,photo_url,players_count,custom_fields")
         .eq("id", teamId)
         .maybeSingle();
 
@@ -121,17 +139,20 @@ export default function TeamDetailPage() {
               <div className="absolute inset-0 bg-black/40" />
               <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/10 to-black/80" />
 
-              <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-white/10 bg-black/45 p-5 backdrop-blur-md">
-                <h3 className="text-lg font-semibold text-white">{team.name}</h3>
-                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-200/80">
-                  {team.category ?? "Catégorie non renseignée"}
-                </p>
-                <div className="mt-4 inline-flex gap-3">
-                  <span className="rounded-full bg-black/40 px-3 py-1 text-[11px] text-slate-100">
-                    {team.players_count} joueur
-                    {team.players_count > 1 ? "s" : ""}
-                  </span>
-                </div>
+              <div className="absolute bottom-5 left-5 right-5">
+                {(() => {
+                  const autoStats = getAutoStatsConfig(team.custom_fields);
+                  return (
+                    <TeamInfoPanel
+                      name={team.name}
+                      category={team.category}
+                      playersCount={team.players_count}
+                      customFields={team.custom_fields ?? []}
+                      showPlayersCount={autoStats.players_count}
+                      className="max-w-3xl"
+                    />
+                  );
+                })()}
               </div>
 
               <div className="h-[520px]" />
