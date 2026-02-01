@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/app/_components/DashboardLayout";
 import InfoCard from "@/app/_components/InfoCard";
@@ -11,10 +11,13 @@ export default function TeamsNewPage() {
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
+  const [level, setLevel] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  const levelRef = useRef<HTMLInputElement | null>(null);
 
   function handlePhotoChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -42,6 +45,12 @@ export default function TeamsNewPage() {
     event.preventDefault();
     if (!name.trim()) {
       setError("Le nom de l’équipe est obligatoire.");
+      nameRef.current?.focus();
+      return;
+    }
+    if (!level.trim()) {
+      setError("Le niveau est obligatoire.");
+      levelRef.current?.focus();
       return;
     }
 
@@ -63,6 +72,7 @@ export default function TeamsNewPage() {
       user_id: user.id,
       name: name.trim(),
       category: category.trim() || null,
+      level: level.trim(),
       photo_url: photoUrl,
       players_count: 0,
     });
@@ -121,6 +131,7 @@ export default function TeamsNewPage() {
               Nom de l’équipe
               <input
                 type="text"
+                ref={nameRef}
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Ex: U13 Elite"
@@ -135,6 +146,18 @@ export default function TeamsNewPage() {
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
                 placeholder="Ex: U11, U13, Seniors"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
+              />
+            </label>
+
+            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Niveau
+              <input
+                type="text"
+                ref={levelRef}
+                value={level}
+                onChange={(event) => setLevel(event.target.value)}
+                placeholder="Ex: 4"
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
               />
             </label>

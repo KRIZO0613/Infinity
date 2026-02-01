@@ -7,6 +7,7 @@ export type CoachOnboardingData = {
   clubName: string;
   teamName: string;
   category: string;
+  level: string;
 };
 
 const slugify = (value: string) => {
@@ -83,7 +84,7 @@ export default function useCoachOnboarding() {
   }, []);
 
   const completeOnboarding = useCallback(
-    async ({ clubName, teamName, category }: CoachOnboardingData) => {
+    async ({ clubName, teamName, category, level }: CoachOnboardingData) => {
       if (submitting) return;
       setSubmitting(true);
       setError(null);
@@ -101,6 +102,13 @@ export default function useCoachOnboarding() {
         const cleanedClubName = clubName.trim();
         const cleanedTeamName = teamName.trim() || "Equipe 1";
         const cleanedCategory = category || "U12";
+        const cleanedLevel = level.trim();
+
+        if (!cleanedLevel) {
+          const message = "Le niveau est obligatoire.";
+          setError(message);
+          throw new Error(message);
+        }
 
         const { data: membershipData, error: membershipError } = await supabase
           .from("club_members")
@@ -166,6 +174,7 @@ export default function useCoachOnboarding() {
             user_id: userData.user.id,
             name: cleanedTeamName,
             category: cleanedCategory,
+            level: cleanedLevel,
             photo_url: null,
             players_count: 0,
           });

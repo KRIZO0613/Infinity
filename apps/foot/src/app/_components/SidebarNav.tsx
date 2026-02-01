@@ -7,6 +7,7 @@ import {
   Shield,
   Users,
   CircleDot,
+  Dumbbell,
   Calendar,
   BarChart3,
   ChevronsLeft,
@@ -17,7 +18,8 @@ import {
 
 type Item = {
   label: string;
-  href: string;
+  href: string | ((pathname: string) => string);
+  match?: (pathname: string) => boolean;
   icon: ReactNode;
 };
 
@@ -29,6 +31,24 @@ type SidebarNavProps = {
 
 const ICON_SIZE = 18;
 const ICON_STROKE = 1.7;
+
+const getTeamIdFromPath = (pathname: string) => {
+  const match = pathname.match(/^\/app\/teams\/([^/]+)/);
+  if (match?.[1]) return match[1];
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("activeTeamId");
+};
+
+const buildTeamHref = (pathname: string, suffix: string) => {
+  const teamId = getTeamIdFromPath(pathname);
+  return teamId ? `/app/teams/${teamId}/${suffix}` : "/app/teams";
+};
+
+const resolveHref = (item: Item, pathname: string) =>
+  typeof item.href === "function" ? item.href(pathname) : item.href;
+
+const isItemActive = (item: Item, pathname: string, href: string) =>
+  item.match ? item.match(pathname) : pathname === href;
 
 const items: Item[] = [
   {
@@ -48,13 +68,24 @@ const items: Item[] = [
   },
   {
     label: "Matchs",
-    href: "/app/matches",
+    href: (pathname) => buildTeamHref(pathname, "matches"),
+    match: (pathname) =>
+      pathname.startsWith("/app/teams/") && pathname.includes("/matches"),
     icon: <CircleDot size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
   },
   {
-    label: "Entraînements",
-    href: "/app/trainings",
+    label: "Agenda",
+    href: "/app/teams/calendar",
+    match: (pathname) =>
+      pathname.startsWith("/app/teams/") && pathname.includes("/calendar"),
     icon: <Calendar size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
+  },
+  {
+    label: "Entraînements",
+    href: (pathname) => buildTeamHref(pathname, "trainings"),
+    match: (pathname) =>
+      pathname.startsWith("/app/teams/") && pathname.includes("/trainings"),
+    icon: <Dumbbell size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
   },
   {
     label: "Stats",
@@ -68,13 +99,14 @@ const items: Item[] = [
 function DesktopLink({ item, collapsed }: { item: Item; collapsed: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
-  const active = pathname === item.href;
+  const href = resolveHref(item, pathname);
+  const active = isItemActive(item, pathname, href);
 
   return (
     <button
       type="button"
       aria-label={item.label}
-      onClick={() => router.push(item.href)}
+      onClick={() => router.push(resolveHref(item, pathname))}
       className={[
         "group flex w-full items-center rounded-2xl text-left transition",
         collapsed ? "justify-center px-2 py-2" : "gap-2 px-3 py-2",
@@ -127,12 +159,13 @@ function TopNav({ showText }: { showText: boolean }) {
       "
     >
       {items.map((item) => {
-        const active = pathname === item.href;
+        const href = resolveHref(item, pathname);
+        const active = isItemActive(item, pathname, href);
 
         return (
           <button
-            key={item.href}
-            onClick={() => router.push(item.href)}
+            key={typeof item.href === "string" ? item.href : item.label}
+            onClick={() => router.push(resolveHref(item, pathname))}
             aria-label={item.label}
             className={[
               "relative flex items-center justify-center rounded-xl transition",
@@ -211,7 +244,11 @@ export default function SidebarNav({ variant = "desktop" }: SidebarNavProps) {
       </div>
       <nav className="flex flex-col gap-2">
         {items.map((item) => (
-          <DesktopLink key={item.href} item={item} collapsed={collapsed} />
+          <DesktopLink
+            key={typeof item.href === "string" ? item.href : item.label}
+            item={item}
+            collapsed={collapsed}
+          />
         ))}
       </nav>
     </aside>

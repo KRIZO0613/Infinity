@@ -13,6 +13,7 @@ type Team = {
   id: string;
   name: string;
   category: string | null;
+  level: string | null;
   photo_url: string | null;
   players_count: number;
   custom_fields: CustomField[] | null;
@@ -53,6 +54,15 @@ export default function TeamDetailPage() {
     return Array.isArray(params.id) ? params.id[0] : params.id;
   }, [params]);
 
+  useEffect(() => {
+    if (!teamId) return;
+    try {
+      localStorage.setItem("activeTeamId", teamId);
+    } catch {
+      // ignore storage failures
+    }
+  }, [teamId]);
+
   const [team, setTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +94,7 @@ export default function TeamDetailPage() {
 
       const { data, error } = await supabase
         .from("teams")
-        .select("id,name,category,photo_url,players_count,custom_fields")
+        .select("id,name,category,level,photo_url,players_count,custom_fields")
         .eq("id", teamId)
         .maybeSingle();
 

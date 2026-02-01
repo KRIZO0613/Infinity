@@ -38,6 +38,7 @@ export default function CoachOnboardingDialog() {
   const [clubName, setClubName] = useState("");
   const [teamName, setTeamName] = useState("Equipe 1");
   const [category, setCategory] = useState("U12");
+  const [level, setLevel] = useState("");
 
   if (loading || !needsOnboarding || !isOpen) return null;
 
@@ -65,6 +66,7 @@ export default function CoachOnboardingDialog() {
                 clubName,
                 teamName,
                 category,
+                level,
               });
               router.push("/app/teams");
             } catch {
@@ -109,6 +111,18 @@ export default function CoachOnboardingDialog() {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+            Niveau
+            <input
+              type="text"
+              value={level}
+              onChange={(event) => setLevel(event.target.value)}
+              placeholder="Ex: 4"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
+              required
+            />
           </label>
 
           {error ? <p className="text-xs text-rose-300">{error}</p> : null}

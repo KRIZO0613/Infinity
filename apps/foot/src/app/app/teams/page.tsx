@@ -20,6 +20,7 @@ type Team = {
   club_id: string | null;
   name: string;
   category: string | null;
+  level: string | null;
   photo_url: string | null;
   players_count: number;
   custom_fields: CustomField[] | null;
@@ -73,6 +74,7 @@ export default function TeamsPage() {
     "cards" | "list" | "select"
   >("cards");
   const [activePlayerIndex, setActivePlayerIndex] = useState(0);
+  const [listCardIndex, setListCardIndex] = useState<number | null>(null);
   const [playerModalOpen, setPlayerModalOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
 
@@ -104,6 +106,12 @@ export default function TeamsPage() {
     () => teams.find((t) => t.id === activeTeamId) ?? teams[0] ?? null,
     [teams, activeTeamId],
   );
+
+  useEffect(() => {
+    if (playersView !== "list") {
+      setListCardIndex(null);
+    }
+  }, [playersView]);
 
   const getPlayersViewIcon = (mode: "cards" | "list" | "select") => {
     if (mode === "list") {
@@ -179,7 +187,9 @@ export default function TeamsPage() {
 
       const { data, error } = await supabase
         .from("teams")
-        .select("id,club_id,name,category,photo_url,players_count,custom_fields")
+        .select(
+          "id,club_id,name,category,level,photo_url,players_count,custom_fields",
+        )
         .order("created_at", { ascending: true });
 
       if (error) {
@@ -334,6 +344,15 @@ export default function TeamsPage() {
       setActiveTeamId(teams[0].id);
     }
   }, [teams, activeTeamId]);
+
+  useEffect(() => {
+    if (!activeTeamId) return;
+    try {
+      localStorage.setItem("activeTeamId", activeTeamId);
+    } catch {
+      // ignore storage failures
+    }
+  }, [activeTeamId]);
 
   useEffect(() => {
     setActivePlayerIndex(0);
@@ -774,11 +793,66 @@ export default function TeamsPage() {
               onEdit={handleEditPlayer}
             />
           ) : playersView === "list" ? (
-            <PlayerList
-              players={players}
-              onEdit={handleEditPlayer}
-              teamName={activeTeam?.name}
-            />
+            <>
+              <PlayerList
+                players={players}
+                onEdit={handleEditPlayer}
+                onOpenCard={(index) => {
+                  setListCardIndex((prev) => (prev === index ? null : index));
+                }}
+                teamName={activeTeam?.name}
+              />
+              {listCardIndex !== null ? (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+                  onClick={() => setListCardIndex(null)}
+                >
+                  <div
+                    className="relative w-full max-w-5xl"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setListCardIndex(null)}
+                      className="absolute -top-12 left-0 inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200/80 transition hover:text-white"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M15 18l-6-6 6-6" />
+                      </svg>
+                      Retour liste
+                    </button>
+                    <PlayerCardCarousel
+                      players={players}
+                      activeIndex={Math.min(listCardIndex, players.length - 1)}
+                      teamCategory={activeTeam?.category ?? null}
+                      onPrev={() =>
+                        setListCardIndex((prev) => {
+                          if (prev === null) return 0;
+                          return prev - 1 < 0 ? players.length - 1 : prev - 1;
+                        })
+                      }
+                      onNext={() =>
+                        setListCardIndex((prev) => {
+                          if (prev === null) return 0;
+                          return prev + 1 >= players.length ? 0 : prev + 1;
+                        })
+                      }
+                      onEdit={handleEditPlayer}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </>
           ) : (
             <PlayerSelect players={players} onSelect={handleEditPlayer} />
           )}
