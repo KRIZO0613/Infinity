@@ -17,16 +17,25 @@ export async function searchExternalClubs(
   if (trimmed.length < 2) return [];
 
   const pattern = `%${trimmed}%`;
-  const { data, error } = await supabase
-    .from("external_clubs")
-    .select("id,name,city,district,league,slug")
-    .or(`name.ilike.${pattern},city.ilike.${pattern}`)
-    .limit(limit);
+  try {
+    const { data, error } = await supabase
+      .from("external_clubs")
+      .select("id,name,city,district,league,slug")
+      .or(`name.ilike.${pattern},city.ilike.${pattern}`)
+      .limit(limit);
 
-  if (error) {
-    console.error("Erreur recherche clubs externes:", error.message ?? error);
+    if (error) {
+      console.error("Erreur recherche clubs externes:", error.message ?? error);
+      return [];
+    }
+
+    return data ?? [];
+  } catch (error) {
+    const err = error as Error;
+    console.error(
+      "Erreur recherche clubs externes:",
+      err?.message ?? error,
+    );
     return [];
   }
-
-  return data ?? [];
 }
