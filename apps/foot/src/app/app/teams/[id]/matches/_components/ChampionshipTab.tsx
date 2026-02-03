@@ -118,6 +118,12 @@ const formatShortDate = (date: string) => {
   }).format(parsed);
 };
 
+const getResultIcon = (result: "win" | "loss" | "draw") => {
+  if (result === "win") return "/icons/VIC.png";
+  if (result === "loss") return "/icons/DEF.png";
+  return "/icons/egal.png";
+};
+
 function StepPanel({
   children,
   direction,
@@ -483,6 +489,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     null,
   );
   const [settingsAddingTeam, setSettingsAddingTeam] = useState(false);
+  const resultsScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [resultsFilter, setResultsFilter] = useState<"all" | "mine">("all");
 
   const [dayWizardOpen, setDayWizardOpen] = useState(false);
@@ -618,16 +625,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     return teamInfo.clubName ?? teamInfo.name ?? "Mon équipe";
   }, [teamInfo]);
 
-  const clubInitials = useMemo(() => {
-    const label = teamLabel.trim();
-    if (!label) return "";
-    const parts = label.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-    }
-    return label.slice(0, 2).toUpperCase();
-  }, [teamLabel]);
-
   const parseScore = (score?: string) => {
     if (!score) return null;
     const match = score.match(/(\d+)\s*-\s*(\d+)/);
@@ -680,18 +677,45 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       : "Saison en cours";
   }, [championship?.season]);
 
+  const localTeamNames = useMemo(() => {
+    const normalize = (value: string | null | undefined) =>
+      value?.trim().toLowerCase() ?? "";
+    const names = [teamDisplayName, teamLabel]
+      .map(normalize)
+      .filter(Boolean);
+    return Array.from(new Set(names));
+  }, [teamDisplayName, teamLabel]);
+
+  const isMatchForLocalTeam = (match: ChampionshipMatch) => {
+    const normalize = (value: string | null | undefined) =>
+      value?.trim().toLowerCase() ?? "";
+    const homeName = (match as { homeTeam?: string }).homeTeam;
+    const awayName = (match as { awayTeam?: string }).awayTeam;
+    if (homeName || awayName) {
+      return [homeName, awayName].some((name) =>
+        localTeamNames.includes(normalize(name)),
+      );
+    }
+    if (match.opponent?.trim()) return true;
+    return false;
+  };
+
+  const filterDaysForLocalTeam = (daysList: ChampionshipDay[]) => {
+    return daysList
+      .map((day) => ({
+        ...day,
+        matches: day.matches.filter((match) =>
+          isMatchForLocalTeam(match),
+        ),
+      }))
+      .filter((day) => day.matches.length > 0);
+  };
+
   const resultsDays = useMemo(() => {
     if (!days.length) return [];
-    return days
-      .map((day) => {
-        const matches =
-          resultsFilter === "mine"
-            ? day.matches.filter((match) => match.opponent?.trim())
-            : day.matches;
-        return { ...day, matches };
-      })
-      .filter((day) => day.matches.length > 0);
-  }, [days, resultsFilter]);
+    if (resultsFilter !== "mine") return days;
+    return filterDaysForLocalTeam(days);
+  }, [days, resultsFilter, localTeamNames]);
 
   const demoResultsDays = useMemo(() => {
     if (!championship) return [];
@@ -703,7 +727,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     const teamB = championship.teams[1]?.name ?? "Équipe B";
     const teamC = championship.teams[2]?.name ?? "Équipe C";
     const teamD = championship.teams[3]?.name ?? "Équipe D";
-    return [
+    const demoDays = [
       {
         id: "demo-day-2",
         name: "Journée 2",
@@ -769,7 +793,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         ],
       },
     ];
-  }, [championship]);
+    if (resultsFilter !== "mine") return demoDays;
+    return filterDaysForLocalTeam(demoDays);
+  }, [championship, resultsFilter, localTeamNames]);
 
   const displayResultsDays = days.length ? resultsDays : demoResultsDays;
   const sortedResultsDays = useMemo(() => {
@@ -789,6 +815,35 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     }
     return teamDisplayName ? [teamDisplayName] : [];
   }, [championship, draft, teamDisplayName]);
+
+  const isLocalTeamName = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === teamDisplayName.trim().toLowerCase() ||
+      normalized === teamLabel.trim().toLowerCase()
+    );
+  };
+
+  const renderTeamBadge = (
+    name: string,
+    classes: { image: string; initial: string },
+  ) => {
+    if (isLocalTeamName(name)) {
+      return (
+        <img
+          src="/icons/logocclubp.png"
+          alt={name}
+          className={classes.image}
+        />
+      );
+    }
+    return (
+      <span className={classes.initial}>
+        {getTeamInitials(name)}
+      </span>
+    );
+  };
 
   const defaultOpponent = useMemo(() => {
     return (
@@ -854,6 +909,16 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         (team) => team.id !== teamIdToRemove || team.locked,
       ),
     });
+  };
+
+  const scrollResultsBy = (dayId: string, direction: "left" | "right") => {
+    const container = resultsScrollRefs.current[dayId];
+    if (!container) return;
+    const firstCard = container.firstElementChild as HTMLElement | null;
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 280;
+    const gap = 12;
+    const offset = (cardWidth + gap) * (direction === "left" ? -1 : 1);
+    container.scrollBy({ left: offset, behavior: "smooth" });
   };
 
   const persistChampionship = async (
@@ -1340,9 +1405,11 @@ const handlePickDay = () => {
                       {championshipSubtitle}
                     </p>
                     <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/70">
-                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/25 bg-white/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85 shadow-[inset_0_0_10px_rgba(255,255,255,0.12)]">
-                        {clubInitials}
-                      </span>
+                      {renderTeamBadge(teamLabel, {
+                        image: "h-8 w-8 rounded-full object-cover",
+                        initial:
+                          "inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/25 bg-white/10 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85 shadow-[inset_0_0_10px_rgba(255,255,255,0.12)]",
+                      })}
                       <span className="text-sm text-white/75">
                         {teamLabel}
                       </span>
@@ -1409,9 +1476,11 @@ const handlePickDay = () => {
                             {row.rank}
                           </span>
                           <div className="flex min-w-0 items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80 shadow-[inset_0_0_8px_rgba(124,58,237,0.18)]">
-                              {row.initials}
-                            </span>
+                            {renderTeamBadge(row.name, {
+                              image: "h-7 w-7 rounded-full object-cover",
+                              initial:
+                                "flex h-7 w-7 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80 shadow-[inset_0_0_8px_rgba(124,58,237,0.18)]",
+                            })}
                             <span className="truncate text-violet-100/85">
                               {row.name}
                             </span>
@@ -1449,11 +1518,11 @@ const handlePickDay = () => {
               ) : null}
               {widgetTab === "results" ? (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between rounded-xl border-l-2 border-violet-400/60 bg-violet-500/5 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.3em] text-violet-300">
-                      Dernière journée
+                  <div className="flex flex-col items-center gap-2 rounded-xl border-l-2 border-violet-400/60 bg-violet-500/5 px-3 py-2 sm:px-4 sm:py-2.5">
+                    <p className="text-center text-[10px] font-semibold uppercase tracking-[0.28em] text-[#f5f1e8] sm:text-[12px]">
+                      Résultat dernière journée
                     </p>
-                    <div className="flex items-center gap-2 text-[10px]">
+                    <div className="flex flex-wrap items-center justify-center gap-2 text-[9px] sm:text-[10px]">
                       <button
                         type="button"
                         onClick={() => setResultsFilter("all")}
@@ -1487,7 +1556,10 @@ const handlePickDay = () => {
                   ) : (
                     <div className="space-y-2">
                       {latestResultsDay ? (
-                        <div key={latestResultsDay.id} className="space-y-2">
+                        <div
+                          key={latestResultsDay.id}
+                          className="space-y-2 rounded-2xl bg-black/50 p-3 backdrop-blur-sm"
+                        >
                           <div className="flex items-center justify-between text-xs text-white/65">
                             <span className="uppercase tracking-[0.2em] text-violet-200/70">
                               {latestResultsDay.name}
@@ -1496,8 +1568,37 @@ const handlePickDay = () => {
                               {formatShortDate(latestResultsDay.date)}
                             </span>
                           </div>
-                          <div className="results-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
-                            {latestResultsDay.matches.map((match) => {
+                          <div className="relative w-full">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                scrollResultsBy(latestResultsDay.id, "left")
+                              }
+                              className="absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
+                              aria-label="Résultats précédents"
+                            >
+                              ‹
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                scrollResultsBy(latestResultsDay.id, "right")
+                              }
+                              className="absolute right-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
+                              aria-label="Résultats suivants"
+                            >
+                              ›
+                            </button>
+                            <div className="relative w-full">
+                              <div
+                                ref={(node) => {
+                                  resultsScrollRefs.current[
+                                    latestResultsDay.id
+                                  ] = node;
+                                }}
+                                className="results-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2"
+                              >
+                                {latestResultsDay.matches.map((match) => {
                                 const homeTeam =
                                   match.homeTeam ??
                                   (match.homeAway === "home"
@@ -1508,66 +1609,161 @@ const handlePickDay = () => {
                                   (match.homeAway === "home"
                                     ? match.opponent
                                     : teamDisplayName);
-                                return (
-                                  <div
-                                    key={match.id}
-                                    className="min-w-[260px] shrink-0 snap-start rounded-xl px-3 py-2 text-xs text-white/80"
-                                  >
-                                    <div className="flex items-center justify-between text-[10px] text-white/60">
+                                const parsed = parseScore(match.score);
+                                const homeResult = parsed
+                                  ? parsed.home > parsed.away
+                                    ? "win"
+                                    : parsed.home < parsed.away
+                                    ? "loss"
+                                    : "draw"
+                                  : null;
+                                const awayResult = parsed
+                                  ? parsed.away > parsed.home
+                                    ? "win"
+                                    : parsed.away < parsed.home
+                                    ? "loss"
+                                    : "draw"
+                                  : null;
+                                const localResult = isLocalTeamName(homeTeam)
+                                  ? homeResult
+                                  : isLocalTeamName(awayTeam)
+                                  ? awayResult
+                                  : null;
+                                const localSide = isLocalTeamName(homeTeam)
+                                  ? "home"
+                                  : isLocalTeamName(awayTeam)
+                                  ? "away"
+                                  : null;
+                                const indicator = localResult && localSide
+                                  ? localResult === "draw"
+                                    ? {
+                                        color:
+                                          "bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.35)]",
+                                      }
+                                    : localResult === "win"
+                                    ? {
+                                        color:
+                                          "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]",
+                                      }
+                                    : {
+                                        color:
+                                          "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.55)]",
+                                      }
+                                  : null;
+                                  return (
+                                    <div
+                                      key={match.id}
+                                      className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-white/80 sm:px-6"
+                                    >
+                                    <div className="flex items-center justify-between text-[clamp(9px,1.2vw,10px)] text-white/60">
                                       <span>{match.time || "--:--"}</span>
-                                      <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2 py-0.5 text-violet-100/80">
-                                        {match.homeAway === "home"
-                                          ? "Domicile"
-                                          : "Extérieur"}
-                                      </span>
+                                      <span />
                                     </div>
-                                    <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm text-white/85">
-                                      <div className="flex min-w-0 items-center gap-2">
-                                        <span className="flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.14em] text-violet-100/80">
-                                          {getTeamInitials(homeTeam)}
-                                        </span>
-                                        <span className="truncate">
+                                    <div className="relative mt-2 grid grid-cols-[minmax(0,1fr)_clamp(96px,14vw,140px)_minmax(0,1fr)] items-center gap-2 text-[clamp(12px,1.4vw,13px)] text-white/85 sm:gap-3">
+                                      <div className="flex min-w-0 items-center justify-end pl-2 pr-[clamp(32px,5vw,48px)] text-right">
+                                        <span
+                                          className="block text-center font-semibold text-[#f5f5f5]"
+                                          style={{
+                                            display: "-webkit-box",
+                                            WebkitLineClamp: 2,
+                                            WebkitBoxOrient: "vertical",
+                                            overflow: "hidden",
+                                            wordBreak: "break-word",
+                                          }}
+                                        >
                                           {homeTeam}
                                         </span>
                                       </div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-white/60 tabular-nums">
-                                          {match.score ?? "—"}
-                                        </span>
-                                        {(() => {
-                                          const parsed = parseScore(match.score);
-                                          if (!parsed) return null;
-                                          const outcome =
-                                            parsed.home > parsed.away
-                                              ? "win"
-                                              : parsed.home < parsed.away
-                                              ? "loss"
-                                              : "draw";
-                                          const dotClass =
-                                            outcome === "win"
-                                              ? "bg-emerald-400 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
-                                              : outcome === "loss"
-                                              ? "bg-gradient-to-br from-rose-500 to-red-900 shadow-[0_0_8px_rgba(190,24,93,0.45)]"
-                                              : "bg-white/80 shadow-[0_0_6px_rgba(255,255,255,0.45)]";
-                                          return (
+                                      <div className="flex flex-col items-center gap-1 text-center">
+                                        {parsed ? (
+                                          <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2">
                                             <span
-                                              className={`h-2.5 w-2.5 rounded-full ${dotClass}`}
+                                              className="justify-self-end text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                              style={{
+                                                textShadow:
+                                                  "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                              }}
+                                            >
+                                              {parsed.home}
+                                            </span>
+                                            <span className="text-[clamp(16px,3vw,22px)] text-white/60">
+                                              -
+                                            </span>
+                                            <span
+                                              className="justify-self-start text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                              style={{
+                                                textShadow:
+                                                  "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                              }}
+                                            >
+                                              {parsed.away}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex items-center justify-center">
+                                            <span
+                                              className="whitespace-nowrap text-center text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                              style={{
+                                                textShadow:
+                                                  "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                              }}
+                                            >
+                                              {match.score ?? "—"}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {indicator ? (
+                                          <div className="flex w-full items-center justify-center">
+                                            <span
+                                              className={[
+                                                "h-2.5 w-2.5 rounded-full",
+                                                indicator.color,
+                                              ].join(" ")}
                                             />
-                                          );
-                                        })()}
+                                          </div>
+                                        ) : null}
                                       </div>
-                                      <div className="flex min-w-0 items-center justify-end gap-2">
-                                        <span className="truncate">
+                                      <div className="flex min-w-0 items-center justify-start pl-[clamp(32px,5vw,48px)] pr-2 text-left">
+                                        <span
+                                          className="block text-center font-semibold text-[#f5f5f5]"
+                                          style={{
+                                            display: "-webkit-box",
+                                            WebkitLineClamp: 2,
+                                            WebkitBoxOrient: "vertical",
+                                            overflow: "hidden",
+                                            wordBreak: "break-word",
+                                          }}
+                                        >
                                           {awayTeam}
                                         </span>
-                                        <span className="flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.14em] text-violet-100/80">
-                                          {getTeamInitials(awayTeam)}
-                                        </span>
+                                      </div>
+                                      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                        <div className="grid w-full grid-cols-[minmax(0,1fr)_clamp(96px,14vw,140px)_minmax(0,1fr)] items-center self-stretch">
+                                          <div className="flex items-center justify-end pr-[clamp(8px,2vw,14px)]">
+                                            {renderTeamBadge(homeTeam, {
+                                              image:
+                                                "h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] rounded-full object-cover",
+                                              initial:
+                                                "flex h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] shrink-0 items-center justify-center rounded-full border border-white/60 bg-[#f5f1e8] text-[clamp(9px,1.2vw,10px)] font-semibold uppercase tracking-[0.14em] text-violet-700",
+                                            })}
+                                          </div>
+                                          <div />
+                                          <div className="flex items-center justify-start pl-[clamp(8px,2vw,14px)]">
+                                            {renderTeamBadge(awayTeam, {
+                                              image:
+                                                "h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] rounded-full object-cover",
+                                              initial:
+                                                "flex h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] shrink-0 items-center justify-center rounded-full border border-white/60 bg-[#f5f1e8] text-[clamp(9px,1.2vw,10px)] font-semibold uppercase tracking-[0.14em] text-violet-700",
+                                            })}
+                                          </div>
+                                        </div>
                                       </div>
                                     </div>
                                   </div>
                                 );
                               })}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ) : null}
@@ -1620,9 +1816,12 @@ const handlePickDay = () => {
             {championship.teams.map((team, index) => (
               <div key={team.id} className="flex items-center">
                 <div className="group flex min-w-max items-center gap-2 rounded-full px-2 py-1 text-[11px] font-semibold text-violet-200/80 transition active:scale-[1.02]">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80 shadow-[inset_0_0_8px_rgba(124,58,237,0.18)] transition group-hover:scale-[1.03] group-hover:shadow-[0_0_16px_rgba(124,58,237,0.4)]">
-                    {getTeamInitials(team.name)}
-                  </div>
+                  {renderTeamBadge(team.name, {
+                    image:
+                      "h-8 w-8 rounded-full object-cover transition group-hover:scale-[1.03]",
+                    initial:
+                      "flex h-8 w-8 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80 shadow-[inset_0_0_8px_rgba(124,58,237,0.18)] transition group-hover:scale-[1.03] group-hover:shadow-[0_0_16px_rgba(124,58,237,0.4)]",
+                  })}
                   <span className="inline-flex items-center gap-2 whitespace-nowrap text-[11px] font-semibold text-violet-100/80 transition group-hover:text-violet-100 group-hover:[text-shadow:0_0_10px_rgba(124,58,237,0.35)]">
                     {team.locked ? (
                       <span className="h-2.5 w-2.5 rotate-45 rounded-[2px] bg-violet-300 shadow-[0_0_8px_rgba(124,58,237,0.7)]" />
@@ -1670,8 +1869,31 @@ const handlePickDay = () => {
                     </span>
                     <span>{formatShortDate(day.date)}</span>
                   </div>
-                  <div className="results-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
-                    {day.matches.map((match) => {
+                  <div className="relative w-full">
+                    <button
+                      type="button"
+                      onClick={() => scrollResultsBy(day.id, "left")}
+                      className="absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
+                      aria-label="Résultats précédents"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => scrollResultsBy(day.id, "right")}
+                      className="absolute right-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
+                      aria-label="Résultats suivants"
+                    >
+                      ›
+                    </button>
+                    <div className="relative w-full">
+                      <div
+                        ref={(node) => {
+                          resultsScrollRefs.current[day.id] = node;
+                        }}
+                        className="results-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2"
+                      >
+                        {day.matches.map((match) => {
                       const homeTeam =
                         match.homeTeam ??
                         (match.homeAway === "home"
@@ -1682,62 +1904,161 @@ const handlePickDay = () => {
                         (match.homeAway === "home"
                           ? match.opponent
                           : teamDisplayName);
-                      return (
-                        <div
-                          key={match.id}
-                          className="min-w-[260px] shrink-0 snap-start rounded-xl px-3 py-2 text-xs text-white/80"
-                        >
-                          <div className="flex items-center justify-between text-[10px] text-white/60">
-                            <span>{match.time || "--:--"}</span>
-                            <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2 py-0.5 text-violet-100/80">
-                              {match.homeAway === "home"
-                                ? "Domicile"
-                                : "Extérieur"}
-                            </span>
+                      const parsed = parseScore(match.score);
+                      const homeResult = parsed
+                        ? parsed.home > parsed.away
+                          ? "win"
+                          : parsed.home < parsed.away
+                          ? "loss"
+                          : "draw"
+                        : null;
+                      const awayResult = parsed
+                        ? parsed.away > parsed.home
+                          ? "win"
+                          : parsed.away < parsed.home
+                          ? "loss"
+                          : "draw"
+                        : null;
+                      const localResult = isLocalTeamName(homeTeam)
+                        ? homeResult
+                        : isLocalTeamName(awayTeam)
+                        ? awayResult
+                        : null;
+                      const localSide = isLocalTeamName(homeTeam)
+                        ? "home"
+                        : isLocalTeamName(awayTeam)
+                        ? "away"
+                        : null;
+                      const indicator = localResult && localSide
+                        ? localResult === "draw"
+                          ? {
+                              color:
+                                "bg-white/80 shadow-[0_0_10px_rgba(255,255,255,0.35)]",
+                            }
+                          : localResult === "win"
+                          ? {
+                              color:
+                                "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.55)]",
+                            }
+                          : {
+                              color:
+                                "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.55)]",
+                            }
+                        : null;
+                        return (
+                          <div
+                            key={match.id}
+                            className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-white/80 sm:px-6"
+                          >
+                            <div className="flex items-center justify-between text-[clamp(9px,1.2vw,10px)] text-white/60">
+                              <span>{match.time || "--:--"}</span>
+                              <span />
+                            </div>
+                            <div className="relative mt-2 grid grid-cols-[minmax(0,1fr)_clamp(96px,14vw,140px)_minmax(0,1fr)] items-center gap-2 text-[clamp(12px,1.4vw,13px)] text-white/85 sm:gap-3">
+                              <div className="flex min-w-0 items-center justify-end pl-2 pr-[clamp(32px,5vw,48px)] text-right">
+                                <span
+                                  className="block text-center font-semibold text-[#f5f5f5]"
+                                  style={{
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {homeTeam}
+                                </span>
+                              </div>
+                              <div className="flex flex-col items-center gap-1 text-center">
+                                {parsed ? (
+                                  <div className="grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2">
+                                    <span
+                                      className="justify-self-end text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                      style={{
+                                        textShadow:
+                                          "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                      }}
+                                    >
+                                      {parsed.home}
+                                    </span>
+                                    <span className="text-[clamp(16px,3vw,22px)] text-white/60">
+                                      -
+                                    </span>
+                                    <span
+                                      className="justify-self-start text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                      style={{
+                                        textShadow:
+                                          "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                      }}
+                                    >
+                                      {parsed.away}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center">
+                                    <span
+                                      className="whitespace-nowrap text-center text-[clamp(28px,5vw,44px)] font-semibold leading-none text-white tabular-nums"
+                                      style={{
+                                        textShadow:
+                                          "0 0 4px rgba(168,85,247,0.85), 0 0 10px rgba(168,85,247,0.4), 0 0 6px rgba(255,255,255,0.12)",
+                                      }}
+                                    >
+                                      {match.score ?? "—"}
+                                    </span>
+                                  </div>
+                                )}
+                                {indicator ? (
+                                  <div className="flex w-full items-center justify-center">
+                                    <span
+                                      className={[
+                                        "h-2.5 w-2.5 rounded-full",
+                                        indicator.color,
+                                      ].join(" ")}
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="flex min-w-0 items-center justify-start pl-[clamp(32px,5vw,48px)] pr-2 text-left">
+                                <span
+                                  className="block text-center font-semibold text-[#f5f5f5]"
+                                  style={{
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {awayTeam}
+                                </span>
+                              </div>
+                              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                <div className="grid w-full grid-cols-[minmax(0,1fr)_clamp(96px,14vw,140px)_minmax(0,1fr)] items-center self-stretch">
+                                  <div className="flex items-center justify-end pr-[clamp(8px,2vw,14px)]">
+                                    {renderTeamBadge(homeTeam, {
+                                      image:
+                                        "h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] rounded-full object-cover",
+                                      initial:
+                                        "flex h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] shrink-0 items-center justify-center rounded-full border border-white/60 bg-[#f5f1e8] text-[clamp(9px,1.2vw,10px)] font-semibold uppercase tracking-[0.14em] text-violet-700",
+                                    })}
+                                  </div>
+                                  <div />
+                                  <div className="flex items-center justify-start pl-[clamp(8px,2vw,14px)]">
+                                    {renderTeamBadge(awayTeam, {
+                                      image:
+                                        "h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] rounded-full object-cover",
+                                      initial:
+                                        "flex h-[clamp(24px,4vw,32px)] w-[clamp(24px,4vw,32px)] shrink-0 items-center justify-center rounded-full border border-white/60 bg-[#f5f1e8] text-[clamp(9px,1.2vw,10px)] font-semibold uppercase tracking-[0.14em] text-violet-700",
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-sm text-white/85">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.14em] text-violet-100/80">
-                                {getTeamInitials(homeTeam)}
-                              </span>
-                              <span className="truncate">{homeTeam}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-white/60 tabular-nums">
-                                {match.score ?? "—"}
-                              </span>
-                              {(() => {
-                                const parsed = parseScore(match.score);
-                                if (!parsed) return null;
-                                const outcome =
-                                  parsed.home > parsed.away
-                                    ? "win"
-                                    : parsed.home < parsed.away
-                                    ? "loss"
-                                    : "draw";
-                                const dotClass =
-                                  outcome === "win"
-                                    ? "bg-emerald-400 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
-                                    : outcome === "loss"
-                                    ? "bg-gradient-to-br from-rose-500 to-red-900 shadow-[0_0_8px_rgba(190,24,93,0.45)]"
-                                    : "bg-white/80 shadow-[0_0_6px_rgba(255,255,255,0.45)]";
-                                return (
-                                  <span
-                                    className={`h-2.5 w-2.5 rounded-full ${dotClass}`}
-                                  />
-                                );
-                              })()}
-                            </div>
-                            <div className="flex min-w-0 items-center justify-end gap-2">
-                              <span className="truncate">{awayTeam}</span>
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.14em] text-violet-100/80">
-                                {getTeamInitials(awayTeam)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))}
