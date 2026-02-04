@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -14,9 +14,14 @@ type ChampionshipMatch = {
   opponent: string;
   date: string;
   time: string;
+  status?: MatchStatus;
   score?: string;
   homeTeam?: string;
   awayTeam?: string;
+  scorers?: Record<string, number>;
+  assists?: Record<string, number>;
+  motmId?: string | null;
+  needsBoost?: Record<string, boolean>;
 };
 
 type ChampionshipDay = {
@@ -48,6 +53,22 @@ type TeamInfo = {
   clubName: string | null;
 };
 
+type PlayerLite = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  photo_url: string | null;
+};
+
+type PlayerCustomField = {
+  id?: string | null;
+  label?: string | null;
+  type?: string | null;
+  value?: string | null;
+  order?: number | null;
+  active?: boolean | null;
+};
+
 type ChampionshipTabProps = {
   teamId: string;
 };
@@ -60,17 +81,36 @@ type StepDirection = "forward" | "backward";
 
 type DayMatchDraft = {
   id: string;
-  homeAway: "home" | "away";
-  opponent: string;
-  opponentId: string | null;
-  opponentSource: "pool" | "external" | "custom";
+  homeTeam: string;
+  awayTeam: string;
+  time: string;
 };
 
-type DayWizardStep = 1 | 2 | 3;
+type DayWizardStep = 1 | 2;
 
 type ChampionshipStorageData = {
   championship?: ChampionshipUI;
   days?: ChampionshipDay[];
+  dayPhase?: string;
+};
+
+type MatchDetailsSource = "calendar" | "results";
+
+type MatchStatus = "draft" | "in_progress" | "finished";
+
+type MatchDetails = {
+  match: ChampionshipMatch;
+  dayName: string;
+  dayDate: string;
+  source: MatchDetailsSource;
+  homeTeam: string;
+  awayTeam: string;
+};
+
+type NextCalendarMatch = {
+  match: ChampionshipMatch;
+  day: ChampionshipDay;
+  matchDate: Date;
 };
 
 const kindLabels: Record<ChampionshipUI["kind"], string> = {
@@ -116,6 +156,25 @@ const formatShortDate = (date: string) => {
     month: "2-digit",
     year: "numeric",
   }).format(parsed);
+};
+
+const buildMatchDateTime = (dayDate: string, matchTime?: string | null) => {
+  if (!dayDate) return null;
+  const base = new Date(dayDate);
+  if (Number.isNaN(base.getTime())) return null;
+  if (!matchTime) {
+    base.setHours(23, 59, 0, 0);
+    return base;
+  }
+  const [hourValue, minuteValue] = matchTime.split(":");
+  const hour = Number(hourValue);
+  const minute = Number(minuteValue);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    base.setHours(23, 59, 0, 0);
+    return base;
+  }
+  base.setHours(hour, minute, 0, 0);
+  return base;
 };
 
 const getResultIcon = (result: "win" | "loss" | "draw") => {
@@ -472,6 +531,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     level: null,
     clubName: null,
   });
+  const [players, setPlayers] = useState<PlayerLite[]>([]);
+  const [playersLoading, setPlayersLoading] = useState(false);
+  const [playersError, setPlayersError] = useState<string | null>(null);
   const [championship, setChampionship] = useState<ChampionshipUI | null>(null);
   const [days, setDays] = useState<ChampionshipDay[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -481,7 +543,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   const [addingTeam, setAddingTeam] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [widgetTab, setWidgetTab] = useState<
-    "general" | "teams" | "ranking" | "results"
+    "general" | "teams" | "ranking" | "results" | "calendar"
   >("general");
   const [widgetAddingTeam, setWidgetAddingTeam] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -489,13 +551,56 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     null,
   );
   const [settingsAddingTeam, setSettingsAddingTeam] = useState(false);
+  const [matchDetails, setMatchDetails] = useState<MatchDetails | null>(null);
+  const [scoreDraft, setScoreDraft] = useState<{
+    home: string;
+    away: string;
+  } | null>(null);
+  const [scoreCleared, setScoreCleared] = useState(false);
+  const [matchSaveFeedback, setMatchSaveFeedback] = useState(false);
+  const [scorers, setScorers] = useState<Record<string, number>>({});
+  const [assists, setAssists] = useState<Record<string, number>>({});
+  const [scorersOpen, setScorersOpen] = useState(false);
+  const [assistsOpen, setAssistsOpen] = useState(false);
+  const [motmId, setMotmId] = useState<string | null>(null);
+  const [needsBoost, setNeedsBoost] = useState<Record<string, boolean>>({});
+  const [motmOpen, setMotmOpen] = useState(false);
+  const [needsBoostOpen, setNeedsBoostOpen] = useState(false);
+  const [lastScorerId, setLastScorerId] = useState<string | null>(null);
+  const [lastAssistId, setLastAssistId] = useState<string | null>(null);
+  const [lastNeedsBoostId, setLastNeedsBoostId] = useState<string | null>(null);
+  const [lastMotmId, setLastMotmId] = useState<string | null>(null);
+  const matchSaveFeedbackRef = useRef<number | null>(null);
   const resultsScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const calendarDayRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [resultsFilter, setResultsFilter] = useState<"all" | "mine">("all");
+  const [showFutureCalendar, setShowFutureCalendar] = useState(true);
+  const [showPastCalendar, setShowPastCalendar] = useState(true);
+  const [quickScoreMenuOpen, setQuickScoreMenuOpen] = useState(false);
+  const [quickScoreOpen, setQuickScoreOpen] = useState(false);
+  const [quickScoreDrafts, setQuickScoreDrafts] = useState<
+    Record<string, { home: string; away: string }>
+  >({});
 
   const [dayWizardOpen, setDayWizardOpen] = useState(false);
   const [dayWizardStep, setDayWizardStep] = useState<DayWizardStep>(1);
   const [dayDate, setDayDate] = useState<Date>(new Date());
   const [dayMatches, setDayMatches] = useState<DayMatchDraft[]>([]);
+  const [dayPhase, setDayPhase] = useState("1");
+  const [dayLeg, setDayLeg] = useState<"aller" | "retour">("aller");
+  const [timePickerMatchId, setTimePickerMatchId] = useState<string | null>(
+    null,
+  );
+  const [editingDayId, setEditingDayId] = useState<string | null>(null);
+  const timePickerRef = useRef<HTMLDivElement | null>(null);
+  const scorersRef = useRef<HTMLDivElement | null>(null);
+  const assistsRef = useRef<HTMLDivElement | null>(null);
+  const motmRef = useRef<HTMLDivElement | null>(null);
+  const needsBoostRef = useRef<HTMLDivElement | null>(null);
+  const scorersListRef = useRef<HTMLDivElement | null>(null);
+  const assistsListRef = useRef<HTMLDivElement | null>(null);
+  const motmListRef = useRef<HTMLDivElement | null>(null);
+  const needsBoostListRef = useRef<HTMLDivElement | null>(null);
 
   const prevStepRef = useRef<WizardStep>(wizardStep);
   const prevDayStepRef = useRef<DayWizardStep>(dayWizardStep);
@@ -561,6 +666,47 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   useEffect(() => {
     let cancelled = false;
 
+    async function loadPlayers() {
+      if (!teamId) return;
+      setPlayersLoading(true);
+      setPlayersError(null);
+      const { data, error } = await supabase
+        .from("players")
+        .select("id,first_name,last_name,photo_url,team_id")
+        .eq("team_id", teamId)
+        .order("created_at", { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Erreur chargement joueurs:", error.message ?? error);
+        setPlayers([]);
+        setPlayersError("Impossible de charger les joueurs.");
+        setPlayersLoading(false);
+        return;
+      }
+
+      setPlayers(
+        (data ?? []).map((player) => ({
+          id: player.id,
+          first_name: player.first_name ?? "",
+          last_name: player.last_name ?? "",
+          photo_url: player.photo_url ?? null,
+        })),
+      );
+      setPlayersLoading(false);
+    }
+
+    loadPlayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [teamId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     async function loadChampionship() {
       if (!teamId) return;
       const { data, error } = await supabase
@@ -590,6 +736,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       if (storedChampionship) {
         setChampionship(storedChampionship);
         setDays(storedDays);
+        if (stored?.dayPhase) {
+          setDayPhase(stored.dayPhase);
+        }
       }
     }
 
@@ -608,6 +757,90 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     prevDayStepRef.current = dayWizardStep;
   }, [dayWizardStep]);
 
+  useEffect(() => {
+    if (!timePickerMatchId) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (timePickerRef.current?.contains(target)) return;
+      setTimePickerMatchId(null);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [timePickerMatchId]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (
+        scorersRef.current &&
+        !scorersRef.current.contains(target)
+      ) {
+        setScorersOpen(false);
+      }
+      if (
+        assistsRef.current &&
+        !assistsRef.current.contains(target)
+      ) {
+        setAssistsOpen(false);
+      }
+      if (motmRef.current && !motmRef.current.contains(target)) {
+        setMotmOpen(false);
+      }
+      if (
+        needsBoostRef.current &&
+        !needsBoostRef.current.contains(target)
+      ) {
+        setNeedsBoostOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!scorersOpen || !lastScorerId) return;
+    requestAnimationFrame(() => {
+      const node = scorersListRef.current?.querySelector(
+        `[data-player-id="${lastScorerId}"]`,
+      ) as HTMLElement | null;
+      node?.scrollIntoView({ block: "nearest" });
+    });
+  }, [scorersOpen, lastScorerId]);
+
+  useEffect(() => {
+    if (!assistsOpen || !lastAssistId) return;
+    requestAnimationFrame(() => {
+      const node = assistsListRef.current?.querySelector(
+        `[data-player-id="${lastAssistId}"]`,
+      ) as HTMLElement | null;
+      node?.scrollIntoView({ block: "nearest" });
+    });
+  }, [assistsOpen, lastAssistId]);
+
+  useEffect(() => {
+    if (!motmOpen || !lastMotmId) return;
+    requestAnimationFrame(() => {
+      const node = motmListRef.current?.querySelector(
+        `[data-player-id="${lastMotmId}"]`,
+      ) as HTMLElement | null;
+      node?.scrollIntoView({ block: "nearest" });
+    });
+  }, [motmOpen, lastMotmId]);
+
+  useEffect(() => {
+    if (!needsBoostOpen || !lastNeedsBoostId) return;
+    requestAnimationFrame(() => {
+      const node = needsBoostListRef.current?.querySelector(
+        `[data-player-id="${lastNeedsBoostId}"]`,
+      ) as HTMLElement | null;
+      node?.scrollIntoView({ block: "nearest" });
+    });
+  }, [needsBoostOpen, lastNeedsBoostId]);
+
   const stepDirection: StepDirection =
     wizardStep >= prevStepRef.current ? "forward" : "backward";
   const dayStepDirection: StepDirection =
@@ -625,7 +858,23 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     return teamInfo.clubName ?? teamInfo.name ?? "Mon équipe";
   }, [teamInfo]);
 
-  const parseScore = (score?: string) => {
+  const displayChampionshipName = useMemo(() => {
+    if (championship?.name?.trim()) return championship.name.trim();
+    const category = teamInfo.category ?? teamInfo.name ?? "Championnat";
+    const levelValue = normalizeLevelValue(teamInfo.level);
+    return levelValue ? `${category} – Niv ${levelValue}` : category;
+  }, [championship?.name, teamInfo]);
+
+  const isLocalTeamName = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === teamDisplayName.trim().toLowerCase() ||
+      normalized === teamLabel.trim().toLowerCase()
+    );
+  };
+
+  const parseScore = useCallback((score?: string) => {
     if (!score) return null;
     const match = score.match(/(\d+)\s*-\s*(\d+)/);
     if (!match) return null;
@@ -633,6 +882,413 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       home: Number(match[1]),
       away: Number(match[2]),
     };
+  }, []);
+
+  const daysKey = useMemo(() => {
+    return days.map((day) => day.id).join("|");
+  }, [days]);
+
+  useEffect(() => {
+    if (!quickScoreOpen) return;
+    const nextDrafts: Record<string, { home: string; away: string }> = {};
+    days.forEach((day) => {
+      day.matches.forEach((match) => {
+        const parsed = parseScore(match.score);
+        nextDrafts[match.id] = parsed
+          ? {
+              home: String(parsed.home),
+              away: String(parsed.away),
+            }
+          : { home: "", away: "" };
+      });
+    });
+    setQuickScoreDrafts(nextDrafts);
+  }, [quickScoreOpen, daysKey, parseScore]);
+
+  const setQuickScoreValue = (
+    matchId: string,
+    side: "home" | "away",
+    rawValue: string,
+  ) => {
+    setQuickScoreDrafts((prev) => ({
+      ...prev,
+      [matchId]: {
+        ...(prev[matchId] ?? { home: "", away: "" }),
+        [side]: rawValue.replace(/[^\d]/g, ""),
+      },
+    }));
+  };
+
+  useEffect(() => {
+    if (!matchDetails) return;
+    const parsed = parseScore(matchDetails.match.score);
+    const isDraftMatch =
+      resolveMatchStatus(matchDetails.match) !== "finished";
+    const shouldClearZeros =
+      isDraftMatch && parsed && parsed.home === 0 && parsed.away === 0;
+    setScoreDraft(
+      parsed && !shouldClearZeros
+        ? {
+            home: String(parsed.home),
+            away: String(parsed.away),
+          }
+        : {
+            home: "",
+            away: "",
+          },
+    );
+    setScorers(matchDetails.match.scorers ?? {});
+    setAssists(matchDetails.match.assists ?? {});
+    setMotmId(matchDetails.match.motmId ?? null);
+    setNeedsBoost(matchDetails.match.needsBoost ?? {});
+    setScoreCleared(false);
+    setMatchSaveFeedback(false);
+    setScorersOpen(false);
+    setAssistsOpen(false);
+    setMotmOpen(false);
+    setNeedsBoostOpen(false);
+  }, [matchDetails]);
+
+  const roster = useMemo(() => {
+    if (!matchDetails) return [];
+    if (!players.length) return [];
+    const side = isLocalTeamName(matchDetails.homeTeam)
+      ? "home"
+      : isLocalTeamName(matchDetails.awayTeam)
+      ? "away"
+      : "home";
+    const team =
+      side === "home" ? matchDetails.homeTeam : matchDetails.awayTeam;
+    return players.map((player) => ({
+      id: player.id,
+      label:
+        `${player.first_name ?? ""} ${player.last_name ?? ""}`.trim() ||
+        "Joueur",
+      team,
+      side,
+      photoUrl: player.photo_url ?? null,
+    }));
+  }, [matchDetails, players]);
+
+  const rosterById = useMemo(() => {
+    return roster.reduce<
+      Record<string, { label: string; side: string; photoUrl?: string | null }>
+    >((acc, player) => {
+        acc[player.id] = {
+          label: player.label,
+          side: player.side,
+          photoUrl: player.photoUrl ?? null,
+        };
+        return acc;
+      },
+      {},
+    );
+  }, [roster]);
+
+  const needsBoostLabel = useMemo(() => {
+    const names = Object.keys(needsBoost)
+      .map((playerId) => rosterById[playerId]?.label ?? playerId)
+      .filter(Boolean);
+    if (!names.length) return "Joueur en difficulté";
+    if (names.length === 1) return names[0];
+    return `${names[0]} +${names.length - 1}`;
+  }, [needsBoost, rosterById]);
+
+  const localRoster = useMemo(() => roster, [roster]);
+
+  const updateScore = (side: "home" | "away", delta: number) => {
+    setScoreDraft((prev) => {
+      if (!prev) return prev;
+      const current = Number.parseInt(prev[side], 10);
+      const base = Number.isFinite(current) ? current : 0;
+      const nextValue = Math.max(0, base + delta);
+      return { ...prev, [side]: String(nextValue) };
+    });
+    setScoreCleared(false);
+  };
+
+  const setScoreValue = (side: "home" | "away", rawValue: string) => {
+    setScoreDraft((prev) => {
+      if (!prev) return prev;
+      return { ...prev, [side]: rawValue.replace(/[^\d]/g, "") };
+    });
+    setScoreCleared(false);
+  };
+
+  const setStatValue = (
+    setter: (
+      value:
+        | Record<string, number>
+        | ((prev: Record<string, number>) => Record<string, number>),
+    ) => void,
+    playerId: string,
+    rawValue: string,
+  ) => {
+    const parsed = Number.parseInt(rawValue, 10);
+    const nextValue = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    setter((prev) => {
+      const next = { ...prev };
+      if (nextValue <= 0) {
+        delete next[playerId];
+        return next;
+      }
+      next[playerId] = nextValue;
+      return next;
+    });
+  };
+
+  const applyPlayerStats = async (daysList: ChampionshipDay[]) => {
+    if (!players.length) return;
+    const totals = daysList.reduce<{
+      goals: Record<string, number>;
+      assists: Record<string, number>;
+    }>(
+      (acc, day) => {
+        day.matches.forEach((match) => {
+          if (resolveMatchStatus(match) !== "finished") return;
+          Object.entries(match.scorers ?? {}).forEach(([id, value]) => {
+            acc.goals[id] = (acc.goals[id] ?? 0) + value;
+          });
+          Object.entries(match.assists ?? {}).forEach(([id, value]) => {
+            acc.assists[id] = (acc.assists[id] ?? 0) + value;
+          });
+        });
+        return acc;
+      },
+      { goals: {}, assists: {} },
+    );
+    const playerIds = players.map((player) => player.id);
+    if (!playerIds.length) return;
+    const { data, error } = await supabase
+      .from("players")
+      .select("id,custom_fields")
+      .in("id", playerIds);
+    if (error) {
+      console.error(
+        "Erreur mise à jour stats joueurs:",
+        error.message ?? error,
+      );
+      return;
+    }
+    const updates = (data ?? []).map((player) => {
+      const fields = Array.isArray(player.custom_fields)
+        ? (player.custom_fields as PlayerCustomField[])
+        : [];
+      const withGoals = upsertStatField(
+        fields,
+        "Buts",
+        totals.goals[player.id] ?? 0,
+      );
+      const withAssists = upsertStatField(
+        withGoals,
+        "Passes D",
+        totals.assists[player.id] ?? 0,
+      );
+      return {
+        id: player.id,
+        custom_fields: withAssists,
+      };
+    });
+    const updateResults = await Promise.all(
+      updates.map((player) =>
+        supabase
+          .from("players")
+          .update({ custom_fields: player.custom_fields })
+          .eq("id", player.id),
+      ),
+    );
+    const updateError = updateResults.find((result) => result.error)?.error;
+    if (updateError) {
+      console.error(
+        "Erreur mise à jour stats joueurs:",
+        updateError.message ?? updateError,
+      );
+    }
+  };
+
+  const handleClearMatchDetails = () => {
+    setScoreDraft({ home: "", away: "" });
+    setScoreCleared(true);
+    setScorers({});
+    setAssists({});
+    setMotmId(null);
+    setNeedsBoost({});
+  };
+
+  const handleSaveMatchDetails = async () => {
+    if (!championship || !matchDetails) return;
+    const homeValue = Number.parseInt(scoreDraft?.home ?? "", 10);
+    const awayValue = Number.parseInt(scoreDraft?.away ?? "", 10);
+    const hasHome = Number.isFinite(homeValue);
+    const hasAway = Number.isFinite(awayValue);
+    const nextScore =
+      hasHome && hasAway ? `${homeValue} - ${awayValue}` : undefined;
+    const resolvedStatus: MatchStatus = nextScore ? "finished" : "draft";
+    const nextMatch: ChampionshipMatch = {
+      ...matchDetails.match,
+      status: resolvedStatus,
+      score: nextScore,
+      homeTeam: matchDetails.homeTeam,
+      awayTeam: matchDetails.awayTeam,
+      scorers: Object.keys(scorers).length ? scorers : undefined,
+      assists: Object.keys(assists).length ? assists : undefined,
+      motmId: motmId ?? undefined,
+      needsBoost: Object.keys(needsBoost).length ? needsBoost : undefined,
+    };
+    const nextDays = days.map((day) => ({
+      ...day,
+      matches: day.matches.map((match) =>
+        match.id === matchDetails.match.id ? nextMatch : match,
+      ),
+    }));
+    setDays(nextDays);
+    setMatchDetails((prev) =>
+      prev ? { ...prev, match: nextMatch } : prev,
+    );
+    await persistChampionship(championship, nextDays);
+    await applyPlayerStats(nextDays);
+    setMatchSaveFeedback(true);
+    if (matchSaveFeedbackRef.current) {
+      window.clearTimeout(matchSaveFeedbackRef.current);
+    }
+    matchSaveFeedbackRef.current = window.setTimeout(() => {
+      setMatchSaveFeedback(false);
+    }, 1800);
+    closeMatchDetails();
+  };
+
+  const handleSaveQuickScores = async () => {
+    if (!championship) return;
+    const nextDays = days.map((day) => ({
+      ...day,
+      matches: day.matches.map((match) => {
+        const draft = quickScoreDrafts[match.id];
+        if (!draft) return match;
+        const home = Number.parseInt(draft.home, 10);
+        const away = Number.parseInt(draft.away, 10);
+        if (!Number.isFinite(home) || !Number.isFinite(away)) {
+          return match;
+        }
+        const nextMatch: ChampionshipMatch = {
+          ...match,
+          score: `${home} - ${away}`,
+          status: "finished" as MatchStatus,
+          homeTeam:
+            match.homeTeam ??
+            (match.homeAway === "home"
+              ? teamDisplayName
+              : match.opponent),
+          awayTeam:
+            match.awayTeam ??
+            (match.homeAway === "home"
+              ? match.opponent
+              : teamDisplayName),
+        };
+        return nextMatch;
+      }),
+    }));
+    setDays(nextDays);
+    await persistChampionship(championship, nextDays);
+    setQuickScoreOpen(false);
+  };
+
+  const adjustStat = (
+    setter: (
+      value:
+        | Record<string, number>
+        | ((prev: Record<string, number>) => Record<string, number>),
+    ) => void,
+    playerId: string,
+    delta: number,
+  ) => {
+    setter((prev) => {
+      const next = { ...prev };
+      const nextValue = (next[playerId] ?? 0) + delta;
+      if (nextValue <= 0) {
+        delete next[playerId];
+        return next;
+      }
+      next[playerId] = nextValue;
+      return next;
+    });
+  };
+
+  const addStat = (
+    setter: (
+      value:
+        | Record<string, number>
+        | ((prev: Record<string, number>) => Record<string, number>),
+    ) => void,
+    playerId: string,
+  ) => {
+    adjustStat(setter, playerId, 1);
+  };
+
+  const toggleStatSelection = (
+    setter: (
+      value:
+        | Record<string, number>
+        | ((prev: Record<string, number>) => Record<string, number>),
+    ) => void,
+    playerId: string,
+  ) => {
+    setter((prev) => {
+      if (prev[playerId]) {
+        const next = { ...prev };
+        delete next[playerId];
+        return next;
+      }
+      return { ...prev, [playerId]: 1 };
+    });
+  };
+
+  const toggleSelection = (
+    setter: (
+      value:
+        | Record<string, boolean>
+        | ((prev: Record<string, boolean>) => Record<string, boolean>),
+    ) => void,
+    playerId: string,
+  ) => {
+    setter((prev) => {
+      if (prev[playerId]) {
+        const next = { ...prev };
+        delete next[playerId];
+        return next;
+      }
+      return { ...prev, [playerId]: true };
+    });
+  };
+
+  const buildMatchDraftFromStored = (
+    match: ChampionshipMatch,
+  ): DayMatchDraft => {
+    const homeTeam =
+      match.homeTeam ??
+      (match.homeAway === "home"
+        ? teamDisplayName
+        : match.opponent);
+    const awayTeam =
+      match.awayTeam ??
+      (match.homeAway === "home"
+        ? match.opponent
+        : teamDisplayName);
+    return {
+      id: match.id ?? buildId(),
+      homeTeam: homeTeam || "",
+      awayTeam: awayTeam || "",
+      time: match.time || "18:00",
+    };
+  };
+
+  const getDateKey = (value: string) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    const year = parsed.getFullYear();
+    const month = `${parsed.getMonth() + 1}`.padStart(2, "0");
+    const day = `${parsed.getDate()}`.padStart(2, "0");
+    return `${year}-${month}-${day}`;
   };
 
   const getTeamInitials = (name: string) => {
@@ -645,6 +1301,53 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     return label.slice(0, 2).toUpperCase();
   };
 
+  const resolveMatchStatus = (match: ChampionshipMatch): MatchStatus => {
+    if (match.status) return match.status;
+    return match.score ? "finished" : "draft";
+  };
+
+  const normalizeFieldLabel = (value: string | null | undefined) => {
+    return (value ?? "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/\s+/g, "");
+  };
+
+  const upsertStatField = (
+    fields: PlayerCustomField[],
+    label: string,
+    value: number,
+  ) => {
+    const normalized = normalizeFieldLabel(label);
+    const nextFields = [...fields];
+    const existingIndex = nextFields.findIndex(
+      (field) => normalizeFieldLabel(field.label) === normalized,
+    );
+    if (existingIndex >= 0) {
+      const existing = nextFields[existingIndex];
+      nextFields[existingIndex] = {
+        ...existing,
+        label: existing.label ?? label,
+        type: existing.type ?? "number",
+        value: String(value),
+        active: existing.active !== false,
+      };
+      return nextFields;
+    }
+    return [
+      ...nextFields,
+      {
+        id: buildId(),
+        label,
+        type: "number",
+        value: String(value),
+        order: nextFields.length + 1,
+        active: true,
+      },
+    ];
+  };
+
   const championshipSubtitle = useMemo(() => {
     const category = teamInfo.category ?? teamInfo.name ?? "U12";
     const levelValue = normalizeLevelValue(teamInfo.level);
@@ -654,22 +1357,102 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     return subtitle.toUpperCase();
   }, [teamInfo]);
 
-  const provisionalRanking = useMemo(() => {
+  const computedRanking = useMemo(() => {
     if (!championship) return [];
-    return championship.teams.map((team, index) => ({
-      rank: index + 1,
-      name: team.name,
-      played: 0,
-      wins: 0,
-      draws: 0,
-      losses: 0,
-      goalsFor: 0,
-      goalsAgainst: 0,
-      goalDiff: 0,
-      points: 0,
-      initials: getTeamInitials(team.name),
+    type RankingRow = {
+      name: string;
+      played: number;
+      wins: number;
+      draws: number;
+      losses: number;
+      goalsFor: number;
+      goalsAgainst: number;
+      goalDiff: number;
+      points: number;
+      initials: string;
+      rank: number;
+    };
+    const normalizeTeamName = (value: string) =>
+      value.trim().toLowerCase();
+    const rows = new Map<string, RankingRow>();
+    const ensureRow = (name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) return null;
+      const key = normalizeTeamName(trimmed);
+      if (rows.has(key)) return rows.get(key) ?? null;
+      const row: RankingRow = {
+        name: trimmed,
+        played: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDiff: 0,
+        points: 0,
+        initials: getTeamInitials(trimmed),
+        rank: 0,
+      };
+      rows.set(key, row);
+      return row;
+    };
+    championship.teams.forEach((team) => {
+      ensureRow(team.name);
+    });
+    days.forEach((day) => {
+      day.matches.forEach((match) => {
+        if (resolveMatchStatus(match) !== "finished") return;
+        const parsed = parseScore(match.score);
+        if (!parsed) return;
+        const homeTeam =
+          match.homeTeam ??
+          (match.homeAway === "home" ? teamDisplayName : match.opponent);
+        const awayTeam =
+          match.awayTeam ??
+          (match.homeAway === "home" ? match.opponent : teamDisplayName);
+        if (!homeTeam || !awayTeam) return;
+        const homeRow = ensureRow(homeTeam);
+        const awayRow = ensureRow(awayTeam);
+        if (!homeRow || !awayRow) return;
+        homeRow.played += 1;
+        awayRow.played += 1;
+        homeRow.goalsFor += parsed.home;
+        homeRow.goalsAgainst += parsed.away;
+        awayRow.goalsFor += parsed.away;
+        awayRow.goalsAgainst += parsed.home;
+        if (parsed.home > parsed.away) {
+          homeRow.wins += 1;
+          awayRow.losses += 1;
+          homeRow.points += 3;
+        } else if (parsed.home < parsed.away) {
+          awayRow.wins += 1;
+          homeRow.losses += 1;
+          awayRow.points += 3;
+        } else {
+          homeRow.draws += 1;
+          awayRow.draws += 1;
+          homeRow.points += 1;
+          awayRow.points += 1;
+        }
+      });
+    });
+    const ranking = Array.from(rows.values()).map((row) => ({
+      ...row,
+      goalDiff: row.goalsFor - row.goalsAgainst,
     }));
-  }, [championship]);
+    ranking.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.goalDiff !== a.goalDiff) return b.goalDiff - a.goalDiff;
+      if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+      return a.name.localeCompare(b.name, "fr", {
+        sensitivity: "base",
+      });
+    });
+    return ranking.map((row, index) => ({
+      ...row,
+      rank: index + 1,
+    }));
+  }, [championship, days, parseScore, resolveMatchStatus, teamDisplayName]);
 
   const seasonLabel = useMemo(() => {
     return championship?.season
@@ -713,21 +1496,26 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
 
   const resultsDays = useMemo(() => {
     if (!days.length) return [];
-    if (resultsFilter !== "mine") return days;
-    return filterDaysForLocalTeam(days);
+    const now = new Date();
+    const pastDays = days.filter(
+      (day) => new Date(day.date) < now,
+    );
+    if (resultsFilter !== "mine") return pastDays;
+    return filterDaysForLocalTeam(pastDays);
   }, [days, resultsFilter, localTeamNames]);
 
-  const demoResultsDays = useMemo(() => {
+  const demoResultsDays = useMemo<ChampionshipDay[]>(() => {
     if (!championship) return [];
     const today = new Date();
     const firstDay = new Date(today);
     firstDay.setDate(firstDay.getDate() - 7);
     const secondDay = new Date(today);
+    secondDay.setDate(secondDay.getDate() - 1);
     const teamA = championship.teams[0]?.name ?? "Équipe A";
     const teamB = championship.teams[1]?.name ?? "Équipe B";
     const teamC = championship.teams[2]?.name ?? "Équipe C";
     const teamD = championship.teams[3]?.name ?? "Équipe D";
-    const demoDays = [
+    const demoDays: ChampionshipDay[] = [
       {
         id: "demo-day-2",
         name: "Journée 2",
@@ -735,7 +1523,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         matches: [
           {
             id: "demo-m-2",
-            homeAway: "home",
+            homeAway: "home" as const,
             opponent: teamB,
             date: secondDay.toISOString(),
             time: "18:00",
@@ -745,7 +1533,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
           },
           {
             id: "demo-m-3",
-            homeAway: "away",
+            homeAway: "away" as const,
             opponent: teamC,
             date: secondDay.toISOString(),
             time: "19:15",
@@ -755,7 +1543,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
           },
           {
             id: "demo-m-4",
-            homeAway: "home",
+            homeAway: "home" as const,
             opponent: teamD,
             date: secondDay.toISOString(),
             time: "20:30",
@@ -772,7 +1560,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         matches: [
           {
             id: "demo-m-1",
-            homeAway: "home",
+            homeAway: "home" as const,
             opponent: teamC,
             date: firstDay.toISOString(),
             time: "17:30",
@@ -782,7 +1570,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
           },
           {
             id: "demo-m-5",
-            homeAway: "away",
+            homeAway: "away" as const,
             opponent: teamB,
             date: firstDay.toISOString(),
             time: "18:45",
@@ -805,6 +1593,126 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   }, [displayResultsDays]);
   const latestResultsDay = sortedResultsDays[0];
   const otherResultsDays = sortedResultsDays.slice(1);
+  const { upcomingCalendarDays, pastCalendarDays } = useMemo(() => {
+    const now = new Date();
+    const upcoming: Array<{ day: ChampionshipDay; earliest: Date }> = [];
+    const past: Array<{ day: ChampionshipDay; latest: Date }> = [];
+    days.forEach((day) => {
+      const matchDates = day.matches
+        .map((match) => buildMatchDateTime(day.date, match.time))
+        .filter((value): value is Date => Boolean(value));
+      if (matchDates.length === 0) {
+        const fallback = buildMatchDateTime(day.date);
+        if (fallback) {
+          matchDates.push(fallback);
+        }
+      }
+      if (matchDates.length === 0) return;
+      const earliest = new Date(
+        Math.min(...matchDates.map((date) => date.getTime())),
+      );
+      const latest = new Date(
+        Math.max(...matchDates.map((date) => date.getTime())),
+      );
+      if (latest.getTime() >= now.getTime()) {
+        upcoming.push({ day, earliest });
+      } else {
+        past.push({ day, latest });
+      }
+    });
+    upcoming.sort(
+      (a, b) => a.earliest.getTime() - b.earliest.getTime(),
+    );
+    past.sort((a, b) => b.latest.getTime() - a.latest.getTime());
+    return {
+      upcomingCalendarDays: upcoming.map((item) => item.day),
+      pastCalendarDays: past.map((item) => item.day),
+    };
+  }, [days]);
+
+  const nextCalendarMatch = useMemo<NextCalendarMatch | null>(() => {
+    const now = new Date();
+    let next: NextCalendarMatch | null = null;
+    upcomingCalendarDays.forEach((day) => {
+      day.matches.forEach((match) => {
+        const matchDate = buildMatchDateTime(day.date, match.time);
+        if (!matchDate || matchDate.getTime() < now.getTime()) return;
+        if (!next || matchDate.getTime() < next.matchDate.getTime()) {
+          next = { match, day, matchDate };
+        }
+      });
+    });
+    return next;
+  }, [upcomingCalendarDays]);
+
+  const renderNextCalendarMatchCard = (nextMatch: NextCalendarMatch) => {
+    const { match, day } = nextMatch;
+    const homeTeam =
+      match.homeTeam ??
+      (match.homeAway === "home" ? teamDisplayName : match.opponent);
+    const awayTeam =
+      match.awayTeam ??
+      (match.homeAway === "home" ? match.opponent : teamDisplayName);
+    const isFinished = resolveMatchStatus(match) === "finished";
+
+    return (
+      <div className="relative rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3 py-4 shadow-[0_0_24px_rgba(124,58,237,0.35)] backdrop-blur-sm">
+        <button
+          key={match.id}
+          type="button"
+          onClick={() =>
+            openMatchDetails({
+              match,
+              dayName: day.name,
+              dayDate: day.date,
+              source: "calendar",
+              homeTeam,
+              awayTeam,
+            })
+          }
+          className="relative w-full rounded-2xl px-6 text-left transition hover:scale-[1.01] hover:shadow-[0_0_32px_rgba(168,85,247,0.4)] active:scale-[1.01] active:shadow-[0_0_44px_rgba(168,85,247,0.85)] focus:outline-none focus-visible:outline-none"
+        >
+          {isFinished ? (
+            <span className="absolute right-4 top-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[9px] uppercase tracking-[0.2em] text-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+              Match terminé
+            </span>
+          ) : null}
+          <div className="flex items-center justify-between gap-4 text-violet-100/80">
+            <div className="flex min-w-0 flex-1 justify-end pr-2">
+              <span className="max-w-[170px] text-right text-sm font-semibold leading-tight text-violet-100/90">
+                {homeTeam}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {renderTeamBadge(homeTeam, {
+                image: "h-9 w-9 rounded-full object-cover",
+                initial:
+                  "flex h-9 w-9 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+              })}
+              <div className="flex flex-col items-center text-[10px] uppercase tracking-[0.3em] text-violet-200/70">
+                <img
+                  src="/icons/VS2.0.png"
+                  alt="VS"
+                  className="h-12 w-auto opacity-90"
+                />
+              </div>
+              {renderTeamBadge(awayTeam, {
+                image: "h-9 w-9 rounded-full object-cover",
+                initial:
+                  "flex h-9 w-9 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+              })}
+            </div>
+            <div className="flex min-w-0 flex-1 justify-start pl-2">
+              <span className="max-w-[170px] text-left text-sm font-semibold leading-tight text-violet-100/90">
+                {awayTeam}
+              </span>
+            </div>
+          </div>
+        </button>
+      </div>
+    );
+  };
 
   const teamOptions = useMemo(() => {
     if (championship?.teams?.length) {
@@ -815,15 +1723,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     }
     return teamDisplayName ? [teamDisplayName] : [];
   }, [championship, draft, teamDisplayName]);
-
-  const isLocalTeamName = (name: string) => {
-    const normalized = name.trim().toLowerCase();
-    if (!normalized) return false;
-    return (
-      normalized === teamDisplayName.trim().toLowerCase() ||
-      normalized === teamLabel.trim().toLowerCase()
-    );
-  };
 
   const renderTeamBadge = (
     name: string,
@@ -844,14 +1743,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       </span>
     );
   };
-
-  const defaultOpponent = useMemo(() => {
-    return (
-      teamOptions.find((team) => team !== teamDisplayName) ??
-      teamOptions[0] ??
-      ""
-    );
-  }, [teamOptions, teamDisplayName]);
 
   const canCreate = Boolean(draft?.name?.trim()) && (draft?.teams.length ?? 0) >= 2;
   const canSaveSettings =
@@ -921,6 +1812,139 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     container.scrollBy({ left: offset, behavior: "smooth" });
   };
 
+  const scrollCalendarDay = (dayId: string, direction: "left" | "right") => {
+    const container = calendarDayRefs.current[dayId];
+    if (!container) return;
+    const firstCard = container.firstElementChild as HTMLElement | null;
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 320;
+    const gap = 12;
+    const offset = (cardWidth + gap) * (direction === "left" ? -1 : 1);
+    container.scrollBy({ left: offset, behavior: "smooth" });
+  };
+
+  const openMatchDetails = (details: MatchDetails) => {
+    setMatchDetails(details);
+  };
+
+  const closeMatchDetails = () => {
+    setMatchDetails(null);
+  };
+
+  const renderCalendarDayList = (daysList: ChampionshipDay[]) => {
+    return (
+      <div className="space-y-5">
+        {daysList.map((day) => (
+          <div key={day.id} className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-violet-200/70">
+              <span className="uppercase tracking-[0.2em]">
+                {day.name}
+              </span>
+              <span>{formatShortDate(day.date)}</span>
+            </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => scrollCalendarDay(day.id, "left")}
+                className="absolute -left-8 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-violet-300/30 bg-black/30 text-violet-100/80 transition hover:bg-black/60"
+                aria-label="Match précédent"
+              >
+                <span className="relative -top-px text-sm leading-none">
+                  ‹
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollCalendarDay(day.id, "right")}
+                className="absolute -right-8 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-violet-300/30 bg-black/30 text-violet-100/80 transition hover:bg-black/60"
+                aria-label="Match suivant"
+              >
+                <span className="relative -top-px text-sm leading-none">
+                  ›
+                </span>
+              </button>
+              <div
+                ref={(el) => {
+                  calendarDayRefs.current[day.id] = el;
+                }}
+                className="results-scroll flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1"
+              >
+                {day.matches.map((match) => {
+                  const homeTeam =
+                    match.homeTeam ??
+                    (match.homeAway === "home"
+                      ? teamDisplayName
+                      : match.opponent);
+                  const awayTeam =
+                    match.awayTeam ??
+                    (match.homeAway === "home"
+                      ? match.opponent
+                      : teamDisplayName);
+                  const isFinished =
+                    resolveMatchStatus(match) === "finished";
+                  return (
+                    <button
+                      key={match.id}
+                      type="button"
+                      onClick={() =>
+                        openMatchDetails({
+                          match,
+                          dayName: day.name,
+                          dayDate: day.date,
+                          source: "calendar",
+                          homeTeam,
+                          awayTeam,
+                        })
+                      }
+                      className="relative min-w-full snap-center rounded-2xl px-6 text-left transition hover:scale-[1.01] hover:shadow-[0_0_28px_rgba(168,85,247,0.35)] active:scale-[1.01] active:shadow-[0_0_44px_rgba(168,85,247,0.85)] focus:outline-none focus-visible:outline-none"
+                    >
+                      {isFinished ? (
+                        <span className="absolute right-4 top-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[9px] uppercase tracking-[0.2em] text-emerald-200">
+                          <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                          Match terminé
+                        </span>
+                      ) : null}
+                      <div className="flex items-center justify-between gap-4 text-violet-100/70">
+                        <div className="flex min-w-0 flex-1 justify-end pr-2">
+                          <span className="max-w-[150px] text-right text-[11px] font-normal leading-tight text-violet-100/80">
+                            {homeTeam}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {renderTeamBadge(homeTeam, {
+                            image: "h-6 w-6 rounded-full object-cover",
+                            initial:
+                              "flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                          })}
+                          <div className="flex flex-col items-center text-[10px] uppercase tracking-[0.3em] text-violet-200/70">
+                            <img
+                              src="/icons/VS2.0.png"
+                              alt="VS"
+                              className="h-12 w-auto opacity-85"
+                            />
+                          </div>
+                          {renderTeamBadge(awayTeam, {
+                            image: "h-6 w-6 rounded-full object-cover",
+                            initial:
+                              "flex h-6 w-6 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-[9px] font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                          })}
+                        </div>
+                        <div className="flex min-w-0 flex-1 justify-start pl-2">
+                          <span className="max-w-[150px] text-left text-[11px] font-normal leading-tight text-violet-100/80">
+                            {awayTeam}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const persistChampionship = async (
     nextChampionship: ChampionshipUI,
     nextDays: ChampionshipDay[],
@@ -931,6 +1955,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       data: {
         championship: nextChampionship,
         days: nextDays,
+        dayPhase,
       },
       updated_at: new Date().toISOString(),
     };
@@ -1109,26 +2134,54 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     setDraft({ ...draft, pool: pouleOptions[nextIndex] });
   };
 
-  const openDayWizard = () => {
-    if (!championship) return;
+  const getDefaultMatchTeams = () => {
+    const homeTeam = teamOptions[0] ?? "";
+    const awayTeam =
+      teamOptions.find((team) => team !== homeTeam) ?? "";
+    return { homeTeam, awayTeam };
+  };
+
+  const startNewDay = () => {
+    const { homeTeam, awayTeam } = getDefaultMatchTeams();
     setDayDate(new Date());
+    setDayLeg("aller");
+    setEditingDayId(null);
     setDayMatches([
       {
         id: buildId(),
-        homeAway: "home",
-        opponent: defaultOpponent,
-        opponentId: null,
-        opponentSource: defaultOpponent ? "pool" : "custom",
+        homeTeam,
+        awayTeam,
+        time: "18:00",
       },
     ]);
+    setDayWizardStep(2);
+  };
+
+  const openDayWizard = () => {
+    if (!championship) return;
+    setDayLeg("aller");
+    setDayMatches([]);
     setDayWizardStep(1);
     setDayWizardOpen(true);
+    setEditingDayId(null);
+  };
+
+  const openEditDay = (day: ChampionshipDay) => {
+    if (!championship) return;
+    setDayDate(new Date(day.date));
+    setDayLeg("aller");
+    setDayMatches(day.matches.map(buildMatchDraftFromStored));
+    setDayWizardStep(2);
+    setDayWizardOpen(true);
+    setEditingDayId(day.id);
   };
 
   const closeDayWizard = () => {
     setDayWizardOpen(false);
     setDayWizardStep(1);
     setDayMatches([]);
+    setTimePickerMatchId(null);
+    setEditingDayId(null);
   };
 
   const shiftDayDate = (delta: number) => {
@@ -1145,6 +2198,32 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     const day = `${dayDate.getDate()}`.padStart(2, "0");
     return `${year}-${month}-${day}`;
   }, [dayDate]);
+
+  const editingDay = useMemo(() => {
+    if (!editingDayId) return null;
+    return days.find((day) => day.id === editingDayId) ?? null;
+  }, [days, editingDayId]);
+
+  const hasDayChanges = useMemo(() => {
+    if (!editingDayId) return true;
+    if (!editingDay) return true;
+    if (getDateKey(editingDay.date) !== dayInputValue) return true;
+    if (editingDay.matches.length !== dayMatches.length) return true;
+    for (let i = 0; i < dayMatches.length; i += 1) {
+      const draft = dayMatches[i];
+      const stored = editingDay.matches[i];
+      if (!stored) return true;
+      const storedDraft = buildMatchDraftFromStored(stored);
+      if (
+        storedDraft.homeTeam.trim() !== draft.homeTeam.trim() ||
+        storedDraft.awayTeam.trim() !== draft.awayTeam.trim() ||
+        storedDraft.time.trim() !== draft.time.trim()
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }, [dayInputValue, dayMatches, editingDay, editingDayId]);
 
 const handlePickDay = () => {
   // on sort la ref dans une constante bien typée
@@ -1164,14 +2243,14 @@ const handlePickDay = () => {
 };
 
   const addMatchDraft = () => {
+    const { homeTeam, awayTeam } = getDefaultMatchTeams();
     setDayMatches((prev) => [
       ...prev,
       {
         id: buildId(),
-        homeAway: "home",
-        opponent: defaultOpponent,
-        opponentId: null,
-        opponentSource: defaultOpponent ? "pool" : "custom",
+        homeTeam,
+        awayTeam,
+        time: "18:00",
       },
     ]);
   };
@@ -1187,32 +2266,101 @@ const handlePickDay = () => {
     );
   };
 
+  const adjustMatchTime = (matchId: string, deltaMinutes: number) => {
+    setDayMatches((prev) =>
+      prev.map((match) => {
+        if (match.id !== matchId) return match;
+        const [hours, minutes] = (match.time || "18:00")
+          .split(":")
+          .map((value) => Number(value));
+        const currentTotal =
+          ((Number.isNaN(hours) ? 18 : hours) * 60) +
+          (Number.isNaN(minutes) ? 0 : minutes);
+        let nextTotal = currentTotal + deltaMinutes;
+        if (nextTotal < 0) nextTotal += 24 * 60;
+        if (nextTotal >= 24 * 60) nextTotal -= 24 * 60;
+        const nextHours = Math.floor(nextTotal / 60);
+        const nextMinutes = nextTotal % 60;
+        return {
+          ...match,
+          time: `${String(nextHours).padStart(2, "0")}:${String(
+            nextMinutes,
+          ).padStart(2, "0")}`,
+        };
+      }),
+    );
+  };
+
   const canValidateDay =
     dayMatches.length > 0 &&
-    dayMatches.every((match) => match.opponent.trim().length > 0);
+    dayMatches.every((match) => {
+      const home = match.homeTeam.trim();
+      const away = match.awayTeam.trim();
+      return home.length > 0 && away.length > 0 && home !== away;
+    });
 
   const handleValidateDay = async () => {
     if (!championship || !canValidateDay) return;
+    const existingDay = editingDayId
+      ? days.find((day) => day.id === editingDayId)
+      : null;
     const nextDay: ChampionshipDay = {
-      id: buildId(),
-      name: `Journée ${days.length + 1}`,
+      id: existingDay?.id ?? buildId(),
+      name: existingDay?.name ?? `Journée ${days.length + 1}`,
       date: dayDate.toISOString(),
       matches: dayMatches.map((match) => {
-        const opponentName = match.opponent || "Adversaire";
-        const isHome = match.homeAway === "home";
+        const isLocalHome = isLocalTeamName(match.homeTeam);
+        const isLocalAway = isLocalTeamName(match.awayTeam);
+        const opponentName = isLocalHome
+          ? match.awayTeam
+          : isLocalAway
+          ? match.homeTeam
+          : match.awayTeam || "Adversaire";
+        const homeAway = isLocalHome
+          ? "home"
+          : isLocalAway
+          ? "away"
+          : "home";
         return {
           id: buildId(),
-          homeAway: match.homeAway,
+          homeAway,
           opponent: opponentName,
           date: dayDate.toISOString(),
-          time: "18:00",
+          time: match.time || "18:00",
+          status: "draft",
+          homeTeam: match.homeTeam,
+          awayTeam: match.awayTeam,
         };
       }),
     };
-    const nextDays = [...days, nextDay];
+    const nextDays = editingDayId
+      ? days.map((day) => (day.id === editingDayId ? nextDay : day))
+      : [...days, nextDay];
     setDays(nextDays);
     await persistChampionship(championship, nextDays);
-    closeDayWizard();
+    setDayMatches([]);
+    setDayWizardStep(1);
+    setTimePickerMatchId(null);
+    setEditingDayId(null);
+  };
+
+  const handleDeleteDay = async (dayId: string) => {
+    if (!championship) return;
+    const nextDays = days.filter((day) => day.id !== dayId);
+    setDays(nextDays);
+    await persistChampionship(championship, nextDays);
+      if (editingDayId === dayId) {
+        setEditingDayId(null);
+        setDayWizardStep(1);
+    }
+  };
+
+  const handleDeleteAllDays = async () => {
+    if (!championship) return;
+    setDays([]);
+    await persistChampionship(championship, []);
+    setEditingDayId(null);
+    setDayWizardStep(1);
   };
 
   return (
@@ -1356,6 +2504,33 @@ const handlePickDay = () => {
                 </svg>
                 Résultats
               </button>
+              <button
+                type="button"
+                onClick={() => setWidgetTab("calendar")}
+                className={[
+                  "flex items-center rounded-full px-4 py-2 text-xs font-semibold transition backdrop-blur-sm",
+                  widgetTab === "calendar"
+                    ? "border border-[#7c3aed]/40 bg-[#7c3aed]/15 text-white shadow-[inset_0_0_12px_rgba(124,58,237,0.35)]"
+                    : "border border-white/15 bg-transparent text-slate-300 hover:border-white/25 hover:text-slate-100",
+                ].join(" ")}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  className="mr-2 h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="5" width="18" height="16" rx="2" />
+                  <path d="M16 3v4" />
+                  <path d="M8 3v4" />
+                  <path d="M3 11h18" />
+                </svg>
+                Calendrier
+              </button>
             </div>
 
             <div className="relative mt-6">
@@ -1445,35 +2620,40 @@ const handlePickDay = () => {
             <div className="mt-6 border-t border-white/20 pt-4">
               {widgetTab === "ranking" ? (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between rounded-xl border-l-2 border-violet-400/60 bg-violet-500/5 px-3 py-2">
-                    <p className="text-[11px] uppercase tracking-[0.3em] text-violet-300">
+                  <div className="flex items-center justify-center rounded-xl border-l-2 border-violet-400/60 bg-violet-500/5 px-3 py-2">
+                    <p className="text-[13px] font-semibold uppercase tracking-[0.3em] text-violet-200">
                       Classement
                     </p>
-                    <span className="rounded-full border border-violet-400/30 bg-violet-500/10 px-2.5 py-1 text-[10px] text-violet-200">
-                      Provisoire
-                    </span>
                   </div>
                   <div className="rounded-2xl p-4">
-                    <div className="grid grid-cols-[22px_1fr_repeat(8,auto)] items-center gap-x-2 text-[10px] uppercase tracking-[0.24em] text-violet-200/60">
-                      <span>#</span>
-                      <span>Équipe</span>
-                      <span className="text-right">MJ</span>
-                      <span className="text-right">V</span>
-                      <span className="text-right">N</span>
-                      <span className="text-right">D</span>
-                      <span className="text-right">Pts</span>
-                      <span className="hidden text-right sm:inline">BP</span>
-                      <span className="hidden text-right sm:inline">BC</span>
-                      <span className="hidden text-right sm:inline">Diff</span>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      {provisionalRanking.map((row) => (
-                        <div
-                          key={row.name}
-                          className="grid grid-cols-[22px_1fr_repeat(8,auto)] items-center gap-x-2 rounded-xl px-3 py-2 text-xs text-violet-100/80"
-                        >
-                          <span className="text-violet-200/50 tabular-nums">
-                            {row.rank}
+                    <div>
+                      <div className="grid grid-cols-[32px_minmax(0,1fr)_40px_32px_32px_32px_32px] items-center gap-x-3 px-3 text-[10px] font-semibold uppercase tracking-[0.24em] text-violet-200/60 sm:grid-cols-[32px_minmax(0,1fr)_40px_32px_32px_32px_32px_36px_36px_46px]">
+                        <span>#</span>
+                        <span>Équipe</span>
+                        <span className="text-center">Pts</span>
+                        <span className="text-center">MJ</span>
+                        <span className="text-center">V</span>
+                        <span className="text-center">N</span>
+                        <span className="text-center">D</span>
+                        <span className="hidden text-center sm:inline">BP</span>
+                        <span className="hidden text-center sm:inline">BC</span>
+                        <span className="hidden text-center sm:inline">Diff</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {computedRanking.map((row) => (
+                          <div
+                            key={row.name}
+                            className="grid grid-cols-[32px_minmax(0,1fr)_40px_32px_32px_32px_32px] items-center gap-x-3 rounded-xl px-3 py-2 text-xs text-violet-100/80 sm:grid-cols-[32px_minmax(0,1fr)_40px_32px_32px_32px_32px_36px_36px_46px]"
+                          >
+                          <span className="relative flex items-center justify-center text-violet-200/50 tabular-nums">
+                            {row.rank === 1 ? (
+                              <img
+                                src="/icons/COUPE1.png"
+                                alt="Leader"
+                                className="absolute -left-2 h-6 w-6 object-contain"
+                              />
+                            ) : null}
+                            <span>{row.rank}</span>
                           </span>
                           <div className="flex min-w-0 items-center gap-2">
                             {renderTeamBadge(row.name, {
@@ -1485,33 +2665,43 @@ const handlePickDay = () => {
                               {row.name}
                             </span>
                           </div>
-                          <span className="text-right tabular-nums">
-                            {row.played}
-                          </span>
-                          <span className="text-right tabular-nums">
-                            {row.wins}
-                          </span>
-                          <span className="text-right tabular-nums">
-                            {row.draws}
-                          </span>
-                          <span className="text-right tabular-nums">
-                            {row.losses}
-                          </span>
-                          <span className="text-right font-semibold text-violet-100 tabular-nums">
+                          <span className="text-center text-[13px] font-semibold text-white tabular-nums">
                             {row.points}
                           </span>
-                          <span className="hidden text-right tabular-nums sm:inline">
+                          <span className="text-center text-[11px] text-violet-200/60 tabular-nums">
+                            {row.played}
+                          </span>
+                          <span className="text-center text-[11px] text-violet-200/60 tabular-nums">
+                            {row.wins}
+                          </span>
+                          <span className="text-center text-[11px] text-violet-200/60 tabular-nums">
+                            {row.draws}
+                          </span>
+                          <span className="text-center text-[11px] text-violet-200/60 tabular-nums">
+                            {row.losses}
+                          </span>
+                          <span className="hidden text-center text-[11px] text-violet-200/60 tabular-nums sm:inline">
                             {row.goalsFor}
                           </span>
-                          <span className="hidden text-right tabular-nums sm:inline">
+                          <span className="hidden text-center text-[11px] text-violet-200/60 tabular-nums sm:inline">
                             {row.goalsAgainst}
                           </span>
-                          <span className="hidden text-right tabular-nums sm:inline">
-                            {row.goalDiff}
+                          <span className="hidden text-center sm:inline">
+                            <span
+                              className={[
+                                "inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                row.goalDiff < 0
+                                  ? "bg-white/20 text-slate-100 shadow-[0_0_10px_rgba(255,255,255,0.2)]"
+                                  : "bg-violet-400/25 text-white shadow-[0_0_12px_rgba(139,92,246,0.35)]",
+                              ].join(" ")}
+                            >
+                              {row.goalDiff}
+                            </span>
                           </span>
-                        </div>
-                      ))}
-                      <div className="mt-3 h-px w-full bg-gradient-to-r from-transparent via-white/50 to-transparent shadow-[0_0_6px_rgba(255,255,255,0.35)]" />
+                          </div>
+                        ))}
+                        <div className="mt-3 h-px w-full bg-gradient-to-r from-transparent via-white/50 to-transparent shadow-[0_0_6px_rgba(255,255,255,0.35)]" />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1650,15 +2840,34 @@ const handlePickDay = () => {
                                           "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.55)]",
                                       }
                                   : null;
+                                const isFinished =
+                                  resolveMatchStatus(match) === "finished";
                                   return (
-                                    <div
+                                    <button
                                       key={match.id}
-                                      className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-white/80 sm:px-6"
+                                      type="button"
+                                      onClick={() =>
+                                        openMatchDetails({
+                                          match,
+                                          dayName: latestResultsDay.name,
+                                          dayDate: latestResultsDay.date,
+                                          source: "results",
+                                          homeTeam,
+                                          awayTeam,
+                                        })
+                                      }
+                                      className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-left text-white/80 transition hover:scale-[1.01] hover:shadow-[0_0_36px_rgba(168,85,247,0.55)] active:scale-[1.01] active:shadow-[0_0_44px_rgba(168,85,247,0.85)] sm:px-6"
                                     >
                                     <div className="flex items-center justify-between text-[clamp(9px,1.2vw,10px)] text-white/60">
                                       <span>{match.time || "--:--"}</span>
                                       <span />
                                     </div>
+                                    {isFinished ? (
+                                      <span className="absolute right-4 top-2 inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[9px] uppercase tracking-[0.2em] text-emerald-200">
+                                        <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]" />
+                                        Match terminé
+                                      </span>
+                                    ) : null}
                                     <div className="relative mt-2 grid grid-cols-[minmax(0,1fr)_clamp(96px,14vw,140px)_minmax(0,1fr)] items-center gap-2 text-[clamp(12px,1.4vw,13px)] text-white/85 sm:gap-3">
                                       <div className="flex min-w-0 items-center justify-end pl-2 pr-[clamp(32px,5vw,48px)] text-right">
                                         <span
@@ -1759,7 +2968,7 @@ const handlePickDay = () => {
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
+                                  </button>
                                 );
                               })}
                               </div>
@@ -1768,6 +2977,22 @@ const handlePickDay = () => {
                         </div>
                       ) : null}
                     </div>
+                  )}
+                </div>
+              ) : null}
+              {widgetTab === "calendar" ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-center rounded-xl border-l-2 border-violet-400/60 bg-violet-500/5 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-violet-200">
+                      Prochain match
+                    </p>
+                  </div>
+                  {nextCalendarMatch ? (
+                    renderNextCalendarMatchCard(nextCalendarMatch)
+                  ) : (
+                    <p className="text-sm text-white/60">
+                      Pas encore planifié.
+                    </p>
                   )}
                 </div>
               ) : null}
@@ -1946,9 +3171,20 @@ const handlePickDay = () => {
                             }
                         : null;
                         return (
-                          <div
+                          <button
                             key={match.id}
-                            className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-white/80 sm:px-6"
+                            type="button"
+                            onClick={() =>
+                              openMatchDetails({
+                                match,
+                                dayName: day.name,
+                                dayDate: day.date,
+                                source: "results",
+                                homeTeam,
+                                awayTeam,
+                              })
+                            }
+                            className="relative w-full min-w-full shrink-0 snap-start rounded-xl px-4 py-2 text-left text-white/80 transition hover:scale-[1.01] hover:shadow-[0_0_36px_rgba(168,85,247,0.55)] active:scale-[1.01] active:shadow-[0_0_44px_rgba(168,85,247,0.85)] sm:px-6"
                           >
                             <div className="flex items-center justify-between text-[clamp(9px,1.2vw,10px)] text-white/60">
                               <span>{match.time || "--:--"}</span>
@@ -2054,7 +3290,7 @@ const handlePickDay = () => {
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          </button>
                         );
                       })}
                       </div>
@@ -2069,61 +3305,911 @@ const handlePickDay = () => {
       ) : null}
 
 
-      {championship && (
-        <div className="rounded-3xl border border-white/10 bg-black/30 p-5">
-          {days.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 text-sm text-slate-400">
-              <p>
-                Aucune journée créée. Clique sur “Ajouter une journée” pour
-                commencer.
+      {championship && widgetTab === "calendar" ? (
+        <div className="w-full rounded-2xl p-4">
+          <div className="flex flex-col gap-2">
+            <div className="relative flex items-center justify-center gap-3">
+              <div className="absolute left-0 flex items-center">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuickScoreMenuOpen((prev) => !prev)
+                    }
+                    className="flex h-8 w-8 items-center justify-center text-white/70 transition hover:text-white"
+                    aria-label="Actions calendrier"
+                  >
+                    ☰
+                  </button>
+                  {quickScoreMenuOpen ? (
+                    <div className="absolute left-0 z-20 mt-2 w-40 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e1a] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQuickScoreMenuOpen(false);
+                          setQuickScoreOpen(true);
+                        }}
+                        className="w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-white/80 transition hover:bg-white/5"
+                      >
+                        Score rapide
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <span className="h-1.5 w-1.5 rotate-45 bg-white/80 shadow-[0_0_8px_rgba(255,255,255,0.6)]" />
+              <p className="text-sm font-semibold uppercase tracking-[0.35em] text-white/90">
+                Calendrier
               </p>
+              <span className="h-1.5 w-1.5 rotate-45 bg-white/80 shadow-[0_0_8px_rgba(255,255,255,0.6)]" />
+            </div>
+            <div className="flex items-center justify-end gap-3 text-xs text-violet-200">
+              <span>{days.length} journées</span>
+              <button
+                type="button"
+                onClick={openDayWizard}
+                className="rounded-full border border-violet-200/50 bg-violet-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-violet-100 transition hover:bg-violet-500/20"
+              >
+                Ajouter
+              </button>
+            </div>
+          </div>
+          <div className="mt-2 flex items-center">
+            <div className="h-px flex-1 bg-gradient-to-r from-transparent via-violet-400/70 to-violet-400/40" />
+            <span className="ml-3 h-1.5 w-1.5 rounded-full bg-violet-300 shadow-[0_0_10px_rgba(124,58,237,0.8)]" />
+            <span className="ml-2 h-px w-10 bg-gradient-to-r from-violet-300/80 to-transparent" />
+          </div>
+
+          {days.length === 0 ? (
+            <div className="mt-3 flex flex-col items-center gap-4 text-center">
+              <p className="text-xs text-violet-200/70">
+                Lance ta saison, aucune journée n&apos;a été créée.
+              </p>
+              <button
+                type="button"
+                onClick={openDayWizard}
+                className="rounded-full border border-violet-200/60 bg-transparent px-5 py-2 text-xs font-semibold text-white shadow-[0_0_24px_rgba(139,92,246,0.5)] transition hover:bg-violet-500/20"
+              >
+                Ajoute ta première journée
+              </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {days.map((day) => (
-                <div
-                  key={day.id}
-                  className="rounded-2xl border border-white/10 bg-black/40 p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-slate-100">
-                        {day.name}
-                      </h3>
-                      <p className="text-xs text-slate-400">
-                        {formatShortDate(day.date)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 space-y-2">
-                    {day.matches.map((match) => (
-                      <div
-                        key={match.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-200"
-                      >
-                        <span>{match.time || "--:--"}</span>
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-300">
-                          {match.homeAway === "home" ? "Domicile" : "Extérieur"}
-                        </span>
-                        <span className="flex-1 text-slate-100">
-                          {match.homeAway === "home"
-                            ? `${teamDisplayName} vs ${match.opponent}`
-                            : `${match.opponent} vs ${teamDisplayName}`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+            <div className="mt-3 space-y-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <p className="text-[11px] uppercase tracking-[0.3em] text-violet-300">
+                    Journée à venir
+                  </p>
+                  <div className="h-px flex-1 bg-gradient-to-r from-violet-300/40 via-white/35 to-transparent" />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowFutureCalendar((prev) => !prev)
+                    }
+                    className="text-white/70 transition hover:text-white"
+                    aria-label="Afficher les matchs futurs"
+                  >
+                    <span
+                      className={[
+                        "text-base leading-none transition",
+                        showFutureCalendar ? "rotate-180" : "",
+                      ].join(" ")}
+                    >
+                      ▾
+                    </span>
+                  </button>
                 </div>
-              ))}
+                {showFutureCalendar ? (
+                  upcomingCalendarDays.length ? (
+                    renderCalendarDayList(upcomingCalendarDays)
+                  ) : (
+                    <p className="text-xs text-violet-200/70">
+                      Pas encore planifié.
+                    </p>
+                  )
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-violet-400/40 to-transparent" />
+                <span className="h-1.5 w-1.5 rotate-45 bg-white/70 shadow-[0_0_8px_rgba(255,255,255,0.45)]" />
+                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-violet-400/30 to-transparent" />
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <p className="text-[11px] uppercase tracking-[0.3em] text-violet-300">
+                    Journée terminée
+                  </p>
+                  <div className="h-px flex-1 bg-gradient-to-r from-violet-300/30 via-white/20 to-transparent" />
+                  <button
+                    type="button"
+                    onClick={() => setShowPastCalendar((prev) => !prev)}
+                    className="text-white/70 transition hover:text-white"
+                    aria-label="Afficher les matchs passés"
+                  >
+                    <span
+                      className={[
+                        "text-base leading-none transition",
+                        showPastCalendar ? "rotate-180" : "",
+                      ].join(" ")}
+                    >
+                      ▾
+                    </span>
+                  </button>
+                </div>
+                {showPastCalendar ? (
+                  pastCalendarDays.length ? (
+                    renderCalendarDayList(pastCalendarDays)
+                  ) : (
+                    <p className="text-xs text-violet-200/70">
+                      Aucun match passé.
+                    </p>
+                  )
+                ) : null}
+              </div>
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
-      {championship && (
-        null
-      )}
+      {quickScoreOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div
+            className="relative w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-transparent p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)] max-h-[90vh]"
+            style={{
+              backgroundImage:
+                "url('/backgrounds/MATCH/FOND%20CHAMPIONNA.png')",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            <div className="pointer-events-none absolute inset-0 bg-black/65" />
+            <div className="relative z-10 flex max-h-[80vh] flex-col">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate-300">
+                    Score rapide
+                  </p>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-100">
+                    Renseigne les scores
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQuickScoreOpen(false)}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200"
+                >
+                  Fermer
+                </button>
+              </div>
+
+              <div className="mt-6 space-y-5 overflow-y-auto pr-1">
+                {days.length === 0 ? (
+                  <p className="text-sm text-white/70">
+                    Aucune journée créée.
+                  </p>
+                ) : (
+                  days.map((day) => (
+                    <div
+                      key={day.id}
+                      className="rounded-2xl border border-white/10 bg-black/40 p-4"
+                    >
+                      <div className="flex items-center justify-between text-xs text-white/70">
+                        <span className="uppercase tracking-[0.2em] text-violet-200/70">
+                          {day.name}
+                        </span>
+                        <span>{formatShortDate(day.date)}</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {day.matches.map((match) => {
+                          const homeTeam =
+                            match.homeTeam ??
+                            (match.homeAway === "home"
+                              ? teamDisplayName
+                              : match.opponent);
+                          const awayTeam =
+                            match.awayTeam ??
+                            (match.homeAway === "home"
+                              ? match.opponent
+                              : teamDisplayName);
+                          const draft = quickScoreDrafts[match.id] ?? {
+                            home: "",
+                            away: "",
+                          };
+                          return (
+                            <div
+                              key={match.id}
+                              className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80"
+                            >
+                              <span className="text-right text-sm font-semibold text-white/90">
+                                {homeTeam}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  inputMode="numeric"
+                                  value={draft.home}
+                                  onChange={(event) =>
+                                    setQuickScoreValue(
+                                      match.id,
+                                      "home",
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="w-12 bg-transparent text-center text-base font-semibold text-white [appearance:textfield] focus:outline-none"
+                                />
+                                <span className="text-white/60">-</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  inputMode="numeric"
+                                  value={draft.away}
+                                  onChange={(event) =>
+                                    setQuickScoreValue(
+                                      match.id,
+                                      "away",
+                                      event.target.value,
+                                    )
+                                  }
+                                  className="w-12 bg-transparent text-center text-base font-semibold text-white [appearance:textfield] focus:outline-none"
+                                />
+                              </div>
+                              <span className="text-left text-sm font-semibold text-white/90">
+                                {awayTeam}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-6 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setQuickScoreOpen(false)}
+                  className="rounded-full border border-white/10 bg-transparent px-4 py-2 text-xs text-slate-300"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveQuickScores}
+                  className="rounded-full border border-emerald-400/50 bg-emerald-500/20 px-5 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500/30"
+                >
+                  Valider
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {matchDetails ? (() => {
+        const matchDateValue =
+          matchDetails.match.date || matchDetails.dayDate || "";
+        const matchDate = matchDateValue ? new Date(matchDateValue) : null;
+        const now = new Date();
+        const isFuture = matchDate ? matchDate > now : false;
+        const isPast = matchDate ? matchDate < now : false;
+        const isLocalMatch =
+          isLocalTeamName(matchDetails.homeTeam) ||
+          isLocalTeamName(matchDetails.awayTeam);
+        const canEdit = matchDetails.source === "calendar" && isPast;
+        const scoreLabel = matchDetails.match.score ?? "—";
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+            <div
+              className="relative w-full max-w-4xl overflow-y-auto rounded-3xl border border-white/10 bg-transparent p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)] max-h-[90vh]"
+              style={{
+                backgroundImage:
+                  "url('/backgrounds/MATCH/FOND%20CHAMPIONNA.png')",
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
+            >
+              <div className="pointer-events-none absolute inset-0 bg-black/65" />
+              <div className="relative z-10 flex min-h-[70vh] flex-col">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-300">
+                      Détails du match
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold text-slate-100">
+                      {matchDetails.dayName}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {formatShortDate(matchDetails.dayDate)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeMatchDetails}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200"
+                  >
+                    Fermer
+                  </button>
+                </div>
+
+              {matchDetails.source === "calendar" ? (
+                <>
+                  {matchSaveFeedback ? (
+                    <div className="mt-4 flex justify-end">
+                      <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-emerald-200">
+                        Match enregistré – stats mises à jour
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="mt-6 rounded-2xl border border-violet-400/25 bg-gradient-to-br from-violet-500/18 via-violet-500/8 to-indigo-500/18 p-2.5 shadow-[0_0_30px_rgba(124,58,237,0.35)]">
+                    <div className="flex items-start justify-between text-[10px] text-white/70">
+                      <span>{matchDetails.match.time || "Horaire"}</span>
+                      <span />
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                      <div className="flex items-center justify-end gap-3 text-right">
+                        {renderTeamBadge(matchDetails.homeTeam, {
+                          image: "h-10 w-10 rounded-full object-cover",
+                          initial:
+                            "flex h-10 w-10 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                        })}
+                        <span className="max-w-[220px] text-sm font-semibold text-white">
+                          {matchDetails.homeTeam}
+                        </span>
+                      </div>
+                        <div className="flex items-center justify-center gap-4">
+                          <div className="flex flex-col items-center gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              value={scoreDraft?.home ?? ""}
+                              onChange={(event) =>
+                                setScoreValue("home", event.target.value)
+                              }
+                              onFocus={(event) => {
+                                if (event.currentTarget.value === "0") {
+                                  setScoreValue("home", "");
+                                }
+                                event.currentTarget.select();
+                              }}
+                              className="w-10 bg-transparent text-center text-2xl font-semibold text-white [appearance:textfield] focus:outline-none"
+                            />
+                          </div>
+                          <span className="text-xl text-white/60">-</span>
+                          <div className="flex flex-col items-center gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              value={scoreDraft?.away ?? ""}
+                              onChange={(event) =>
+                                setScoreValue("away", event.target.value)
+                              }
+                              onFocus={(event) => {
+                                if (event.currentTarget.value === "0") {
+                                  setScoreValue("away", "");
+                                }
+                                event.currentTarget.select();
+                              }}
+                              className="w-10 bg-transparent text-center text-2xl font-semibold text-white [appearance:textfield] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      <div className="flex items-center justify-start gap-3 text-left">
+                        <span className="max-w-[220px] text-sm font-semibold text-white">
+                          {matchDetails.awayTeam}
+                        </span>
+                        {renderTeamBadge(matchDetails.awayTeam, {
+                          image: "h-10 w-10 rounded-full object-cover",
+                          initial:
+                            "flex h-10 w-10 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {isLocalMatch ? (
+                    <div className="mt-6 grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl border border-violet-300/20 bg-black/40 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Buteurs
+                          </p>
+                          <div ref={scorersRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setScorersOpen((prev) => !prev)
+                              }
+                              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:bg-white/10"
+                            >
+                              Ajouter
+                              <span className="text-xs">▾</span>
+                            </button>
+                            {scorersOpen ? (
+                              <div className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e1a] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
+                                <div
+                                  ref={scorersListRef}
+                                  className="max-h-40 space-y-1 overflow-y-auto"
+                                >
+                                  {playersLoading ? (
+                                    <p className="px-2 py-1 text-xs text-slate-500">
+                                      Chargement des joueurs...
+                                    </p>
+                                  ) : localRoster.length ? (
+                                localRoster.map((player) => {
+                                      const isSelected =
+                                        Boolean(scorers[player.id]);
+                                      return (
+                                        <button
+                                          key={player.id}
+                                          type="button"
+                                          data-player-id={player.id}
+                                          onClick={() => {
+                                            setLastScorerId(player.id);
+                                            toggleStatSelection(
+                                              setScorers,
+                                              player.id,
+                                            );
+                                          }}
+                                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-white/80 transition hover:bg-white/5"
+                                        >
+                                          <span className="truncate">
+                                            {player.label}
+                                          </span>
+                                          <span
+                                            className={[
+                                              "h-2.5 w-2.5 rounded-full border",
+                                              isSelected
+                                                ? "border-violet-300 bg-violet-300 shadow-[0_0_8px_rgba(124,58,237,0.7)]"
+                                                : "border-white/30",
+                                            ].join(" ")}
+                                          />
+                                        </button>
+                                      );
+                                    })
+                                  ) : (
+                                    <p className="px-2 py-1 text-xs text-slate-500">
+                                      Aucun joueur enregistré.
+                                    </p>
+                                  )}
+                                  {playersError ? (
+                                    <p className="px-2 py-1 text-xs text-rose-300">
+                                      {playersError}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          {Object.keys(scorers).length ? (
+                            Object.entries(scorers).map(([playerId, count]) => (
+                              <div
+                                key={playerId}
+                                className="flex items-center justify-between text-sm text-white/80"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white">
+                                    {rosterById[playerId]?.label ?? playerId}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    inputMode="numeric"
+                                    value={count}
+                                    onChange={(event) =>
+                                      setStatValue(
+                                        setScorers,
+                                        playerId,
+                                        event.target.value,
+                                      )
+                                    }
+                                    className="w-10 bg-transparent text-center text-sm font-semibold text-white [appearance:textfield] focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              Aucun buteur sélectionné.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-violet-300/20 bg-black/40 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                            Passes décisives
+                          </p>
+                          <div ref={assistsRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setAssistsOpen((prev) => !prev)
+                              }
+                              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:bg-white/10"
+                            >
+                              Ajouter
+                              <span className="text-xs">▾</span>
+                            </button>
+                            {assistsOpen ? (
+                              <div className="absolute right-0 z-20 mt-2 w-64 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e1a] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)]">
+                                <div
+                                  ref={assistsListRef}
+                                  className="max-h-40 space-y-1 overflow-y-auto"
+                                >
+                                  {playersLoading ? (
+                                    <p className="px-2 py-1 text-xs text-slate-500">
+                                      Chargement des joueurs...
+                                    </p>
+                                  ) : localRoster.length ? (
+                                localRoster.map((player) => {
+                                      const isSelected =
+                                        Boolean(assists[player.id]);
+                                      return (
+                                        <button
+                                          key={player.id}
+                                          type="button"
+                                          data-player-id={player.id}
+                                          onClick={() => {
+                                            setLastAssistId(player.id);
+                                            toggleStatSelection(
+                                              setAssists,
+                                              player.id,
+                                            );
+                                          }}
+                                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-white/80 transition hover:bg-white/5"
+                                        >
+                                          <span className="truncate">
+                                            {player.label}
+                                          </span>
+                                          <span
+                                            className={[
+                                              "h-2.5 w-2.5 rounded-full border",
+                                              isSelected
+                                                ? "border-violet-300 bg-violet-300 shadow-[0_0_8px_rgba(124,58,237,0.7)]"
+                                                : "border-white/30",
+                                            ].join(" ")}
+                                          />
+                                        </button>
+                                      );
+                                    })
+                                  ) : (
+                                    <p className="px-2 py-1 text-xs text-slate-500">
+                                      Aucun joueur enregistré.
+                                    </p>
+                                  )}
+                                  {playersError ? (
+                                    <p className="px-2 py-1 text-xs text-rose-300">
+                                      {playersError}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-2">
+                          {Object.keys(assists).length ? (
+                            Object.entries(assists).map(([playerId, count]) => (
+                              <div
+                                key={playerId}
+                                className="flex items-center justify-between text-sm text-white/80"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-white">
+                                    {rosterById[playerId]?.label ?? playerId}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    inputMode="numeric"
+                                    value={count}
+                                    onChange={(event) =>
+                                      setStatValue(
+                                        setAssists,
+                                        playerId,
+                                        event.target.value,
+                                      )
+                                    }
+                                    className="w-10 bg-transparent text-center text-sm font-semibold text-white [appearance:textfield] focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-slate-500">
+                              Aucune passe décisive.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-violet-300/15 bg-black/35 p-4 md:col-span-2 overflow-visible">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                          Distinctions
+                        </p>
+                        <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          <div ref={motmRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMotmOpen((prev) => !prev)
+                              }
+                              className="flex w-full items-center justify-between rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:bg-white/10"
+                            >
+                              {motmId
+                                ? rosterById[motmId]?.label
+                                : "Homme du match"}
+                              <span className="text-xs">▾</span>
+                            </button>
+                            {motmOpen ? (
+                              <div className="absolute left-0 right-0 z-30 mb-2 -translate-y-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e1a] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)] bottom-full">
+                                <div
+                                  ref={motmListRef}
+                                  className="max-h-40 space-y-1 overflow-y-auto"
+                                >
+                                  {localRoster.map((player) => (
+                                    <button
+                                      key={player.id}
+                                      type="button"
+                                      data-player-id={player.id}
+                                      onClick={() => {
+                                        setMotmId(player.id);
+                                        setLastMotmId(player.id);
+                                        setMotmOpen(false);
+                                      }}
+                                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-white/80 transition hover:bg-white/5"
+                                    >
+                                      <span className="truncate">
+                                        {player.label}
+                                      </span>
+                                      <span
+                                        className={[
+                                          "h-2.5 w-2.5 rounded-full border",
+                                          motmId === player.id
+                                            ? "border-violet-300 bg-violet-300 shadow-[0_0_8px_rgba(124,58,237,0.7)]"
+                                            : "border-white/30",
+                                        ].join(" ")}
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {motmId ? (
+                              <div className="mt-2">
+                                <span className="inline-flex items-center rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-[10px] font-semibold text-emerald-200">
+                                  {rosterById[motmId]?.label ?? motmId}
+                                </span>
+                              </div>
+                            ) : null}
+                          </div>
+                          <div ref={needsBoostRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setNeedsBoostOpen((prev) => !prev)
+                              }
+                              className="flex w-full items-center justify-between rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:bg-white/10"
+                            >
+                              {needsBoostLabel}
+                              <span className="text-xs">▾</span>
+                            </button>
+                            {needsBoostOpen ? (
+                              <div className="absolute left-0 right-0 z-30 mb-2 -translate-y-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0c0e1a] p-2 shadow-[0_18px_40px_rgba(0,0,0,0.55)] bottom-full">
+                                <div
+                                  ref={needsBoostListRef}
+                                  className="max-h-40 space-y-1 overflow-y-auto"
+                                >
+                                  {localRoster.map((player) => (
+                                    <button
+                                      key={player.id}
+                                      type="button"
+                                      data-player-id={player.id}
+                                      onClick={() => {
+                                        setLastNeedsBoostId(player.id);
+                                        toggleSelection(
+                                          setNeedsBoost,
+                                          player.id,
+                                        );
+                                      }}
+                                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-white/80 transition hover:bg-white/5"
+                                    >
+                                      <span className="truncate">
+                                        {player.label}
+                                      </span>
+                                      <span
+                                        className={[
+                                          "h-2.5 w-2.5 rounded-full border",
+                                          needsBoost[player.id]
+                                            ? "border-violet-300 bg-violet-300 shadow-[0_0_8px_rgba(124,58,237,0.7)]"
+                                            : "border-white/30",
+                                        ].join(" ")}
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {Object.keys(needsBoost).length ? (
+                                Object.keys(needsBoost).map((playerId) => (
+                                  <button
+                                    key={playerId}
+                                    type="button"
+                                    onClick={() =>
+                                      toggleSelection(
+                                        setNeedsBoost,
+                                        playerId,
+                                      )
+                                    }
+                                    className="rounded-full border border-rose-400/40 bg-rose-400/10 px-3 py-1 text-[10px] font-semibold text-rose-200 transition hover:bg-rose-400/20"
+                                  >
+                                    {rosterById[playerId]?.label ?? playerId}
+                                  </button>
+                                ))
+                              ) : (
+                                <p className="text-xs text-slate-500">
+                                  Aucun joueur sélectionné.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="mt-auto flex items-center justify-between pt-6">
+                    <button
+                      type="button"
+                      onClick={handleClearMatchDetails}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-400/60 text-rose-200 transition hover:border-rose-400/90 hover:bg-rose-500/15"
+                      aria-label="Supprimer les informations"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6v-2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveMatchDetails}
+                      className="rounded-full border border-emerald-400/50 bg-emerald-500/20 px-5 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500/30"
+                    >
+                      Valider
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mt-6 rounded-2xl border border-white/10 bg-black/40 p-5">
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
+                      <div className="flex items-center justify-end gap-3 text-right">
+                        {renderTeamBadge(matchDetails.homeTeam, {
+                          image: "h-10 w-10 rounded-full object-cover",
+                          initial:
+                            "flex h-10 w-10 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                        })}
+                        <span className="max-w-[220px] text-sm font-semibold text-white">
+                          {matchDetails.homeTeam}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center gap-2">
+                        <span
+                          className="text-4xl font-semibold text-white"
+                          style={{
+                            textShadow:
+                              "0 0 6px rgba(168,85,247,0.55), 0 0 16px rgba(168,85,247,0.3), 0 0 6px rgba(255,255,255,0.12)",
+                          }}
+                        >
+                          {scoreLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-start gap-3 text-left">
+                        <span className="max-w-[220px] text-sm font-semibold text-white">
+                          {matchDetails.awayTeam}
+                        </span>
+                        {renderTeamBadge(matchDetails.awayTeam, {
+                          image: "h-10 w-10 rounded-full object-cover",
+                          initial:
+                            "flex h-10 w-10 items-center justify-center rounded-full border border-violet-400/30 bg-white/8 text-xs font-semibold uppercase tracking-[0.16em] text-violet-100/80",
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-center text-xs text-slate-400">
+                      {matchDetails.match.time || "Horaire à définir"}
+                    </div>
+                  </div>
+
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Score
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        {scoreLabel !== "—"
+                          ? `Score final : ${scoreLabel}`
+                          : "Score à renseigner."}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Mi-temps : à compléter
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Buteurs
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        À renseigner.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Passes
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        À renseigner.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Cartons
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        À renseigner.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4 md:col-span-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Notes / résumé
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        Ajoute un résumé du match.
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4 md:col-span-2">
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        Stats simples
+                      </p>
+                      <p className="mt-3 text-sm text-slate-200">
+                        À venir.
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
 
       {wizardOpen && draft ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
@@ -2544,10 +4630,12 @@ const handlePickDay = () => {
       {dayWizardOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
           <div
-            className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-[#0e0c18]/85 p-6 shadow-[0_32px_90px_rgba(10,8,24,0.7)] backdrop-blur-xl"
+            className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-black/55 p-6 shadow-[0_32px_90px_rgba(10,8,24,0.7)] backdrop-blur-xl"
             style={{
               backgroundImage:
-                "linear-gradient(140deg, rgba(8,10,18,0.95), rgba(12,10,28,0.92)), radial-gradient(120% 60% at 10% 0%, rgba(99,102,241,0.35), transparent 60%), radial-gradient(120% 60% at 90% 15%, rgba(244,114,182,0.25), transparent 60%), radial-gradient(140% 70% at 40% 100%, rgba(56,189,248,0.2), transparent 65%)",
+                "url('/backgrounds/MATCH/FOND%20CHAMPIONNA.png')",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
             }}
           >
             <div
@@ -2559,7 +4647,7 @@ const handlePickDay = () => {
                 backgroundPosition: "0 0, 0 0, 90px 156px",
               }}
             />
-            <div className="relative z-10">
+            <div className="relative z-10 flex min-h-[70vh] flex-col">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-300">
@@ -2567,10 +4655,8 @@ const handlePickDay = () => {
                 </p>
                 <h3 className="mt-2 text-xl font-semibold text-slate-100">
                   {dayWizardStep === 1
-                    ? `Journée ${days.length + 1}`
-                    : dayWizardStep === 2
-                    ? "Configurer les matchs"
-                    : "Récap journée"}
+                    ? "Journées"
+                    : "Créer tes matchs"}
                 </h3>
               </div>
               <button
@@ -2582,129 +4668,311 @@ const handlePickDay = () => {
               </button>
             </div>
 
+            <div className="mt-2 flex flex-wrap items-center gap-4 px-1">
+              <div className="min-w-[180px] flex-1">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                  Championnat
+                </p>
+                <p className="mt-1 text-sm text-slate-100">
+                  {displayChampionshipName}
+                </p>
+              </div>
+              <div className="min-w-[140px]">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                  Phase
+                </p>
+                {dayWizardStep === 1 ? (
+                  <select
+                    value={dayPhase}
+                    onChange={(event) => setDayPhase(event.target.value)}
+                    className="mt-1 w-full rounded-full border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-slate-100"
+                  >
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                  </select>
+                ) : (
+                  <p className="mt-1 text-xs font-semibold text-slate-200">
+                    Phase {dayPhase}
+                  </p>
+                )}
+              </div>
+            </div>
+
             <StepPanel key={dayWizardStep} direction={dayStepDirection}>
               {dayWizardStep === 1 ? (
-                <div className="mt-6 flex flex-col items-center gap-6 text-center">
-                  <div className="flex items-center gap-4">
+                <div className="mt-6 space-y-4">
+                  <div className="flex flex-wrap items-center justify-end gap-2" />
+                  {days.length ? (
+                    <div className="space-y-2">
+                      {days.map((day, index) => (
+                        <div
+                          key={day.id}
+                          className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-slate-200"
+                        >
+                          <span className="font-semibold">
+                            Journée {index + 1} créée
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">
+                              {formatShortDate(day.date)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openEditDay(day)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full border border-violet-300/40 bg-violet-500/10 text-[10px] text-violet-200 transition hover:bg-violet-500/20"
+                              aria-label="Modifier la journée"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDay(day.id)}
+                              className="flex h-6 w-6 items-center justify-center rounded-full border border-rose-300/40 bg-rose-500/10 text-[10px] text-rose-200 transition hover:bg-rose-500/20"
+                              aria-label="Supprimer la journée"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400">
+                      Aucune journée créée pour l&apos;instant.
+                    </p>
+                  )}
+
+                  <div className="flex justify-center">
                     <button
                       type="button"
-                      onClick={() => shiftDayDate(-1)}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
+                      onClick={startNewDay}
+                      className="w-fit rounded-full border border-white/15 bg-black/40 px-6 py-2 text-xs font-semibold text-white/90 shadow-[0_0_22px_rgba(0,0,0,0.45)] transition hover:bg-black/55"
                     >
-                      ◀
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePickDay}
-                      className="px-1 text-base text-slate-100"
-                    >
-                      {formatDayCompact(dayDate)}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => shiftDayDate(1)}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
-                    >
-                      ▶
+                      {days.length > 0
+                        ? "Ajouter une journée"
+                        : "Créer ta première journée"}
                     </button>
                   </div>
-                  <input
-                    ref={dayInputRef}
-                    type="date"
-                    value={dayInputValue}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      if (!nextValue) return;
-                      setDayDate(new Date(`${nextValue}T00:00:00`));
-                    }}
-                    className="sr-only"
-                  />
+                </div>
+              ) : null}
+
+              {dayWizardStep === 1 ? (
+                <div className="mt-auto flex items-center justify-between pt-6">
+                  {days.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleDeleteAllDays}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-rose-400/60 text-rose-200 transition hover:border-rose-400/90 hover:bg-rose-500/15"
+                      aria-label="Supprimer toutes les journées"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M3 6h18" />
+                        <path d="M8 6v-2a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                        <path d="M10 11v6" />
+                        <path d="M14 11v6" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={closeDayWizard}
+                    className="rounded-full border border-emerald-400/50 bg-emerald-500/20 px-5 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500/30"
+                  >
+                    Valider
+                  </button>
                 </div>
               ) : null}
 
               {dayWizardStep === 2 ? (
-                <div className="mt-6 space-y-5">
-                  {dayMatches.map((match) => (
-                    <div
-                      key={match.id}
-                      className="rounded-2xl border border-white/10 bg-black/30 p-4"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateMatch(match.id, { homeAway: "home" })
-                            }
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-col items-center gap-4 text-center">
+                    <div className="mt-1 flex items-center gap-2">
+                      {(["aller", "retour"] as const).map((leg) => (
+                        <button
+                          key={leg}
+                          type="button"
+                          onClick={() => setDayLeg(leg)}
+                          className={[
+                            "inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] transition",
+                            dayLeg === leg
+                              ? "border-white/30 bg-white/10 text-slate-100"
+                              : "border-white/10 bg-white/5 text-slate-400 hover:text-slate-200",
+                          ].join(" ")}
+                        >
+                          <span
                             className={[
-                              "rounded-full border px-3 py-1 text-[10px] transition",
-                              match.homeAway === "home"
-                                ? "border-white/30 bg-white/10 text-slate-100"
-                                : "border-white/10 bg-white/5 text-slate-400 hover:text-slate-200",
+                              "flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white/70 transition",
+                              dayLeg === leg
+                                ? "bg-violet-300 shadow-[0_0_10px_rgba(167,139,250,0.85)]"
+                                : "bg-transparent",
                             ].join(" ")}
-                          >
-                            Domicile
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateMatch(match.id, { homeAway: "away" })
+                          />
+                          <span>
+                            {leg === "aller" ? "Match Aller" : "Match Retour"}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => shiftDayDate(-1)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
+                      >
+                        ◀
+                      </button>
+                      <input
+                        ref={dayInputRef}
+                        type="date"
+                        value={dayInputValue}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          if (!nextValue) return;
+                          setDayDate(new Date(`${nextValue}T00:00:00`));
+                        }}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => shiftDayDate(1)}
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200"
+                      >
+                        ▶
+                      </button>
+                    </div>
+                  </div>
+
+                  {dayMatches.map((match, index) => (
+                    <div key={match.id} className="space-y-2">
+                      <div className="p-1">
+                        <div className="grid gap-2 md:grid-cols-[1fr_auto_1fr] md:items-center">
+                        <div>
+                          <select
+                            value={match.homeTeam}
+                            onChange={(event) =>
+                              updateMatch(match.id, {
+                                homeTeam: event.target.value,
+                              })
                             }
-                            className={[
-                              "rounded-full border px-3 py-1 text-[10px] transition",
-                              match.homeAway === "away"
-                                ? "border-white/30 bg-white/10 text-slate-100"
-                                : "border-white/10 bg-white/5 text-slate-400 hover:text-slate-200",
-                            ].join(" ")}
+                            className="w-full rounded-2xl border border-white/10 bg-black/40 px-3 py-1 text-xs text-slate-100"
                           >
-                            Extérieur
-                          </button>
+                            <option value="">Choisir</option>
+                            {teamOptions.map((team) => (
+                              <option key={team} value={team}>
+                                {team}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                        <span className="text-xs text-slate-500">
-                          Mon équipe : {teamDisplayName}
-                        </span>
-                      </div>
+                        <div className="flex flex-col items-center gap-2">
+                          <div
+                            className="relative"
+                            ref={
+                              timePickerMatchId === match.id
+                                ? timePickerRef
+                                : undefined
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTimePickerMatchId((prev) =>
+                                  prev === match.id ? null : match.id,
+                                )
+                              }
+                              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/45 text-[10px] font-semibold text-white/90 shadow-[inset_0_0_10px_rgba(0,0,0,0.35)] transition hover:bg-black/60"
+                              aria-label="Modifier l'heure"
+                            >
+                              <span className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.12),transparent_60%)]" />
+                              <span className="pointer-events-none absolute left-1/2 top-1/2 h-3 w-[1px] -translate-y-3 bg-white/45" />
+                              <span className="pointer-events-none absolute left-1/2 top-1/2 h-[1px] w-2 -translate-x-1 bg-white/40" />
+                              <span className="relative z-10">
+                                {match.time || "18:00"}
+                              </span>
+                            </button>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                            Domicile
-                          </p>
-                          <p className="mt-1 text-sm text-slate-100">
-                            {match.homeAway === "home"
-                              ? teamDisplayName
-                              : match.opponent || "Adversaire"}
-                          </p>
+                            {timePickerMatchId === match.id ? (
+                              <div className="absolute left-1/2 top-full z-10 mt-2 -translate-x-1/2 rounded-2xl border border-white/10 bg-black/70 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.5)]">
+                                <div className="flex flex-col items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      adjustMatchTime(match.id, 15)
+                                    }
+                                    className="flex h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[9px] text-white/80 transition hover:bg-white/10"
+                                    aria-label="Heure suivante"
+                                  >
+                                    ▲
+                                  </button>
+                                  <input
+                                    type="time"
+                                    autoFocus
+                                    inputMode="numeric"
+                                    value={match.time}
+                                    onChange={(event) =>
+                                      updateMatch(match.id, {
+                                        time: event.target.value,
+                                      })
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        setTimePickerMatchId(null);
+                                      }
+                                    }}
+                                    className="w-20 rounded-full border border-white/10 bg-black/50 px-2 py-1 text-[10px] text-slate-100"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      adjustMatchTime(match.id, -15)
+                                    }
+                                    className="flex h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[9px] text-white/80 transition hover:bg-white/10"
+                                    aria-label="Heure précédente"
+                                  >
+                                    ▼
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
-                        <div className="rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-slate-300">
-                          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">
-                            Extérieur
-                          </p>
-                          <p className="mt-1 text-sm text-slate-100">
-                            {match.homeAway === "home"
-                              ? match.opponent || "Adversaire"
-                              : teamDisplayName}
-                          </p>
+                        <div>
+                          <select
+                            value={match.awayTeam}
+                            onChange={(event) =>
+                              updateMatch(match.id, {
+                                awayTeam: event.target.value,
+                              })
+                            }
+                            className="w-full rounded-2xl border border-white/10 bg-black/40 px-3 py-1 text-xs text-slate-100"
+                          >
+                            <option value="">Choisir</option>
+                            {teamOptions.map((team) => (
+                              <option key={team} value={team}>
+                                {team}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                         </div>
                       </div>
-
-                      <div className="mt-4 space-y-2">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                          Équipe adverse
-                        </p>
-                        <OpponentCombobox
-                          value={match.opponent}
-                          poolTeams={teamOptions}
-                          teamName={teamDisplayName}
-                          onSelect={(selection) =>
-                            updateMatch(match.id, {
-                              opponent: selection.name,
-                              opponentId: selection.id,
-                              opponentSource: selection.source,
-                            })
-                          }
-                        />
-                      </div>
+                      {index < dayMatches.length - 1 ? (
+                        <div className="h-px w-full bg-white/10" />
+                      ) : null}
                     </div>
                   ))}
 
@@ -2713,77 +4981,34 @@ const handlePickDay = () => {
                     onClick={addMatchDraft}
                     className="w-fit rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/10"
                   >
-                    + Ajouter ce match
+                    + Ajouter une rencontre
                   </button>
-                </div>
-              ) : null}
 
-              {dayWizardStep === 3 ? (
-                <div className="mt-6 space-y-3">
-                  <p className="text-sm text-slate-300">
-                    Récapitulatif des matchs
-                  </p>
-                  {dayMatches.map((match) => {
-                    const opponentName = match.opponent || "Adversaire";
-                    const homeTeam =
-                      match.homeAway === "home" ? teamDisplayName : opponentName;
-                    const awayTeam =
-                      match.homeAway === "home" ? opponentName : teamDisplayName;
-                    return (
-                      <div
-                        key={match.id}
-                        className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-slate-100"
-                      >
-                        {homeTeam} vs {awayTeam}
-                      </div>
-                    );
-                  })}
+                  <div className="mt-6 flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setDayWizardStep(1)}
+                      className="rounded-full border border-white/10 bg-transparent px-4 py-2 text-xs text-slate-300"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleValidateDay}
+                      disabled={
+                        !canValidateDay ||
+                        (editingDayId ? !hasDayChanges : false)
+                      }
+                      className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/20 disabled:opacity-50"
+                    >
+                      {editingDayId
+                        ? "Mettre à jour la journée"
+                        : "Créer la journée"}
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </StepPanel>
-
-            <div className="mt-8 flex items-center justify-between">
-              {dayWizardStep === 1 ? (
-                <button
-                  type="button"
-                  onClick={closeDayWizard}
-                  className="rounded-full border border-white/10 bg-transparent px-4 py-2 text-xs text-slate-300"
-                >
-                  Annuler
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDayWizardStep((prev) => (prev - 1) as DayWizardStep)
-                  }
-                  className="rounded-full border border-white/10 bg-transparent px-4 py-2 text-xs text-slate-300"
-                >
-                  Retour
-                </button>
-              )}
-
-              {dayWizardStep < 3 ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDayWizardStep((prev) => (prev + 1) as DayWizardStep)
-                  }
-                  className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/20"
-                >
-                  {dayWizardStep === 1 ? "Configurer les matchs" : "Suivant"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleValidateDay}
-                  disabled={!canValidateDay}
-                  className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/20 disabled:opacity-50"
-                >
-                  Valider la journée
-                </button>
-              )}
-            </div>
             </div>
           </div>
         </div>

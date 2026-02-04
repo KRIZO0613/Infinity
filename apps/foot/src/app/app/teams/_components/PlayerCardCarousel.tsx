@@ -56,6 +56,21 @@ export default function PlayerCardCarousel({
       })?.value ?? null
     );
   };
+  const getStatValue = (labels: string[]) => {
+    const raw = getFieldValue(labels);
+    const parsed = Number.parseInt(String(raw ?? "0"), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const matchesValue = getStatValue(["matchs", "matches", "match"]);
+  const goalsValue = getStatValue(["buts", "but", "goals", "goal"]);
+  const assistsValue = getStatValue([
+    "passesd",
+    "passesdecisives",
+    "passedecisive",
+    "assists",
+    "assist",
+    "passe",
+  ]);
   const position = getFieldValue(["poste", "position"]);
   const strongFoot = getFieldValue(["piedfort", "pied"]);
   const category = getFieldValue(["niveau", "categorie", "category"]);
@@ -124,7 +139,7 @@ export default function PlayerCardCarousel({
     {
       key: "matches",
       label: "Matchs",
-      value: 0,
+      value: matchesValue,
       bg: "bg-[#3b82f6]",
       icon: (
         <svg
@@ -147,14 +162,14 @@ export default function PlayerCardCarousel({
     {
       key: "goals",
       label: "Buts",
-      value: 0,
+      value: goalsValue,
       emoji: "⚽",
       bg: "bg-[#facc15]",
     },
     {
       key: "assists",
       label: "Passes",
-      value: 0,
+      value: assistsValue,
       emoji: "👟",
       bg: "bg-[#6366f1]",
     },

@@ -228,6 +228,37 @@ export default function PlayerModal({
   const saveTimeoutRef = useRef<number | null>(null);
 
   const isEditing = Boolean(player?.id);
+  const getCustomFieldValue = (labels: string[]) => {
+    const normalizedLabels = labels.map(normalizeLabel);
+    const fields = Array.isArray(player?.custom_fields)
+      ? (player?.custom_fields as PlayerCustomField[])
+      : [];
+    return (
+      fields.find((field) =>
+        normalizedLabels.includes(normalizeLabel(field.label ?? "")),
+      )?.value ?? null
+    );
+  };
+  const parseStatValue = (value: string | null) => {
+    const parsed = Number.parseInt(String(value ?? "0"), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const autoMatches = parseStatValue(
+    getCustomFieldValue(["matchs", "matches", "match"]),
+  );
+  const autoGoals = parseStatValue(
+    getCustomFieldValue(["buts", "but", "goals", "goal"]),
+  );
+  const autoAssists = parseStatValue(
+    getCustomFieldValue([
+      "passesd",
+      "passesdecisives",
+      "passedecisive",
+      "assists",
+      "assist",
+      "passe",
+    ]),
+  );
 
   useEffect(() => {
     return () => {
@@ -1030,7 +1061,7 @@ export default function PlayerModal({
                     <p className="text-[9px] text-slate-500">Auto</p>
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">
-                    0
+                    {autoMatches}
                   </span>
                 </div>
                 <div className="flex items-center justify-between py-1">
@@ -1039,7 +1070,18 @@ export default function PlayerModal({
                     <p className="text-[9px] text-slate-500">Auto</p>
                   </div>
                   <span className="text-[10px] font-semibold text-slate-300">
-                    0
+                    {autoGoals}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between py-1">
+                  <div>
+                    <p className="text-[10px] text-slate-200">
+                      Passes décisives
+                    </p>
+                    <p className="text-[9px] text-slate-500">Auto</p>
+                  </div>
+                  <span className="text-[10px] font-semibold text-slate-300">
+                    {autoAssists}
                   </span>
                 </div>
               </div>
