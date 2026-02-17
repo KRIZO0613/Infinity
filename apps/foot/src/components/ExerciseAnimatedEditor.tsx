@@ -44,6 +44,7 @@ type Stroke = {
   id: string;
   kind: "move" | "carry";
   order: number;
+  phaseId: number;
   elementId?: string;
   points: Array<{ x: number; y: number }>;
   style?: {
@@ -64,6 +65,8 @@ type KeyframePlayer = {
   playhead: number;
   toggle: () => void;
   setIsPlaying: (value: boolean) => void;
+  reset: () => void;
+  restart: () => void;
   frameDuration: number;
   setFrameDuration: (value: number) => void;
   animatedElements: CanvasElement[];
@@ -110,6 +113,18 @@ const getDefaultSize = (type: ElementType) => {
   if (type === "ball") return 0.018;
   if (type === "cone") return 0.03;
   return 0.024;
+};
+
+// Global scale to keep elements visually minimal by default.
+const ELEMENT_SIZE_SCALE = 0.75;
+const PLAYER_SIZE_SCALE = 0.85;
+const CONE_SIZE_SCALE = 0.8;
+
+const getRenderSize = (type: ElementType, size: number) => {
+  const base = size * ELEMENT_SIZE_SCALE;
+  if (type === "player") return base * PLAYER_SIZE_SCALE;
+  if (type === "cone") return base * CONE_SIZE_SCALE;
+  return base;
 };
 
 export const drawPitch = (
@@ -177,7 +192,10 @@ export const drawElements = (
   strokes: Stroke[] = [],
   ballAttachedToId?: string | null,
   snapTargetId?: string | null,
+  options?: { showOverlays?: boolean; showLabels?: boolean },
 ) => {
+  const showOverlays = options?.showOverlays ?? true;
+  const showLabels = options?.showLabels ?? true;
   const drawSmoothPath = (points: PathPoint[]) => {
     if (points.length < 2) return;
     // Quadratic Bézier smoothing: use each point as control and midpoints as end points.
@@ -273,45 +291,50 @@ export const drawElements = (
     ctx.restore();
   };
 
-  strokes.forEach((stroke) => {
-    const variant = stroke.style?.variant ?? stroke.kind;
-    const color =
-      variant === "ball"
-        ? "rgba(125, 211, 252, 0.7)"
-        : variant === "carry"
-        ? "rgba(253, 224, 71, 0.7)"
-        : "rgba(148, 163, 184, 0.55)";
-    drawStrokePath(
-      stroke.points,
-      stroke.style?.dashed ?? variant === "ball",
-      stroke.style?.width ?? (stroke.kind === "carry" ? 2.5 : 1.5),
-      color,
-      stroke.style?.arrow ?? true,
-    );
-  });
+  if (showOverlays) {
+    strokes.forEach((stroke) => {
+      const variant = stroke.style?.variant ?? stroke.kind;
+      const color =
+        variant === "ball"
+          ? "rgba(125, 211, 252, 0.7)"
+          : variant === "carry"
+          ? "rgba(253, 224, 71, 0.7)"
+          : "rgba(148, 163, 184, 0.55)";
+      drawStrokePath(
+        stroke.points,
+        stroke.style?.dashed ?? variant === "ball",
+        stroke.style?.width ?? (stroke.kind === "carry" ? 2.5 : 1.5),
+        color,
+        stroke.style?.arrow ?? true,
+      );
+    });
 
-  Object.entries(paths).forEach(([id, points]) => {
-    if (points.length < 2) return;
-    ctx.save();
-    ctx.beginPath();
-    drawSmoothPath(points);
-    ctx.strokeStyle =
-      id === selectedId
-        ? "rgba(167, 139, 250, 0.7)"
-        : "rgba(148, 163, 184, 0.35)";
-    ctx.lineWidth = id === selectedId ? 2 : 1;
-    ctx.stroke();
-    ctx.restore();
-  });
+    Object.entries(paths).forEach(([id, points]) => {
+      if (points.length < 2) return;
+      ctx.save();
+      ctx.beginPath();
+      drawSmoothPath(points);
+      ctx.strokeStyle =
+        id === selectedId
+          ? "rgba(167, 139, 250, 0.7)"
+          : "rgba(148, 163, 184, 0.35)";
+      ctx.lineWidth = id === selectedId ? 2 : 1;
+      ctx.stroke();
+      ctx.restore();
+    });
+  }
 
   elements.forEach((element) => {
     const px = pitchRect.x + element.x * pitchRect.w;
     const py = pitchRect.y + element.y * pitchRect.h;
-    const size = element.size ?? getDefaultSize(element.type);
+    const size = getRenderSize(
+      element.type,
+      element.size ?? getDefaultSize(element.type),
+    );
     const radius = size * pitchRect.w;
 
     ctx.save();
-    if (element.id === selectedId) {
+    if (showOverlays && element.id === selectedId) {
       ctx.shadowColor = "rgba(168, 85, 247, 0.6)";
       ctx.shadowBlur = radius * 0.8;
     }
@@ -322,14 +345,14 @@ export const drawElements = (
       ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fill();
 
-      if (element.id === ballAttachedToId) {
+      if (showOverlays && element.id === ballAttachedToId) {
         ctx.fillStyle = "rgba(253, 224, 71, 0.95)";
         ctx.beginPath();
         ctx.arc(px + radius * 0.6, py - radius * 0.6, radius * 0.22, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      if (element.id === snapTargetId) {
+      if (showOverlays && element.id === snapTargetId) {
         ctx.strokeStyle = "rgba(253, 224, 71, 0.6)";
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -337,7 +360,7 @@ export const drawElements = (
         ctx.stroke();
       }
 
-      if (element.label) {
+      if (showLabels && element.label) {
         ctx.fillStyle = "rgba(255,255,255,0.95)";
         ctx.font = `${Math.max(10, radius * 0.9)}px Inter, sans-serif`;
         ctx.textAlign = "center";
@@ -367,7 +390,7 @@ export const drawElements = (
       ctx.fill();
     }
 
-    if (element.id === selectedId) {
+    if (showOverlays && element.id === selectedId) {
       ctx.strokeStyle = "rgba(255,255,255,0.6)";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
@@ -388,7 +411,10 @@ const hitTest = (
     const element = elements[i];
     const px = pitchRect.x + element.x * pitchRect.w;
     const py = pitchRect.y + element.y * pitchRect.h;
-    const size = element.size ?? getDefaultSize(element.type);
+    const size = getRenderSize(
+      element.type,
+      element.size ?? getDefaultSize(element.type),
+    );
     const radius = size * pitchRect.w;
 
     if (element.type === "cone") {
@@ -564,6 +590,7 @@ const useCanvasElements = (
     setPlayerColor,
     updateElement,
     deleteSelected,
+    addElement,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
@@ -588,7 +615,22 @@ const useKeyframesPlayer = (
     () => Object.values(paths).some((points) => points.length >= 2),
     [paths],
   );
-  const hasActions = strokes.length > 0;
+  const phases = useMemo(() => {
+    const grouped = new Map<number, Stroke[]>();
+    strokes.forEach((stroke) => {
+      const phaseId = Number.isFinite(stroke.phaseId) ? stroke.phaseId : 0;
+      if (!grouped.has(phaseId)) grouped.set(phaseId, []);
+      grouped.get(phaseId)?.push(stroke);
+    });
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([phaseId, items]) => ({
+        id: phaseId,
+        strokes: items,
+        duration: Math.max(1, ...items.map((item) => item.durationMs || 1)),
+      }));
+  }, [strokes]);
+  const hasActions = phases.length > 0;
 
   useEffect(() => {
     if (!isPlaying || (frames.length < 2 && !hasPaths && !hasActions)) return;
@@ -609,26 +651,26 @@ const useKeyframesPlayer = (
   const animatedElements = useMemo(() => {
     let animated = elements;
 
-    if (isPlaying && strokes.length > 0) {
-      const totalDuration = strokes.reduce(
-        (sum, stroke) => sum + (stroke.durationMs || 0),
+    if (isPlaying && phases.length > 0) {
+      const totalDuration = phases.reduce(
+        (sum, phase) => sum + (phase.duration || 0),
         0,
       );
       if (totalDuration > 0) {
         const local = playhead % totalDuration;
         let elapsed = 0;
-        let currentIndex = 0;
-        for (let i = 0; i < strokes.length; i += 1) {
-          const duration = Math.max(1, strokes[i].durationMs || 0);
+        let currentPhaseIndex = 0;
+        for (let i = 0; i < phases.length; i += 1) {
+          const duration = Math.max(1, phases[i].duration || 0);
           if (local <= elapsed + duration) {
-            currentIndex = i;
+            currentPhaseIndex = i;
             break;
           }
           elapsed += duration;
         }
-        const currentStroke = strokes[currentIndex];
-        const actionDuration = Math.max(1, currentStroke.durationMs || 0);
-        const actionTime = Math.min(actionDuration, Math.max(0, local - elapsed));
+        const currentPhase = phases[currentPhaseIndex];
+        const phaseDuration = Math.max(1, currentPhase.duration || 0);
+        const phaseTime = Math.min(phaseDuration, Math.max(0, local - elapsed));
 
         const positions = new Map<string, { x: number; y: number }>();
         elements.forEach((el) => {
@@ -637,26 +679,28 @@ const useKeyframesPlayer = (
         });
 
         const ballId = elements.find((el) => el.type === "ball")?.id ?? null;
-        for (let i = 0; i < currentIndex; i += 1) {
-          const stroke = strokes[i];
-          if (stroke.kind === "move" || stroke.kind === "carry") {
-            const points = stroke.points;
-            if (points.length >= 1 && stroke.elementId) {
-              positions.set(stroke.elementId, {
-                x: points[points.length - 1].x,
-                y: points[points.length - 1].y,
-              });
-            }
-            if (stroke.kind === "carry" && stroke.elementId && ballId) {
-              const carried = positions.get(stroke.elementId);
-              if (carried) {
-                positions.set(ballId, {
-                  x: carried.x + 0.015,
-                  y: carried.y + 0.01,
+        for (let i = 0; i < currentPhaseIndex; i += 1) {
+          const phase = phases[i];
+          phase.strokes.forEach((stroke) => {
+            if (stroke.kind === "move" || stroke.kind === "carry") {
+              const points = stroke.points;
+              if (points.length >= 1 && stroke.elementId) {
+                positions.set(stroke.elementId, {
+                  x: points[points.length - 1].x,
+                  y: points[points.length - 1].y,
                 });
               }
+              if (stroke.kind === "carry" && stroke.elementId && ballId) {
+                const carried = positions.get(stroke.elementId);
+                if (carried) {
+                  positions.set(ballId, {
+                    x: carried.x + 0.015,
+                    y: carried.y + 0.01,
+                  });
+                }
+              }
             }
-          }
+          });
         }
 
         const getPointAlong = (
@@ -692,30 +736,33 @@ const useKeyframesPlayer = (
           return points[points.length - 1];
         };
 
-        animated = elements.map((element) => {
-          const base = positions.get(element.id) ?? { x: element.x, y: element.y };
-          if (
-            currentStroke.kind === "move" ||
-            currentStroke.kind === "carry"
-          ) {
-            if (currentStroke.elementId === element.id && currentStroke.points.length >= 2) {
-              const t = Math.min(1, actionTime / actionDuration);
-              const point = getPointAlong(currentStroke.points, t);
-              return { ...element, x: point.x, y: point.y };
-            }
-          }
-          return { ...element, x: base.x, y: base.y };
+        const animatedPositions = new Map(positions);
+        currentPhase.strokes.forEach((stroke) => {
+          if (!stroke.elementId || stroke.points.length < 2) return;
+          const t = Math.min(1, phaseTime / Math.max(1, stroke.durationMs || 0));
+          const point = getPointAlong(stroke.points, t);
+          animatedPositions.set(stroke.elementId, { x: point.x, y: point.y });
         });
 
-        if (currentStroke.kind === "carry" && ballId) {
-          const carried = animated.find((el) => el.id === currentStroke.elementId);
+        const activeCarry = currentPhase.strokes.find(
+          (stroke) => stroke.kind === "carry",
+        );
+        if (activeCarry && ballId && activeCarry.elementId) {
+          const carried =
+            animatedPositions.get(activeCarry.elementId) ??
+            positions.get(activeCarry.elementId);
           if (carried) {
-            animated = animated.map((element) => {
-              if (element.id !== ballId) return element;
-              return { ...element, x: carried.x + 0.015, y: carried.y + 0.01 };
+            animatedPositions.set(ballId, {
+              x: carried.x + 0.015,
+              y: carried.y + 0.01,
             });
           }
         }
+
+        animated = elements.map((element) => {
+          const base = animatedPositions.get(element.id) ?? { x: element.x, y: element.y };
+          return { ...element, x: base.x, y: base.y };
+        });
 
         return animated;
       }
@@ -781,16 +828,28 @@ const useKeyframesPlayer = (
     playhead,
     paths,
     hasPaths,
-    strokes,
+    phases,
+    strokesBase,
   ]);
 
   const toggle = () => setIsPlaying((prev) => !prev);
+  const reset = () => {
+    startRef.current = null;
+    setPlayhead(0);
+  };
+  const restart = () => {
+    startRef.current = null;
+    setPlayhead(0);
+    setIsPlaying(true);
+  };
 
   return {
     isPlaying,
     playhead,
     toggle,
     setIsPlaying,
+    reset,
+    restart,
     frameDuration,
     setFrameDuration,
     animatedElements,
@@ -817,6 +876,8 @@ export default function ExerciseAnimatedEditor() {
   const [recordMode, setRecordMode] = useState(false);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [strokesBase, setStrokesBase] = useState<BaseSnapshot | null>(null);
+  const [groupMode, setGroupMode] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
   const [ballAttachedToId, setBallAttachedToId] = useState<string | null>(null);
   const [showSequenceDebug, setShowSequenceDebug] = useState(false);
   const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
@@ -856,6 +917,7 @@ export default function ExerciseAnimatedEditor() {
     setPlayerColor,
     updateElement,
     deleteSelected,
+    addElement,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
@@ -1058,7 +1120,7 @@ export default function ExerciseAnimatedEditor() {
     }, 3200);
   };
 
-  const appendStroke = (stroke: Omit<Stroke, "order">) => {
+  const appendStroke = (stroke: Omit<Stroke, "order" | "phaseId">) => {
     if (!strokesBaseRef.current) {
       const snapshot: BaseSnapshot = {};
       elements.forEach((el) => {
@@ -1067,11 +1129,41 @@ export default function ExerciseAnimatedEditor() {
       strokesBaseRef.current = snapshot;
       setStrokesBase(snapshot);
     }
-    setStrokes((prev) => {
-      const next = [...prev, { ...stroke, order: prev.length + 1 }];
-      strokesRef.current = next;
-      return next;
-    });
+    const prev = strokesRef.current;
+    const last = prev[prev.length - 1];
+    const nextPhaseId =
+      groupMode && last ? last.phaseId : last ? last.phaseId + 1 : 0;
+    if (groupMode && last && stroke.elementId) {
+      const phaseStrokes = prev.filter((item) => item.phaseId === nextPhaseId);
+      const sameElement = phaseStrokes.some(
+        (item) => item.elementId === stroke.elementId,
+      );
+      const ballId = primaryBall?.id ?? null;
+      const hasCarry = phaseStrokes.some((item) => item.kind === "carry");
+      const hasBallMove =
+        ballId &&
+        phaseStrokes.some(
+          (item) => item.kind === "move" && item.elementId === ballId,
+        );
+      const isBallMove = ballId && stroke.kind === "move" && stroke.elementId === ballId;
+      if (sameElement) {
+        showToast("error", "Impossible: 2 actions sur le même joueur.");
+        return;
+      }
+      if ((stroke.kind === "carry" && (hasCarry || hasBallMove)) || (isBallMove && hasCarry)) {
+        showToast("error", "Impossible: 2 actions sur le ballon en action groupée.");
+        return;
+      }
+    }
+    const next = [
+      ...prev,
+      { ...stroke, order: prev.length + 1, phaseId: nextPhaseId },
+    ];
+    strokesRef.current = next;
+    setStrokes(next);
+    if (groupMode) {
+      setGroupMode(false);
+    }
   };
 
   const attachBallToPlayer = (playerId: string, ballId?: string | null) => {
@@ -1133,6 +1225,7 @@ export default function ExerciseAnimatedEditor() {
       strokes,
       ballAttachedToId,
       snapTargetId,
+      { showOverlays: !previewMode, showLabels: !previewMode },
     );
   }, [
     canvasSize,
@@ -1145,6 +1238,7 @@ export default function ExerciseAnimatedEditor() {
     strokes,
     ballAttachedToId,
     snapTargetId,
+    previewMode,
   ]);
 
   useEffect(() => {
@@ -1449,6 +1543,7 @@ export default function ExerciseAnimatedEditor() {
     strokesRef.current = [];
     setStrokesBase(null);
     strokesBaseRef.current = null;
+    setGroupMode(false);
     setBallAttachedToId(null);
     sequenceDragRef.current = null;
     setSnapTargetId(null);
@@ -1500,7 +1595,8 @@ export default function ExerciseAnimatedEditor() {
           </div>
         </div>
       ) : null}
-      <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-white/5 bg-black/40 px-6 py-4 backdrop-blur-xl">
+      {!previewMode ? (
+        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-white/5 bg-black/40 px-6 py-4 backdrop-blur-xl">
         <button
           onClick={() => router.back()}
           className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 transition hover:bg-white/10"
@@ -1521,10 +1617,22 @@ export default function ExerciseAnimatedEditor() {
           {player.isPlaying ? "Pause" : "Lecture"}
         </button>
         <button
+          onClick={() => {
+            player.reset();
+            player.setIsPlaying(true);
+            setPreviewMode(true);
+          }}
+          disabled={!hasPlayableContent}
+          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+        >
+          Prévisualiser
+        </button>
+        <button
           onClick={() =>
             setRecordMode((prev) => {
               if (prev) {
                 sequenceDragRef.current = null;
+                setGroupMode(false);
                 return false;
               }
               if (!strokesBaseRef.current) {
@@ -1568,6 +1676,18 @@ export default function ExerciseAnimatedEditor() {
           </span>
         ) : null}
         <button
+          onClick={() => setGroupMode((prev) => !prev)}
+          title="Les actions suivantes seront jouées en même temps que la précédente"
+          className={[
+            "rounded-full border px-4 py-2 text-xs font-semibold transition",
+            groupMode
+              ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
+              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+          ].join(" ")}
+        >
+          Action groupée
+        </button>
+        <button
           onClick={() => setShowResetConfirm(true)}
           className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
         >
@@ -1581,14 +1701,24 @@ export default function ExerciseAnimatedEditor() {
           {saving ? "Enregistrement..." : "Enregistrer l'exercice"}
         </button>
       </div>
+      ) : null}
 
       <div className="flex h-[calc(100vh-72px)]">
-        <aside className="w-[88px] border-r border-white/5 bg-black/40 p-3 backdrop-blur-xl">
+        {!previewMode ? (
+          <aside className="w-[88px] border-r border-white/5 bg-black/40 p-3 backdrop-blur-xl">
           <div className="space-y-2">
             {TOOL_OPTIONS.map((option) => (
               <button
                 key={option.key}
                 onClick={() => setTool(option.key)}
+                draggable={!previewMode}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(
+                    "application/x-infinity-tool",
+                    option.key,
+                  );
+                  event.dataTransfer.effectAllowed = "copy";
+                }}
                 className={`flex w-full flex-col items-center gap-2 rounded-2xl border px-2 py-3 text-[10px] uppercase tracking-[0.18em] transition ${
                   tool === option.key
                     ? "border-violet-400/40 bg-violet-500/15 text-white"
@@ -1631,20 +1761,56 @@ export default function ExerciseAnimatedEditor() {
             </div>
           </div>
         </aside>
+        ) : null}
 
         <main className="flex-1">
-          <div ref={containerRef} className="h-full w-full">
+          <div
+            ref={containerRef}
+            className="h-full w-full"
+            onDragOver={(event) => {
+              if (previewMode) return;
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (previewMode) return;
+              event.preventDefault();
+              const toolKey = event.dataTransfer.getData(
+                "application/x-infinity-tool",
+              ) as ToolKey | "";
+              if (!toolKey || toolKey === "select") return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              const point = {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top,
+              };
+              const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
+              if (
+                point.x < pitchRect.x ||
+                point.x > pitchRect.x + pitchRect.w ||
+                point.y < pitchRect.y ||
+                point.y > pitchRect.y + pitchRect.h
+              ) {
+                return;
+              }
+              const normalized = {
+                x: clamp01((point.x - pitchRect.x) / pitchRect.w),
+                y: clamp01((point.y - pitchRect.y) / pitchRect.h),
+              };
+              addElement(toolKey as ElementType, normalized);
+            }}
+          >
             <canvas
               ref={canvasRef}
               className="h-full w-full"
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
+              onPointerDown={previewMode ? undefined : handlePointerDown}
+              onPointerMove={previewMode ? undefined : handlePointerMove}
+              onPointerUp={previewMode ? undefined : handlePointerUp}
             />
           </div>
         </main>
 
-        <aside className="w-[320px] border-l border-white/5 bg-black/40 p-4 backdrop-blur-xl">
+        {!previewMode ? (
+          <aside className="w-[320px] border-l border-white/5 bg-black/40 p-4 backdrop-blur-xl">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
               Propriétés
@@ -1977,6 +2143,7 @@ export default function ExerciseAnimatedEditor() {
                     strokesRef.current = [];
                     setStrokesBase(null);
                     strokesBaseRef.current = null;
+                    setGroupMode(false);
                     setBallAttachedToId(null);
                   }}
                     className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
@@ -2028,7 +2195,53 @@ export default function ExerciseAnimatedEditor() {
             </button>
           )}
         </aside>
+        ) : null}
       </div>
+      {previewMode ? (
+        <div className="fixed inset-0 z-30">
+          <div className="absolute inset-0" />
+          <button
+            onClick={() => {
+              player.setIsPlaying(false);
+              player.reset();
+              setPreviewMode(false);
+            }}
+            className="absolute right-6 top-6 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/60 text-sm text-white/80 backdrop-blur-xl transition hover:bg-white/10"
+            aria-label="Fermer la prévisualisation"
+          >
+            ✕
+          </button>
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/50 px-4 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={player.toggle}
+              className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+            >
+              {player.isPlaying ? "Pause" : "Lecture"}
+            </button>
+            <button
+              onClick={() => {
+                player.reset();
+                player.setIsPlaying(true);
+              }}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+            >
+              Recommencer
+            </button>
+            <button
+              onClick={() => {
+                player.setIsPlaying(false);
+                player.reset();
+                setPreviewMode(false);
+              }}
+              className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
+            >
+              Quitter
+            </button>
+          </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
