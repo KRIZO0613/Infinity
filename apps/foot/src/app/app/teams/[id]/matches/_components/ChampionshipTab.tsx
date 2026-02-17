@@ -252,16 +252,32 @@ function OpponentCombobox({
       setLoading(false);
       return;
     }
+    let active = true;
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
     }
     debounceRef.current = window.setTimeout(async () => {
       setLoading(true);
-      const data = await searchExternalClubs(trimmed);
-      setResults(data);
-      setLoading(false);
+      try {
+        const data = await searchExternalClubs(trimmed);
+        if (!active) return;
+        setResults(data);
+      } catch (error) {
+        const err = error as { name?: string; message?: string } | null;
+        const name = err?.name ?? "";
+        const message = String(err?.message ?? "");
+        if (name === "AbortError" || message.toLowerCase().includes("aborted")) {
+          return;
+        }
+        console.error("Erreur recherche clubs externes:", error);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
     }, 250);
     return () => {
+      active = false;
       if (debounceRef.current) {
         window.clearTimeout(debounceRef.current);
       }
@@ -420,16 +436,32 @@ function TeamSearchDropdown({
       setLoading(false);
       return;
     }
+    let active = true;
     if (debounceRef.current) {
       window.clearTimeout(debounceRef.current);
     }
     debounceRef.current = window.setTimeout(async () => {
       setLoading(true);
-      const data = await searchExternalClubs(trimmed);
-      setResults(data);
-      setLoading(false);
+      try {
+        const data = await searchExternalClubs(trimmed);
+        if (!active) return;
+        setResults(data);
+      } catch (error) {
+        if (
+          error instanceof DOMException &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+        console.error("Erreur recherche clubs externes:", error);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
     }, 250);
     return () => {
+      active = false;
       if (debounceRef.current) {
         window.clearTimeout(debounceRef.current);
       }
@@ -1070,23 +1102,65 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       );
       return;
     }
+    const getStatFieldValue = (
+      fields: PlayerCustomField[],
+      labels: string[],
+    ) => {
+      const normalizedLabels = labels.map(normalizeFieldLabel);
+      const field = fields.find((item) =>
+        normalizedLabels.includes(normalizeFieldLabel(item.label ?? "")),
+      );
+      const parsed = Number.parseInt(String(field?.value ?? "0"), 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
     const updates = (data ?? []).map((player) => {
       const fields = Array.isArray(player.custom_fields)
         ? (player.custom_fields as PlayerCustomField[])
         : [];
+      const friendlyGoals = getStatFieldValue(fields, [
+        "buts amical",
+        "buts amicaux",
+      ]);
+      const friendlyAssists = getStatFieldValue(fields, [
+        "passes d amical",
+        "passes amical",
+        "passes decisives amical",
+      ]);
+      const plateauGoals = getStatFieldValue(fields, [
+        "buts plateau",
+        "buts plateaux",
+      ]);
+      const plateauAssists = getStatFieldValue(fields, [
+        "passes d plateau",
+        "passes plateau",
+        "passes decisives plateau",
+      ]);
+      const champGoals = totals.goals[player.id] ?? 0;
+      const champAssists = totals.assists[player.id] ?? 0;
       const withGoals = upsertStatField(
         fields,
-        "Buts",
-        totals.goals[player.id] ?? 0,
+        "Buts championnat",
+        champGoals,
       );
       const withAssists = upsertStatField(
         withGoals,
+        "Passes D championnat",
+        champAssists,
+      );
+      const withTotalGoals = upsertStatField(
+        withAssists,
+        "Buts",
+        champGoals + friendlyGoals + plateauGoals,
+      );
+      const withTotalAssists = upsertStatField(
+        withTotalGoals,
         "Passes D",
-        totals.assists[player.id] ?? 0,
+        champAssists + friendlyAssists + plateauAssists,
       );
       return {
         id: player.id,
-        custom_fields: withAssists,
+        custom_fields: withTotalAssists,
       };
     });
     const updateResults = await Promise.all(

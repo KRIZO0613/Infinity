@@ -1,6 +1,7 @@
 // apps/foot/src/app/app/layout.tsx
 import type { ReactNode } from "react";
 import AppHeader from "@/app/_components/AppHeader";
+import AbortErrorSilencer from "@/app/_components/AbortErrorSilencer";
 import SidebarNav from "@/app/_components/SidebarNav";
 import CoachOnboardingDialog from "@/app/_components/onboarding/CoachOnboardingDialog";
 
@@ -8,6 +9,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <AppHeader />
+      <AbortErrorSilencer />
       <CoachOnboardingDialog />
 
       {/* MOBILE (<md) : icônes seules sous le header */}

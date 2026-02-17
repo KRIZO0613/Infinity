@@ -26,9 +26,9 @@ const CSV_ABSOLUTE_PATH = path.resolve(
 
 const BATCH_SIZE = 500;
 
-// ✅ On charge le .env.local spécifique de l’app foot
+// ✅ On charge un .env dédié aux scripts (non exposé au frontend)
 dotenv.config({
-  path: path.resolve(process.cwd(), "apps/foot/.env.local"),
+  path: path.resolve(process.cwd(), "apps/foot/scripts/.env"),
 });
 
 console.log("SUPABASE_URL =", process.env.SUPABASE_URL);
@@ -152,13 +152,12 @@ async function readCsv(filePath: string): Promise<{
 }
 
 async function run() {
-  const supabaseUrl =
-    process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
     console.error(
-      "Missing SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
+      "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.",
     );
     process.exitCode = 1;
     return;

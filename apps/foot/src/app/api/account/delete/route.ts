@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   isSupabaseAdminConfigured,
   supabaseAdmin,
-} from "@/lib/supabaseAdmin";
+} from "@/server/supabaseAdmin";
 
 export const runtime = "nodejs";
 

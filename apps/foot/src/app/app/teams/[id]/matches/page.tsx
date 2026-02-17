@@ -4,8 +4,15 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 
 import ChampionshipTab from "./_components/ChampionshipTab";
+import CupTab from "./_components/CupTab";
+import FriendlyTab from "./_components/FriendlyTab";
+import PlateauTab from "./_components/PlateauTab";
 
-type MatchKind = "championship" | "friendly" | "other";
+type MatchKind =
+  | "championship"
+  | "cup"
+  | "friendly"
+  | "plateau";
 
 type MatchTab = {
   key: MatchKind;
@@ -14,8 +21,9 @@ type MatchTab = {
 
 const tabs: MatchTab[] = [
   { key: "championship", label: "Championnat" },
+  { key: "cup", label: "Coupe" },
   { key: "friendly", label: "Matchs amicaux" },
-  { key: "other", label: "Autres" },
+  { key: "plateau", label: "Plateau" },
 ];
 
 export default function TeamMatchesPage() {
@@ -46,13 +54,13 @@ export default function TeamMatchesPage() {
                       type="button"
                       onClick={() => setActiveTab(tab.key)}
                       className={[
-                        "rounded-full px-4 py-2 text-xs font-semibold transition",
+                        "rounded-full px-3 py-1.5 text-[11px] font-semibold transition",
                         isActive
                           ? "border border-white/10 bg-white/10 text-slate-100"
                           : "border border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200",
                       ].join(" ")}
                     >
-                      {tab.label}
+                      <span>{tab.label}</span>
                     </button>
                   );
                 })}
@@ -65,28 +73,21 @@ export default function TeamMatchesPage() {
           <div className="mt-8">
             <ChampionshipTab teamId={teamId} />
           </div>
+        ) : activeTab === "friendly" ? (
+          <div className="mt-8">
+            <FriendlyTab teamId={teamId} />
+          </div>
+        ) : activeTab === "cup" ? (
+          <div className="mt-8">
+            <CupTab teamId={teamId} />
+          </div>
+        ) : activeTab === "plateau" ? (
+          <div className="mt-8">
+            <PlateauTab teamId={teamId} />
+          </div>
         ) : (
-          <div className="mt-8 rounded-[28px] border border-white/10 bg-black/35 p-6 shadow-[0_26px_60px_rgba(0,0,0,0.6)]">
-            <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 text-sm text-slate-400">
-              <p>
-                {activeTab === "friendly"
-                  ? "Aucun match amical pour l’instant."
-                  : "Aucun match pour l’instant dans cette catégorie."}
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  alert(
-                    activeTab === "friendly"
-                      ? "Match amical – à implémenter"
-                      : "Match – à implémenter",
-                  )
-                }
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/10"
-              >
-                + {activeTab === "friendly" ? "Match amical" : "Match"}
-              </button>
-            </div>
+          <div className="mt-8">
+            <PlateauTab teamId={teamId} />
           </div>
         )}
       </div>

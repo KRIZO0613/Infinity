@@ -31,6 +31,18 @@ export async function searchExternalClubs(
 
     return data ?? [];
   } catch (error) {
+    if (
+      (error instanceof DOMException && error.name === "AbortError") ||
+      (error instanceof Error && error.name === "AbortError") ||
+      (typeof error === "object" &&
+        error &&
+        "message" in error &&
+        String((error as { message?: string }).message)
+          .toLowerCase()
+          .includes("aborted"))
+    ) {
+      return [];
+    }
     const err = error as Error;
     console.error(
       "Erreur recherche clubs externes:",

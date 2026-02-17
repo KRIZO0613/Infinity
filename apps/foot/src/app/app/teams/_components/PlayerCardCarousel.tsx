@@ -32,11 +32,15 @@ export default function PlayerCardCarousel({
 }: PlayerCardCarouselProps) {
   const player = players[activeIndex];
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [autoStatsDetails, setAutoStatsDetails] = useState<
+    "goals" | "assists" | null
+  >(null);
 
   if (!player) return null;
 
   useEffect(() => {
     setPhotoFailed(false);
+    setAutoStatsDetails(null);
   }, [player.photo_url]);
 
   const displayName =
@@ -63,6 +67,16 @@ export default function PlayerCardCarousel({
   };
   const matchesValue = getStatValue(["matchs", "matches", "match"]);
   const goalsValue = getStatValue(["buts", "but", "goals", "goal"]);
+  const goalsChampValue = getStatValue([
+    "butschampionnat",
+    "butchampionnat",
+  ]);
+  const goalsFriendlyValue = getStatValue(["butsamical", "butamical"]);
+  const goalsPlateauValue = getStatValue([
+    "butsplateau",
+    "butplateau",
+    "buts plateau",
+  ]);
   const assistsValue = getStatValue([
     "passesd",
     "passesdecisives",
@@ -70,6 +84,22 @@ export default function PlayerCardCarousel({
     "assists",
     "assist",
     "passe",
+  ]);
+  const assistsChampValue = getStatValue([
+    "passesdchampionnat",
+    "passesdecisiveschampionnat",
+    "passedecisivechampionnat",
+  ]);
+  const assistsFriendlyValue = getStatValue([
+    "passesdamical",
+    "passesdecisivesamical",
+    "passedecisiveamical",
+  ]);
+  const assistsPlateauValue = getStatValue([
+    "passesdplateau",
+    "passesdecisivesplateau",
+    "passedecisiveplateau",
+    "passes plateau",
   ]);
   const position = getFieldValue(["poste", "position"]);
   const strongFoot = getFieldValue(["piedfort", "pied"]);
@@ -168,7 +198,7 @@ export default function PlayerCardCarousel({
     },
     {
       key: "assists",
-      label: "Passes",
+      label: "Passes D",
       value: assistsValue,
       emoji: "👟",
       bg: "bg-[#6366f1]",
@@ -519,39 +549,102 @@ export default function PlayerCardCarousel({
               ))}
             </div>
 
-            <div className="flex-none rounded-[12px] bg-black/35 px-1.5 py-1 backdrop-blur-sm">
+            <div className="relative flex-none rounded-[12px] bg-black/35 px-1.5 py-1 backdrop-blur-sm">
               <div className="grid grid-cols-3 text-[9px] text-slate-400">
-                {autoStats.map((stat, index) => (
-                  <div
-                    key={stat.key}
-                  className={[
-                    "px-1 py-0.5 text-center",
-                    index < autoStats.length - 1
-                      ? "border-r border-white/5"
-                      : "",
-                  ].join(" ")}
-                >
-                  <div
-                    className={[
-                      "mx-auto mb-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px]",
-                      "shadow-[0_4px_10px_rgba(15,23,42,0.3)]",
-                      stat.bg,
-                    ].join(" ")}
-                    aria-hidden="true"
-                  >
-                    {stat.icon ?? stat.emoji}
+                {autoStats.map((stat, index) => {
+                  const isClickable =
+                    stat.key === "goals" || stat.key === "assists";
+                  const nextKey =
+                    stat.key === "goals"
+                      ? "goals"
+                      : stat.key === "assists"
+                        ? "assists"
+                        : null;
+                  const isActive = nextKey
+                    ? autoStatsDetails === nextKey
+                    : false;
+                  return (
+                    <button
+                      key={stat.key}
+                      type="button"
+                      disabled={!isClickable}
+                      onClick={
+                        isClickable && nextKey
+                          ? () =>
+                              setAutoStatsDetails((prev) =>
+                                prev === nextKey ? null : nextKey,
+                              )
+                          : undefined
+                      }
+                      className={[
+                        "px-1 py-0.5 text-center transition",
+                        index < autoStats.length - 1
+                          ? "border-r border-white/5"
+                          : "",
+                        isClickable
+                          ? "hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-white/10"
+                          : "cursor-default",
+                        isActive ? "bg-white/5" : "",
+                      ].join(" ")}
+                    >
+                      <div
+                        className={[
+                          "mx-auto mb-1 flex h-4 w-4 items-center justify-center rounded-full text-[10px]",
+                          "shadow-[0_4px_10px_rgba(15,23,42,0.3)]",
+                          stat.bg,
+                        ].join(" ")}
+                        aria-hidden="true"
+                      >
+                        {stat.icon ?? stat.emoji}
+                      </div>
+                      <div className="text-[10px] font-semibold text-white sm:text-sm">
+                        {stat.value}
+                      </div>
+                      <div className="text-[7px] uppercase tracking-[0.2em] text-slate-400 sm:text-[8px]">
+                        {stat.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {autoStatsDetails ? (
+                <div className="pointer-events-none absolute left-1/2 bottom-full z-20 mb-2 w-[170px] -translate-x-1/2 rounded-2xl border border-white/10 bg-black/60 px-3 py-2 text-[9px] text-slate-200 shadow-[0_12px_30px_rgba(15,23,42,0.55)] backdrop-blur-lg">
+                  <div className="flex items-center justify-between py-0.5">
+                    <span className="text-slate-400">Championnat</span>
+                    <span className="font-semibold text-white">
+                      {autoStatsDetails === "goals"
+                        ? goalsChampValue
+                        : assistsChampValue}
+                    </span>
                   </div>
-                  <div className="text-[10px] font-semibold text-white sm:text-sm">
-                    {stat.value}
+                  <div className="flex items-center justify-between py-0.5">
+                    <span className="text-slate-400">Amical</span>
+                    <span className="font-semibold text-white">
+                      {autoStatsDetails === "goals"
+                        ? goalsFriendlyValue
+                        : assistsFriendlyValue}
+                    </span>
                   </div>
-                  <div className="text-[7px] uppercase tracking-[0.2em] text-slate-400 sm:text-[8px]">
-                    {stat.label}
+                  <div className="flex items-center justify-between py-0.5">
+                    <span className="text-slate-400">Plateau</span>
+                    <span className="font-semibold text-white">
+                      {autoStatsDetails === "goals"
+                        ? goalsPlateauValue
+                        : assistsPlateauValue}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-0.5">
+                    <span className="text-slate-400">Total</span>
+                    <span className="font-semibold text-white">
+                      {autoStatsDetails === "goals"
+                        ? goalsValue
+                        : assistsValue}
+                    </span>
                   </div>
                 </div>
-              ))}
+              ) : null}
             </div>
           </div>
-        </div>
         </div>
       </div>
     </div>

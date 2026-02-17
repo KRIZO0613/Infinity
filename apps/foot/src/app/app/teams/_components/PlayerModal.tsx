@@ -221,7 +221,11 @@ export default function PlayerModal({
   const [fields, setFields] = useState<PlayerFieldDraft[]>([]);
   const [showMainFields, setShowMainFields] = useState(true);
   const [showCustomFields, setShowCustomFields] = useState(true);
-  const [showAutoStats, setShowAutoStats] = useState(false);
+  const [showAutoStats, setShowAutoStats] = useState(true);
+  const [autoStatsTab, setAutoStatsTab] = useState<"goals" | "assists">(
+    "goals",
+  );
+  const [autoStatsDetailsOpen, setAutoStatsDetailsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveFeedback, setSaveFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -246,19 +250,40 @@ export default function PlayerModal({
   const autoMatches = parseStatValue(
     getCustomFieldValue(["matchs", "matches", "match"]),
   );
-  const autoGoals = parseStatValue(
-    getCustomFieldValue(["buts", "but", "goals", "goal"]),
+  const autoGoalsChamp = parseStatValue(
+    getCustomFieldValue(["buts championnat", "butschampionnat"]),
   );
-  const autoAssists = parseStatValue(
+  const autoGoalsFriendly = parseStatValue(
+    getCustomFieldValue(["buts amical", "buts amicaux", "butsamical"]),
+  );
+  const autoGoalsPlateau = parseStatValue(
+    getCustomFieldValue(["buts plateau", "butsplateau"]),
+  );
+  const autoGoalsTotal =
+    autoGoalsChamp + autoGoalsFriendly + autoGoalsPlateau;
+  const autoAssistsChamp = parseStatValue(
     getCustomFieldValue([
-      "passesd",
-      "passesdecisives",
-      "passedecisive",
-      "assists",
-      "assist",
-      "passe",
+      "passes d championnat",
+      "passes championnat",
+      "passesdchampionnat",
     ]),
   );
+  const autoAssistsFriendly = parseStatValue(
+    getCustomFieldValue([
+      "passes d amical",
+      "passes amical",
+      "passesdamical",
+    ]),
+  );
+  const autoAssistsPlateau = parseStatValue(
+    getCustomFieldValue([
+      "passes d plateau",
+      "passes plateau",
+      "passesdplateau",
+    ]),
+  );
+  const autoAssistsTotal =
+    autoAssistsChamp + autoAssistsFriendly + autoAssistsPlateau;
 
   useEffect(() => {
     return () => {
@@ -300,6 +325,8 @@ export default function PlayerModal({
     setShowMainFields(true);
     setShowCustomFields(true);
     setShowAutoStats(false);
+    setAutoStatsTab("goals");
+    setAutoStatsDetailsOpen(false);
     setError(null);
     setSaveFeedback(false);
   }, [open, player]);
@@ -1052,7 +1079,7 @@ export default function PlayerModal({
             </div>
 
             {showAutoStats ? (
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 space-y-3">
                 <div className="flex items-center justify-between py-1">
                   <div>
                     <p className="text-[10px] text-slate-200">
@@ -1064,26 +1091,80 @@ export default function PlayerModal({
                     {autoMatches}
                   </span>
                 </div>
-                <div className="flex items-center justify-between py-1">
-                  <div>
-                    <p className="text-[10px] text-slate-200">Nombre de buts</p>
-                    <p className="text-[9px] text-slate-500">Auto</p>
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-300">
-                    {autoGoals}
-                  </span>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoStatsDetailsOpen((prev) =>
+                        autoStatsTab === "goals" ? !prev : true,
+                      );
+                      setAutoStatsTab("goals");
+                    }}
+                    className={[
+                      "rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] transition",
+                      autoStatsTab === "goals"
+                        ? "border border-white/10 bg-white/10 text-white"
+                        : "border border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200",
+                    ].join(" ")}
+                  >
+                    Buts {autoGoalsTotal}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoStatsDetailsOpen((prev) =>
+                        autoStatsTab === "assists" ? !prev : true,
+                      );
+                      setAutoStatsTab("assists");
+                    }}
+                    className={[
+                      "rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] transition",
+                      autoStatsTab === "assists"
+                        ? "border border-white/10 bg-white/10 text-white"
+                        : "border border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200",
+                    ].join(" ")}
+                  >
+                    Passes {autoAssistsTotal}
+                  </button>
                 </div>
-                <div className="flex items-center justify-between py-1">
-                  <div>
-                    <p className="text-[10px] text-slate-200">
-                      Passes décisives
-                    </p>
-                    <p className="text-[9px] text-slate-500">Auto</p>
+                {autoStatsDetailsOpen ? (
+                  <div className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+                    <div className="flex items-center justify-between py-1">
+                      <p className="text-[10px] text-slate-200">
+                        Championnat
+                      </p>
+                      <span className="text-[10px] font-semibold text-slate-300">
+                        {autoStatsTab === "goals"
+                          ? autoGoalsChamp
+                          : autoAssistsChamp}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-1">
+                      <p className="text-[10px] text-slate-200">Amical</p>
+                      <span className="text-[10px] font-semibold text-slate-300">
+                        {autoStatsTab === "goals"
+                          ? autoGoalsFriendly
+                          : autoAssistsFriendly}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-1">
+                      <p className="text-[10px] text-slate-200">Plateau</p>
+                      <span className="text-[10px] font-semibold text-slate-300">
+                        {autoStatsTab === "goals"
+                          ? autoGoalsPlateau
+                          : autoAssistsPlateau}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between py-1">
+                      <p className="text-[10px] text-slate-200">Total</p>
+                      <span className="text-[10px] font-semibold text-slate-300">
+                        {autoStatsTab === "goals"
+                          ? autoGoalsTotal
+                          : autoAssistsTotal}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-semibold text-slate-300">
-                    {autoAssists}
-                  </span>
-                </div>
+                ) : null}
               </div>
             ) : null}
           </div>

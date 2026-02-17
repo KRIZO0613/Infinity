@@ -154,6 +154,7 @@ export type Database = {
           end_at: string | null;
           status: string | null;
           title: string | null;
+          created_by: string;
           created_at: string | null;
         };
         Insert: {
@@ -165,6 +166,7 @@ export type Database = {
           end_at?: string | null;
           status?: string | null;
           title?: string | null;
+          created_by: string;
           created_at?: string | null;
         };
         Update: {
@@ -176,6 +178,7 @@ export type Database = {
           end_at?: string | null;
           status?: string | null;
           title?: string | null;
+          created_by?: string;
           created_at?: string | null;
         };
         Relationships: [];
@@ -213,6 +216,48 @@ export type Database = {
           id?: string;
           event_id?: string;
           created_at?: string | null;
+        };
+        Relationships: [];
+      };
+      training_exercises: {
+        Row: {
+          id: string;
+          team_id: string | null;
+          title: string;
+          category: string;
+          duration: number;
+          type: string;
+          animation_data: Json;
+          is_global: boolean;
+          created_by: string;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          team_id?: string | null;
+          title: string;
+          category?: string;
+          duration?: number;
+          type?: string;
+          animation_data?: Json;
+          is_global?: boolean;
+          created_by?: string;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Update: {
+          id?: string;
+          team_id?: string | null;
+          title?: string;
+          category?: string;
+          duration?: number;
+          type?: string;
+          animation_data?: Json;
+          is_global?: boolean;
+          created_by?: string;
+          created_at?: string | null;
+          updated_at?: string | null;
         };
         Relationships: [];
       };

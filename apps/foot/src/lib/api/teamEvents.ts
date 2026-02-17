@@ -2,6 +2,14 @@
 import { supabase } from "@/lib/supabaseClient";
 import type { Json } from "@/types/supabase";
 
+export const TEAM_EVENT_STATUS = [
+  "scheduled",
+  "played",
+  "cancelled",
+] as const;
+
+export type TeamEventStatus = (typeof TEAM_EVENT_STATUS)[number];
+
 export type TeamEvent = {
   id: string;
   club_id: string;
@@ -9,7 +17,7 @@ export type TeamEvent = {
   type: "match" | "training";
   start_at: string;
   end_at: string | null;
-  status: string | null;
+  status: TeamEventStatus | null;
   title: string | null;
   location?: string | null;
 };
@@ -20,7 +28,8 @@ export type CreateEventBaseInput = {
   startAt: string;
   endAt?: string | null;
   title?: string | null;
-  status?: string | null;
+  status?: TeamEventStatus | null;
+  createdBy?: string;
   eventData?: Record<string, Json>;
 };
 
@@ -53,6 +62,11 @@ export async function getTeamEventsByTeam(
   return (data ?? []) as TeamEvent[];
 }
 
+const normalizeEventStatus = (status?: TeamEventStatus | null) => {
+  if (!status) return "scheduled";
+  return TEAM_EVENT_STATUS.includes(status) ? status : "scheduled";
+};
+
 export async function getMatchesByTeam(teamId: string) {
   const { data, error } = await supabase
     .from("team_events")
@@ -78,8 +92,21 @@ export async function getTrainingsByTeam(teamId: string) {
 }
 
 export async function createMatchEvent(input: CreateMatchEventInput) {
-  const { clubId, teamId, startAt, endAt, title, status, eventData, matchData } =
+  const {
+    clubId,
+    teamId,
+    startAt,
+    endAt,
+    title,
+    status,
+    createdBy,
+    eventData,
+    matchData,
+  } =
     input;
+  if (!createdBy) {
+    throw new Error("create match event failed: missing created_by");
+  }
 
   const { data: eventDataRow, error: eventError } = await supabase
     .from("team_events")
@@ -90,7 +117,8 @@ export async function createMatchEvent(input: CreateMatchEventInput) {
       start_at: startAt,
       end_at: endAt ?? null,
       title: title ?? null,
-      status: status ?? null,
+      status: normalizeEventStatus(status),
+      created_by: createdBy,
       ...(eventData ?? {}),
     })
     .select("id")
@@ -121,9 +149,13 @@ export async function createTrainingEvent(input: CreateTrainingEventInput) {
     endAt,
     title,
     status,
+    createdBy,
     eventData,
     trainingData,
   } = input;
+  if (!createdBy) {
+    throw new Error("create training event failed: missing created_by");
+  }
 
   const { data: eventDataRow, error: eventError } = await supabase
     .from("team_events")
@@ -134,14 +166,23 @@ export async function createTrainingEvent(input: CreateTrainingEventInput) {
       start_at: startAt,
       end_at: endAt ?? null,
       title: title ?? null,
-      status: status ?? null,
+      status: normalizeEventStatus(status),
+      created_by: createdBy,
       ...(eventData ?? {}),
     })
     .select("id")
     .single();
 
   if (eventError || !eventDataRow?.id) {
-    throw eventError ?? new Error("Unable to create team event.");
+    const payload = eventError
+      ? JSON.stringify({
+          message: eventError.message,
+          details: eventError.details,
+          hint: eventError.hint,
+          code: eventError.code,
+        })
+      : "missing id";
+    throw new Error(`create training event failed: ${payload}`);
   }
 
   const { error: trainingError } = await supabase
@@ -153,7 +194,13 @@ export async function createTrainingEvent(input: CreateTrainingEventInput) {
 
   if (trainingError) {
     await supabase.from("team_events").delete().eq("id", eventDataRow.id);
-    throw trainingError;
+    const payload = JSON.stringify({
+      message: trainingError.message,
+      details: trainingError.details,
+      hint: trainingError.hint,
+      code: trainingError.code,
+    });
+    throw new Error(`create training session failed: ${payload}`);
   }
 
   return eventDataRow.id as string;
