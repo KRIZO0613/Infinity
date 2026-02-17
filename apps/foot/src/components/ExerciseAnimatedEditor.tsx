@@ -32,6 +32,29 @@ type FrameSnapshot = {
   elementsSnapshot: Array<{ id: string; x: number; y: number }>;
 };
 
+type PathPoint = {
+  x: number;
+  y: number;
+  t: number;
+};
+
+type BaseSnapshot = Record<string, { x: number; y: number }>;
+
+type Stroke = {
+  id: string;
+  kind: "move" | "carry";
+  order: number;
+  elementId?: string;
+  points: Array<{ x: number; y: number }>;
+  style?: {
+    dashed?: boolean;
+    width?: number;
+    arrow?: boolean;
+    variant?: "move" | "carry" | "ball";
+  };
+  durationMs: number;
+};
+
 type PitchPreset = "standard";
 
 type PitchRect = { x: number; y: number; w: number; h: number };
@@ -150,7 +173,137 @@ export const drawElements = (
   elements: CanvasElement[],
   selectedId: string | null,
   pitchRect: PitchRect,
+  paths: Record<string, PathPoint[]> = {},
+  strokes: Stroke[] = [],
+  ballAttachedToId?: string | null,
+  snapTargetId?: string | null,
 ) => {
+  const drawSmoothPath = (points: PathPoint[]) => {
+    if (points.length < 2) return;
+    // Quadratic Bézier smoothing: use each point as control and midpoints as end points.
+    if (points.length < 3) {
+      const first = points[0];
+      ctx.moveTo(
+        pitchRect.x + first.x * pitchRect.w,
+        pitchRect.y + first.y * pitchRect.h,
+      );
+      for (let i = 1; i < points.length; i += 1) {
+        const p = points[i];
+        ctx.lineTo(
+          pitchRect.x + p.x * pitchRect.w,
+          pitchRect.y + p.y * pitchRect.h,
+        );
+      }
+      return;
+    }
+
+    const first = points[0];
+    ctx.moveTo(
+      pitchRect.x + first.x * pitchRect.w,
+      pitchRect.y + first.y * pitchRect.h,
+    );
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const current = points[i];
+      const next = points[i + 1];
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      ctx.quadraticCurveTo(
+        pitchRect.x + current.x * pitchRect.w,
+        pitchRect.y + current.y * pitchRect.h,
+        pitchRect.x + midX * pitchRect.w,
+        pitchRect.y + midY * pitchRect.h,
+      );
+    }
+    const last = points[points.length - 1];
+    ctx.lineTo(
+      pitchRect.x + last.x * pitchRect.w,
+      pitchRect.y + last.y * pitchRect.h,
+    );
+  };
+
+  const drawArrow = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const angle = Math.atan2(to.y - from.y, to.x - from.x);
+    const headLength = 10;
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(
+      to.x - headLength * Math.cos(angle - Math.PI / 6),
+      to.y - headLength * Math.sin(angle - Math.PI / 6),
+    );
+    ctx.lineTo(
+      to.x - headLength * Math.cos(angle + Math.PI / 6),
+      to.y - headLength * Math.sin(angle + Math.PI / 6),
+    );
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  const drawStrokePath = (
+    points: Array<{ x: number; y: number }>,
+    dashed: boolean,
+    width: number,
+    color: string,
+    arrow: boolean,
+  ) => {
+    if (points.length < 2) return;
+    ctx.save();
+    ctx.beginPath();
+    drawSmoothPath(
+      points.map((point) => ({ x: point.x, y: point.y, t: 0 })),
+    );
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dashed ? [6, 6] : []);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (arrow) {
+      const last = points[points.length - 1];
+      const prev = points[points.length - 2];
+      const to = {
+        x: pitchRect.x + last.x * pitchRect.w,
+        y: pitchRect.y + last.y * pitchRect.h,
+      };
+      const from = {
+        x: pitchRect.x + prev.x * pitchRect.w,
+        y: pitchRect.y + prev.y * pitchRect.h,
+      };
+      ctx.fillStyle = color;
+      drawArrow(from, to);
+    }
+    ctx.restore();
+  };
+
+  strokes.forEach((stroke) => {
+    const variant = stroke.style?.variant ?? stroke.kind;
+    const color =
+      variant === "ball"
+        ? "rgba(125, 211, 252, 0.7)"
+        : variant === "carry"
+        ? "rgba(253, 224, 71, 0.7)"
+        : "rgba(148, 163, 184, 0.55)";
+    drawStrokePath(
+      stroke.points,
+      stroke.style?.dashed ?? variant === "ball",
+      stroke.style?.width ?? (stroke.kind === "carry" ? 2.5 : 1.5),
+      color,
+      stroke.style?.arrow ?? true,
+    );
+  });
+
+  Object.entries(paths).forEach(([id, points]) => {
+    if (points.length < 2) return;
+    ctx.save();
+    ctx.beginPath();
+    drawSmoothPath(points);
+    ctx.strokeStyle =
+      id === selectedId
+        ? "rgba(167, 139, 250, 0.7)"
+        : "rgba(148, 163, 184, 0.35)";
+    ctx.lineWidth = id === selectedId ? 2 : 1;
+    ctx.stroke();
+    ctx.restore();
+  });
+
   elements.forEach((element) => {
     const px = pitchRect.x + element.x * pitchRect.w;
     const py = pitchRect.y + element.y * pitchRect.h;
@@ -168,6 +321,21 @@ export const drawElements = (
       ctx.beginPath();
       ctx.arc(px, py, radius, 0, Math.PI * 2);
       ctx.fill();
+
+      if (element.id === ballAttachedToId) {
+        ctx.fillStyle = "rgba(253, 224, 71, 0.95)";
+        ctx.beginPath();
+        ctx.arc(px + radius * 0.6, py - radius * 0.6, radius * 0.22, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (element.id === snapTargetId) {
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.6)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       if (element.label) {
         ctx.fillStyle = "rgba(255,255,255,0.95)";
@@ -248,12 +416,27 @@ const hitTest = (
   return null;
 };
 
-const useCanvasElements = (initial: CanvasElement[] = []) => {
+const useCanvasElements = (
+  initial: CanvasElement[] = [],
+  handlers?: {
+    onDragStart?: (id: string, x: number, y: number) => void;
+    onDragMove?: (id: string, x: number, y: number) => void;
+    onDragEnd?: (id: string) => void;
+    onElementClick?: (element: CanvasElement) => void;
+  },
+) => {
   const [elements, setElements] = useState<CanvasElement[]>(initial);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<ToolKey>("select");
   const [playerColor, setPlayerColor] = useState(DEFAULT_COLORS[0]);
-  const draggingRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const draggingRef = useRef<{
+    id: string;
+    offsetX: number;
+    offsetY: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
   const pitchRef = useRef<PitchRect>({ x: 0, y: 0, w: 1, h: 1 });
 
   const setPitchRect = (rect: PitchRect) => {
@@ -305,12 +488,19 @@ const useCanvasElements = (initial: CanvasElement[] = []) => {
       setSelectedId(hitId);
       const px = pitchRect.x + (elements.find((el) => el.id === hitId)?.x ?? 0) * pitchRect.w;
       const py = pitchRect.y + (elements.find((el) => el.id === hitId)?.y ?? 0) * pitchRect.h;
+      const element = elements.find((el) => el.id === hitId);
       draggingRef.current = {
         id: hitId,
         offsetX: point.x - px,
         offsetY: point.y - py,
+        startX: point.x,
+        startY: point.y,
+        moved: false,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
+      if (element) {
+        handlers?.onDragStart?.(element.id, element.x, element.y);
+      }
     } else {
       if (tool !== "select") {
         addElement(tool as ElementType, normalized);
@@ -329,10 +519,18 @@ const useCanvasElements = (initial: CanvasElement[] = []) => {
     if (!draggingRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const movedDistance = Math.hypot(
+      point.x - draggingRef.current.startX,
+      point.y - draggingRef.current.startY,
+    );
+    if (movedDistance > 3) {
+      draggingRef.current.moved = true;
+    }
     const pitchRect = pitchRef.current;
     const nextX = clamp01((point.x - draggingRef.current.offsetX - pitchRect.x) / pitchRect.w);
     const nextY = clamp01((point.y - draggingRef.current.offsetY - pitchRect.y) / pitchRect.h);
     updateElement(draggingRef.current.id, { x: nextX, y: nextY });
+    handlers?.onDragMove?.(draggingRef.current.id, nextX, nextY);
   };
 
   const handlePointerUp = (
@@ -340,6 +538,13 @@ const useCanvasElements = (initial: CanvasElement[] = []) => {
   ) => {
     if (draggingRef.current) {
       event.currentTarget.releasePointerCapture(event.pointerId);
+      handlers?.onDragEnd?.(draggingRef.current.id);
+      if (!draggingRef.current.moved) {
+        const element = elements.find((el) => el.id === draggingRef.current?.id);
+        if (element) {
+          handlers?.onElementClick?.(element);
+        }
+      }
     }
     draggingRef.current = null;
   };
@@ -370,15 +575,23 @@ const useCanvasElements = (initial: CanvasElement[] = []) => {
 const useKeyframesPlayer = (
   elements: CanvasElement[],
   frames: FrameSnapshot[],
+  paths: Record<string, PathPoint[]>,
+  strokes: Stroke[],
+  strokesBase: BaseSnapshot | null,
 ): KeyframePlayer => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [frameDuration, setFrameDuration] = useState(2000);
   const rafRef = useRef<number | null>(null);
   const startRef = useRef<number | null>(null);
+  const hasPaths = useMemo(
+    () => Object.values(paths).some((points) => points.length >= 2),
+    [paths],
+  );
+  const hasActions = strokes.length > 0;
 
   useEffect(() => {
-    if (!isPlaying || frames.length < 2) return;
+    if (!isPlaying || (frames.length < 2 && !hasPaths && !hasActions)) return;
     const loop = (time: number) => {
       if (!startRef.current) startRef.current = time;
       const elapsed = time - startRef.current;
@@ -391,33 +604,185 @@ const useKeyframesPlayer = (
       rafRef.current = null;
       startRef.current = null;
     };
-  }, [isPlaying, frames.length]);
+  }, [isPlaying, frames.length, hasPaths, hasActions]);
 
   const animatedElements = useMemo(() => {
-    if (!isPlaying || frames.length < 2) return elements;
-    const totalDuration = frames.length * frameDuration;
-    const local = playhead % totalDuration;
-    const index = Math.floor(local / frameDuration);
-    const nextIndex = (index + 1) % frames.length;
-    const t = (local % frameDuration) / frameDuration;
+    let animated = elements;
 
-    const currentMap = new Map(
-      frames[index].elementsSnapshot.map((snap) => [snap.id, snap]),
-    );
-    const nextMap = new Map(
-      frames[nextIndex].elementsSnapshot.map((snap) => [snap.id, snap]),
-    );
+    if (isPlaying && strokes.length > 0) {
+      const totalDuration = strokes.reduce(
+        (sum, stroke) => sum + (stroke.durationMs || 0),
+        0,
+      );
+      if (totalDuration > 0) {
+        const local = playhead % totalDuration;
+        let elapsed = 0;
+        let currentIndex = 0;
+        for (let i = 0; i < strokes.length; i += 1) {
+          const duration = Math.max(1, strokes[i].durationMs || 0);
+          if (local <= elapsed + duration) {
+            currentIndex = i;
+            break;
+          }
+          elapsed += duration;
+        }
+        const currentStroke = strokes[currentIndex];
+        const actionDuration = Math.max(1, currentStroke.durationMs || 0);
+        const actionTime = Math.min(actionDuration, Math.max(0, local - elapsed));
 
-    return elements.map((element) => {
-      const current = currentMap.get(element.id) ?? { x: element.x, y: element.y };
-      const next = nextMap.get(element.id) ?? current;
-      return {
-        ...element,
-        x: current.x + (next.x - current.x) * t,
-        y: current.y + (next.y - current.y) * t,
-      };
-    });
-  }, [elements, frames, frameDuration, isPlaying, playhead]);
+        const positions = new Map<string, { x: number; y: number }>();
+        elements.forEach((el) => {
+          const base = strokesBase?.[el.id];
+          positions.set(el.id, base ?? { x: el.x, y: el.y });
+        });
+
+        const ballId = elements.find((el) => el.type === "ball")?.id ?? null;
+        for (let i = 0; i < currentIndex; i += 1) {
+          const stroke = strokes[i];
+          if (stroke.kind === "move" || stroke.kind === "carry") {
+            const points = stroke.points;
+            if (points.length >= 1 && stroke.elementId) {
+              positions.set(stroke.elementId, {
+                x: points[points.length - 1].x,
+                y: points[points.length - 1].y,
+              });
+            }
+            if (stroke.kind === "carry" && stroke.elementId && ballId) {
+              const carried = positions.get(stroke.elementId);
+              if (carried) {
+                positions.set(ballId, {
+                  x: carried.x + 0.015,
+                  y: carried.y + 0.01,
+                });
+              }
+            }
+          }
+        }
+
+        const getPointAlong = (
+          points: Array<{ x: number; y: number }>,
+          t: number,
+        ) => {
+          if (points.length <= 1) return points[0] ?? { x: 0, y: 0 };
+          const lengths: number[] = [];
+          let total = 0;
+          for (let i = 1; i < points.length; i += 1) {
+            const dist = Math.hypot(
+              points[i].x - points[i - 1].x,
+              points[i].y - points[i - 1].y,
+            );
+            lengths.push(dist);
+            total += dist;
+          }
+          if (total === 0) return points[points.length - 1];
+          const target = total * t;
+          let acc = 0;
+          for (let i = 0; i < lengths.length; i += 1) {
+            if (acc + lengths[i] >= target) {
+              const ratio = (target - acc) / Math.max(1e-6, lengths[i]);
+              return {
+                x:
+                  points[i].x + (points[i + 1].x - points[i].x) * ratio,
+                y:
+                  points[i].y + (points[i + 1].y - points[i].y) * ratio,
+              };
+            }
+            acc += lengths[i];
+          }
+          return points[points.length - 1];
+        };
+
+        animated = elements.map((element) => {
+          const base = positions.get(element.id) ?? { x: element.x, y: element.y };
+          if (
+            currentStroke.kind === "move" ||
+            currentStroke.kind === "carry"
+          ) {
+            if (currentStroke.elementId === element.id && currentStroke.points.length >= 2) {
+              const t = Math.min(1, actionTime / actionDuration);
+              const point = getPointAlong(currentStroke.points, t);
+              return { ...element, x: point.x, y: point.y };
+            }
+          }
+          return { ...element, x: base.x, y: base.y };
+        });
+
+        if (currentStroke.kind === "carry" && ballId) {
+          const carried = animated.find((el) => el.id === currentStroke.elementId);
+          if (carried) {
+            animated = animated.map((element) => {
+              if (element.id !== ballId) return element;
+              return { ...element, x: carried.x + 0.015, y: carried.y + 0.01 };
+            });
+          }
+        }
+
+        return animated;
+      }
+    }
+
+    if (isPlaying && frames.length >= 2) {
+      const totalDuration = frames.length * frameDuration;
+      const local = playhead % totalDuration;
+      const index = Math.floor(local / frameDuration);
+      const nextIndex = (index + 1) % frames.length;
+      const t = (local % frameDuration) / frameDuration;
+
+      const currentMap = new Map(
+        frames[index].elementsSnapshot.map((snap) => [snap.id, snap]),
+      );
+      const nextMap = new Map(
+        frames[nextIndex].elementsSnapshot.map((snap) => [snap.id, snap]),
+      );
+
+      animated = elements.map((element) => {
+        const current = currentMap.get(element.id) ?? {
+          x: element.x,
+          y: element.y,
+        };
+        const next = nextMap.get(element.id) ?? current;
+        return {
+          ...element,
+          x: current.x + (next.x - current.x) * t,
+          y: current.y + (next.y - current.y) * t,
+        };
+      });
+    }
+
+    if (isPlaying && hasPaths) {
+      animated = animated.map((element) => {
+        const points = paths[element.id];
+        if (!points || points.length < 2) return element;
+        const duration = points[points.length - 1].t;
+        if (duration <= 0) return element;
+        const local = playhead % duration;
+        let index = 0;
+        while (index < points.length - 2 && points[index + 1].t < local) {
+          index += 1;
+        }
+        const current = points[index];
+        const next = points[index + 1] ?? current;
+        const segment = Math.max(1, next.t - current.t);
+        const t = Math.min(1, Math.max(0, (local - current.t) / segment));
+        return {
+          ...element,
+          x: current.x + (next.x - current.x) * t,
+          y: current.y + (next.y - current.y) * t,
+        };
+      });
+    }
+
+    return animated;
+  }, [
+    elements,
+    frames,
+    frameDuration,
+    isPlaying,
+    playhead,
+    paths,
+    hasPaths,
+    strokes,
+  ]);
 
   const toggle = () => setIsPlaying((prev) => !prev);
 
@@ -445,6 +810,40 @@ export default function ExerciseAnimatedEditor() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [recordPathMode, setRecordPathMode] = useState(false);
+  const [currentRecordingElementId, setCurrentRecordingElementId] = useState<
+    string | null
+  >(null);
+  const [recordMode, setRecordMode] = useState(false);
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [strokesBase, setStrokesBase] = useState<BaseSnapshot | null>(null);
+  const [ballAttachedToId, setBallAttachedToId] = useState<string | null>(null);
+  const [showSequenceDebug, setShowSequenceDebug] = useState(false);
+  const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
+  const strokesRef = useRef<Stroke[]>([]);
+  const strokesBaseRef = useRef<BaseSnapshot | null>(null);
+  const [associationTargetPlayerId, setAssociationTargetPlayerId] = useState<
+    string | null
+  >(null);
+  const [associationTargetBallId, setAssociationTargetBallId] = useState<
+    string | null
+  >(null);
+  const [paths, setPaths] = useState<Record<string, PathPoint[]>>({});
+  const pathRecordRef = useRef<{
+    id: string;
+    startTime: number;
+    lastTime: number;
+    lastX: number;
+    lastY: number;
+  } | null>(null);
+  const sequenceDragRef = useRef<{
+    id: string;
+    startTime: number;
+    lastTime: number;
+    lastX: number;
+    lastY: number;
+    points: PathPoint[];
+  } | null>(null);
 
   const {
     elements,
@@ -462,14 +861,192 @@ export default function ExerciseAnimatedEditor() {
     handlePointerUp,
     setPitchRect,
     clearDrag,
-  } = useCanvasElements();
+  } = useCanvasElements([], {
+    onDragStart: (id, x, y) => {
+      const element = elements.find((el) => el.id === id);
+      const isRecordable =
+        element?.type === "player" || element?.type === "ball";
 
-  const player = useKeyframesPlayer(elements, frames);
+      if (element?.type === "ball" && ballAttachedToId) {
+        setBallAttachedToId(null);
+      }
+
+      if (recordMode && element && isRecordable) {
+        const now = performance.now();
+        sequenceDragRef.current = {
+          id,
+          startTime: now,
+          lastTime: now,
+          lastX: x,
+          lastY: y,
+          points: [
+            {
+              x,
+              y,
+              t: 0,
+            },
+          ],
+        };
+      }
+
+      if (!recordPathMode) return;
+      setCurrentRecordingElementId(id);
+      const now = performance.now();
+      setPaths((prev) => {
+        const existing = prev[id] ?? [];
+        const baseT = existing.length ? existing[existing.length - 1].t : 0;
+        let next = existing.length ? [...existing] : [{ x, y, t: 0 }];
+        if (existing.length) {
+          const last = existing[existing.length - 1];
+          const dist = Math.hypot(x - last.x, y - last.y);
+          if (dist >= 0.005) {
+            next = [...existing, { x, y, t: baseT }];
+          }
+        }
+        pathRecordRef.current = {
+          id,
+          startTime: now - baseT,
+          lastTime: now,
+          lastX: x,
+          lastY: y,
+        };
+        return { ...prev, [id]: next };
+      });
+    },
+    onDragMove: (id, x, y) => {
+      if (ballAttachedToId && primaryBall) {
+        if (id === ballAttachedToId) {
+          updateElement(primaryBall.id, {
+            x: clamp01(x + 0.015),
+            y: clamp01(y + 0.01),
+          });
+        }
+      }
+
+      if (recordMode) {
+        const seq = sequenceDragRef.current;
+        if (seq && seq.id && id === seq.id) {
+          const now = performance.now();
+          const dist = Math.hypot(x - seq.lastX, y - seq.lastY);
+          if (dist >= 0.005 && (now - seq.lastTime >= 50 || dist >= 0.01)) {
+            const t = now - seq.startTime;
+            seq.points.push({ x, y, t });
+            seq.lastTime = now;
+            seq.lastX = x;
+            seq.lastY = y;
+          }
+        }
+      }
+
+      if (!recordPathMode) return;
+      if (currentRecordingElementId && currentRecordingElementId !== id) return;
+      const ref = pathRecordRef.current;
+      if (!ref || ref.id !== id) return;
+      const now = performance.now();
+      const dist = Math.hypot(x - ref.lastX, y - ref.lastY);
+      if (dist < 0.005) return;
+      if (now - ref.lastTime < 50 && dist < 0.01) return;
+      const t = now - ref.startTime;
+      ref.lastTime = now;
+      ref.lastX = x;
+      ref.lastY = y;
+      setPaths((prev) => {
+        const existing = prev[id] ?? [];
+        return { ...prev, [id]: [...existing, { x, y, t }] };
+      });
+    },
+    onDragEnd: (id) => {
+      const element = elements.find((el) => el.id === id);
+      const isRecordable =
+        element?.type === "player" || element?.type === "ball";
+      if (recordMode) {
+        const seq = sequenceDragRef.current;
+        if (seq && seq.points.length >= 2 && isRecordable) {
+          const totalDist = seq.points.reduce((sum, point, index) => {
+            if (index === 0) return 0;
+            const prev = seq.points[index - 1];
+            return sum + Math.hypot(point.x - prev.x, point.y - prev.y);
+          }, 0);
+          if (totalDist >= 0.01) {
+            const isBall = element?.type === "ball";
+            const isCarry = !isBall && ballAttachedToId === seq.id;
+            const durationMs = seq.points[seq.points.length - 1].t || 1200;
+            appendStroke({
+              id: buildId(),
+              kind: isCarry ? "carry" : "move",
+              elementId: seq.id,
+              points: seq.points.map((point) => ({
+                x: point.x,
+                y: point.y,
+              })),
+              style: {
+                arrow: true,
+                dashed: isBall,
+                width: isCarry ? 2.6 : 1.5,
+                variant: isCarry ? "carry" : isBall ? "ball" : "move",
+              },
+              durationMs,
+            });
+          }
+        }
+        sequenceDragRef.current = null;
+      }
+
+      if (!recordPathMode) {
+        pathRecordRef.current = null;
+      }
+    },
+    onElementClick: (element) => {
+      void element;
+    },
+  });
+
+  const player = useKeyframesPlayer(
+    elements,
+    frames,
+    paths,
+    strokes,
+    strokesBase,
+  );
 
   const selectedElement = useMemo(
     () => elements.find((el) => el.id === selectedId) ?? null,
     [elements, selectedId],
   );
+  const playerElements = useMemo(
+    () => elements.filter((el) => el.type === "player"),
+    [elements],
+  );
+  const ballElements = useMemo(
+    () => elements.filter((el) => el.type === "ball"),
+    [elements],
+  );
+  const primaryBall = useMemo(
+    () => ballElements[0] ?? null,
+    [ballElements],
+  );
+  const hasPlayableContent = useMemo(() => {
+    if (strokes.length > 0) return true;
+    if (frames.length >= 2) return true;
+    return Object.values(paths).some((points) => points.length >= 2);
+  }, [strokes.length, frames.length, paths]);
+
+  useEffect(() => {
+    strokesRef.current = strokes;
+  }, [strokes]);
+
+  useEffect(() => {
+    strokesBaseRef.current = strokesBase;
+  }, [strokesBase]);
+
+  useEffect(() => {
+    if (selectedElement?.type === "ball") {
+      setAssociationTargetPlayerId(playerElements[0]?.id ?? null);
+    }
+    if (selectedElement?.type === "player") {
+      setAssociationTargetBallId(ballElements[0]?.id ?? null);
+    }
+  }, [selectedElement, playerElements, ballElements]);
 
   const showToast = (kind: "success" | "error", message: string) => {
     setToast({ kind, message });
@@ -479,6 +1056,40 @@ export default function ExerciseAnimatedEditor() {
     toastTimerRef.current = window.setTimeout(() => {
       setToast(null);
     }, 3200);
+  };
+
+  const appendStroke = (stroke: Omit<Stroke, "order">) => {
+    if (!strokesBaseRef.current) {
+      const snapshot: BaseSnapshot = {};
+      elements.forEach((el) => {
+        snapshot[el.id] = { x: el.x, y: el.y };
+      });
+      strokesBaseRef.current = snapshot;
+      setStrokesBase(snapshot);
+    }
+    setStrokes((prev) => {
+      const next = [...prev, { ...stroke, order: prev.length + 1 }];
+      strokesRef.current = next;
+      return next;
+    });
+  };
+
+  const attachBallToPlayer = (playerId: string, ballId?: string | null) => {
+    const ball = ballElements.find((el) => el.id === ballId) ?? ballElements[0];
+    const player = playerElements.find((el) => el.id === playerId);
+    if (!ball || !player) {
+      showToast("error", "Ajoute un ballon et un joueur.");
+      return;
+    }
+    setBallAttachedToId(playerId);
+    updateElement(ball.id, {
+      x: clamp01(player.x + 0.015),
+      y: clamp01(player.y + 0.01),
+    });
+  };
+
+  const detachBall = () => {
+    setBallAttachedToId(null);
   };
 
   useEffect(() => {
@@ -513,8 +1124,28 @@ export default function ExerciseAnimatedEditor() {
     const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
     setPitchRect(pitchRect);
     drawPitch(ctx, canvasSize.w, canvasSize.h, pitchPreset);
-    drawElements(ctx, player.animatedElements, selectedId, pitchRect);
-  }, [canvasSize, elements, selectedId, player.animatedElements, pitchPreset, setPitchRect]);
+    drawElements(
+      ctx,
+      player.animatedElements,
+      selectedId,
+      pitchRect,
+      paths,
+      strokes,
+      ballAttachedToId,
+      snapTargetId,
+    );
+  }, [
+    canvasSize,
+    elements,
+    selectedId,
+    player.animatedElements,
+    pitchPreset,
+    setPitchRect,
+    paths,
+    strokes,
+    ballAttachedToId,
+    snapTargetId,
+  ]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -566,6 +1197,193 @@ export default function ExerciseAnimatedEditor() {
     );
   };
 
+  const clearPathForSelected = () => {
+    if (!selectedId) return;
+    const hasStroke = strokes.some((stroke) => stroke.elementId === selectedId);
+    if (hasStroke) {
+      setStrokes((prev) => {
+        const next = prev.filter((stroke) => stroke.elementId !== selectedId);
+        strokesRef.current = next;
+        return next;
+      });
+    }
+    setPaths((prev) => {
+      const next = { ...prev };
+      delete next[selectedId];
+      return next;
+    });
+    showToast("success", "Tracé supprimé.");
+  };
+
+  const smoothPath = (points: PathPoint[], iterations = 3) => {
+    if (points.length < 3) return points;
+    let current = points;
+    for (let iter = 0; iter < iterations; iter += 1) {
+      const next: PathPoint[] = [];
+      next.push(current[0]);
+      for (let i = 0; i < current.length - 1; i += 1) {
+        const p0 = current[i];
+        const p1 = current[i + 1];
+        // Chaikin-like smoothing, keep time interpolation aligned.
+        const q: PathPoint = {
+          x: p0.x * 0.75 + p1.x * 0.25,
+          y: p0.y * 0.75 + p1.y * 0.25,
+          t: p0.t * 0.75 + p1.t * 0.25,
+        };
+        const r: PathPoint = {
+          x: p0.x * 0.25 + p1.x * 0.75,
+          y: p0.y * 0.25 + p1.y * 0.75,
+          t: p0.t * 0.25 + p1.t * 0.75,
+        };
+        next.push(q, r);
+      }
+      next.push(current[current.length - 1]);
+      current = next;
+    }
+    return current;
+  };
+
+  const simplifyPath = (points: PathPoint[], maxPoints = 35) => {
+    if (points.length <= maxPoints) {
+      return smoothPath(points, 3);
+    }
+    const step = Math.ceil(points.length / maxPoints);
+    const sampled = points.filter((_, index) => index % step === 0);
+    if (sampled[sampled.length - 1]?.t !== points[points.length - 1]?.t) {
+      sampled.push(points[points.length - 1]);
+    }
+    return smoothPath(sampled, 3);
+  };
+
+  const smoothStrokePoints = (
+    points: Array<{ x: number; y: number }>,
+    iterations = 3,
+  ) => {
+    if (points.length < 3) return points;
+    let current = points;
+    for (let iter = 0; iter < iterations; iter += 1) {
+      const next: Array<{ x: number; y: number }> = [];
+      next.push(current[0]);
+      for (let i = 0; i < current.length - 1; i += 1) {
+        const p0 = current[i];
+        const p1 = current[i + 1];
+        const q = {
+          x: p0.x * 0.75 + p1.x * 0.25,
+          y: p0.y * 0.75 + p1.y * 0.25,
+        };
+        const r = {
+          x: p0.x * 0.25 + p1.x * 0.75,
+          y: p0.y * 0.25 + p1.y * 0.75,
+        };
+        next.push(q, r);
+      }
+      next.push(current[current.length - 1]);
+      current = next;
+    }
+    return current;
+  };
+
+  const rdpSimplify = (
+    points: Array<{ x: number; y: number }>,
+    epsilon: number,
+  ): Array<{ x: number; y: number }> => {
+    if (points.length < 3) return points;
+    const start = points[0];
+    const end = points[points.length - 1];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lenSq = dx * dx + dy * dy || 1e-6;
+
+    let maxDist = 0;
+    let index = 0;
+    for (let i = 1; i < points.length - 1; i += 1) {
+      const p = points[i];
+      const t = ((p.x - start.x) * dx + (p.y - start.y) * dy) / lenSq;
+      const projX = start.x + t * dx;
+      const projY = start.y + t * dy;
+      const dist = Math.hypot(p.x - projX, p.y - projY);
+      if (dist > maxDist) {
+        maxDist = dist;
+        index = i;
+      }
+    }
+
+    if (maxDist <= epsilon) {
+      return [start, end];
+    }
+    const left = rdpSimplify(points.slice(0, index + 1), epsilon);
+    const right = rdpSimplify(points.slice(index), epsilon);
+    return [...left.slice(0, -1), ...right];
+  };
+
+  const simplifyStrokePoints = (
+    points: Array<{ x: number; y: number }>,
+    maxPoints = 24,
+  ) => {
+    const reduced =
+      points.length <= maxPoints ? points : rdpSimplify(points, 0.01);
+    const step = Math.ceil(reduced.length / maxPoints);
+    const sampled =
+      reduced.length <= maxPoints
+        ? reduced
+        : reduced.filter((_, index) => index % step === 0);
+    if (
+      sampled.length &&
+      (sampled[sampled.length - 1].x !== points[points.length - 1].x ||
+        sampled[sampled.length - 1].y !== points[points.length - 1].y)
+    ) {
+      sampled.push(points[points.length - 1]);
+    }
+    return smoothStrokePoints(sampled, 2);
+  };
+
+  const applyStrokeSmoothing = (predicate?: (stroke: Stroke) => boolean) => {
+    let changed = 0;
+    let beforeTotal = 0;
+    let afterTotal = 0;
+    setStrokes((prev) => {
+      const next = prev.map((stroke) => {
+        if (predicate && !predicate(stroke)) return stroke;
+        if (stroke.points.length < 3) return stroke;
+        beforeTotal += stroke.points.length;
+        const nextPoints = simplifyStrokePoints(stroke.points, 12);
+        afterTotal += nextPoints.length;
+        changed += 1;
+        return { ...stroke, points: nextPoints };
+      });
+      strokesRef.current = next;
+      return next;
+    });
+    if (changed > 0) {
+      showToast(
+        "success",
+        `Tracé lissé (${changed}) ${beforeTotal}→${afterTotal}`,
+      );
+    } else {
+      showToast("error", "Aucun tracé à lisser.");
+    }
+  };
+
+  const simplifyPathForSelected = () => {
+    if (!selectedId) return;
+    const hasStroke = strokes.some((stroke) => stroke.elementId === selectedId);
+    if (hasStroke) {
+      applyStrokeSmoothing((stroke) => stroke.elementId === selectedId);
+      return;
+    }
+    if (strokes.length > 0) {
+      applyStrokeSmoothing();
+      return;
+    }
+    const points = paths[selectedId];
+    if (!points || points.length < 3) return;
+    setPaths((prev) => ({
+      ...prev,
+      [selectedId]: simplifyPath(points, 35),
+    }));
+    showToast("success", "Tracé lissé.");
+  };
+
   const exportExercise = () => {
     return {
       title: name.trim() || "Exercice animé",
@@ -576,6 +1394,10 @@ export default function ExerciseAnimatedEditor() {
         pitchPreset,
         elements,
         keyframes: frames,
+        paths,
+        strokes,
+        ballAttachedToId,
+        strokesBase,
       },
     };
   };
@@ -618,6 +1440,18 @@ export default function ExerciseAnimatedEditor() {
     setSelectedId(null);
     setTool("select");
     setActiveFrameId(null);
+    setPaths({});
+    setRecordPathMode(false);
+    setCurrentRecordingElementId(null);
+    pathRecordRef.current = null;
+    setRecordMode(false);
+    setStrokes([]);
+    strokesRef.current = [];
+    setStrokesBase(null);
+    strokesBaseRef.current = null;
+    setBallAttachedToId(null);
+    sequenceDragRef.current = null;
+    setSnapTargetId(null);
     clearDrag();
     showToast("success", "Éditeur réinitialisé.");
   };
@@ -681,10 +1515,58 @@ export default function ExerciseAnimatedEditor() {
         />
         <button
           onClick={player.toggle}
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+          disabled={!hasPlayableContent}
+          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
         >
           {player.isPlaying ? "Pause" : "Lecture"}
         </button>
+        <button
+          onClick={() =>
+            setRecordMode((prev) => {
+              if (prev) {
+                sequenceDragRef.current = null;
+                return false;
+              }
+              if (!strokesBaseRef.current) {
+                const snapshot: BaseSnapshot = {};
+                elements.forEach((el) => {
+                  snapshot[el.id] = { x: el.x, y: el.y };
+                });
+                setStrokesBase(snapshot);
+                strokesBaseRef.current = snapshot;
+              }
+              return true;
+            })
+          }
+          className={[
+            "rounded-full border px-4 py-2 text-xs font-semibold transition",
+            recordMode
+              ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-100"
+              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+          ].join(" ")}
+        >
+          <span className="inline-flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                recordMode ? "bg-indigo-300" : "bg-white/40"
+              }`}
+            />
+            REC
+          </span>
+        </button>
+        {recordMode ? (
+          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">
+            REC actif
+          </span>
+        ) : null}
+        {recordMode ? (
+          <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+            traits {strokes.length} ·{" "}
+            {strokes.length
+              ? `dernier ${strokes[strokes.length - 1]?.kind ?? "—"}`
+              : "aucun"}
+          </span>
+        ) : null}
         <button
           onClick={() => setShowResetConfirm(true)}
           className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
@@ -840,6 +1722,155 @@ export default function ExerciseAnimatedEditor() {
                     className="mt-2 w-full"
                   />
                 </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                    Ballon
+                  </p>
+                  {selectedElement.type === "player" ? (
+                    <div className="mt-2 space-y-2">
+                      {ballElements.length === 0 ? (
+                        <p className="text-xs text-slate-400">
+                          Ajoute un ballon pour associer.
+                        </p>
+                      ) : (
+                        <>
+                          {ballElements.length > 1 ? (
+                            <select
+                              value={associationTargetBallId ?? ""}
+                              onChange={(event) =>
+                                setAssociationTargetBallId(event.target.value)
+                              }
+                              className="w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100"
+                            >
+                              {ballElements.map((ball, index) => (
+                                <option key={ball.id} value={ball.id}>
+                                  Ballon {index + 1}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                attachBallToPlayer(
+                                  selectedElement.id,
+                                  associationTargetBallId,
+                                )
+                              }
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                            >
+                              ⚽ Associer ballon
+                            </button>
+                            {ballAttachedToId === selectedElement.id ? (
+                              <button
+                                onClick={detachBall}
+                                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                              >
+                                Détacher
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : selectedElement.type === "ball" ? (
+                    <div className="mt-2 space-y-2">
+                      {playerElements.length === 0 ? (
+                        <p className="text-xs text-slate-400">
+                          Ajoute un joueur pour associer.
+                        </p>
+                      ) : (
+                        <>
+                          <select
+                            value={associationTargetPlayerId ?? ""}
+                            onChange={(event) =>
+                              setAssociationTargetPlayerId(event.target.value)
+                            }
+                            className="w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100"
+                          >
+                            {playerElements.map((player) => (
+                              <option key={player.id} value={player.id}>
+                                {player.label ? `J${player.label}` : player.id}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => {
+                                if (associationTargetPlayerId) {
+                                  attachBallToPlayer(
+                                    associationTargetPlayerId,
+                                    selectedElement.id,
+                                  );
+                                }
+                              }}
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                            >
+                              ⚽ Associer ballon
+                            </button>
+                            {ballAttachedToId ? (
+                              <button
+                                onClick={detachBall}
+                                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                              >
+                                Détacher
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-400">
+                      Sélectionne un joueur ou le ballon pour associer.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                    Tracé
+                  </p>
+                  {selectedId ? (
+                    <p className="mt-1 text-[10px] text-slate-500">
+                      {strokes.filter((stroke) => stroke.elementId === selectedId)
+                        .length}{" "}
+                      traits ·{" "}
+                      {paths[selectedId]?.length
+                        ? `${paths[selectedId].length} pts`
+                        : "0 pt"}
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      onClick={clearPathForSelected}
+                      disabled={
+                        !(
+                          paths[selectedElement.id]?.length ||
+                          strokes.some(
+                            (stroke) => stroke.elementId === selectedElement.id,
+                          )
+                        )
+                      }
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Effacer tracé
+                    </button>
+                    <button
+                      onClick={simplifyPathForSelected}
+                      disabled={
+                        !(
+                          paths[selectedElement.id]?.length ||
+                          strokes.some(
+                            (stroke) => stroke.elementId === selectedElement.id,
+                          )
+                        )
+                      }
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Lisser / Simplifier
+                    </button>
+                  </div>
+                </div>
 
                 <button
                   onClick={() => setSelectedId(null)}
@@ -926,6 +1957,76 @@ export default function ExerciseAnimatedEditor() {
               </div>
             </div>
           </div>
+
+          {showSequenceDebug ? (
+            <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
+                  Séquence (debug)
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowSequenceDebug(false)}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+                  >
+                    Masquer
+                  </button>
+                <button
+                  onClick={() => {
+                    setStrokes([]);
+                    strokesRef.current = [];
+                    setStrokesBase(null);
+                    strokesBaseRef.current = null;
+                    setBallAttachedToId(null);
+                  }}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+                  >
+                    Effacer
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 text-xs text-slate-300">
+                {strokes.length === 0 ? (
+                  <p className="text-slate-400">Aucune action enregistrée.</p>
+                ) : (
+                  strokes.map((stroke, index) => {
+                    const getLabel = (id: string) => {
+                      const el = elements.find((item) => item.id === id);
+                      if (!el) return id.slice(0, 4);
+                      if (el.type === "ball") return "Ballon";
+                      return el.label ? `J${el.label}` : id.slice(0, 4);
+                    };
+                    if (stroke.kind === "carry") {
+                      return (
+                        <div key={stroke.id}>
+                          {index + 1}. Dribble {getLabel(stroke.elementId ?? "")}
+                        </div>
+                      );
+                    }
+                    if (stroke.kind === "move") {
+                      return (
+                        <div key={stroke.id}>
+                          {index + 1}. Déplacement {getLabel(stroke.elementId ?? "")}
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={stroke.id}>
+                        {index + 1}. Attente
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowSequenceDebug(true)}
+              className="mt-4 w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+            >
+              Debug séquence
+            </button>
+          )}
         </aside>
       </div>
     </div>
