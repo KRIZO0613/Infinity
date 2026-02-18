@@ -878,7 +878,12 @@ export default function ExerciseAnimatedEditor() {
   const [strokesBase, setStrokesBase] = useState<BaseSnapshot | null>(null);
   const [groupMode, setGroupMode] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [animationMode, setAnimationMode] = useState<"image" | "video">("video");
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showSidePanel, setShowSidePanel] = useState(false);
   const [ballAttachedToId, setBallAttachedToId] = useState<string | null>(null);
+  const [framePreviews, setFramePreviews] = useState<Record<string, string>>({});
   const [showSequenceDebug, setShowSequenceDebug] = useState(false);
   const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
@@ -904,6 +909,12 @@ export default function ExerciseAnimatedEditor() {
     lastX: number;
     lastY: number;
     points: PathPoint[];
+  } | null>(null);
+  const frameDragRef = useRef<{
+    id: string;
+    startX: number;
+    lastX: number;
+    moved: boolean;
   } | null>(null);
 
   const {
@@ -1205,6 +1216,18 @@ export default function ExerciseAnimatedEditor() {
   }, []);
 
   useEffect(() => {
+    if (!showModeMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!modeMenuRef.current) return;
+      if (!modeMenuRef.current.contains(event.target as Node)) {
+        setShowModeMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showModeMenu]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -1256,6 +1279,10 @@ export default function ExerciseAnimatedEditor() {
     const newFrame: FrameSnapshot = { id: buildId(), elementsSnapshot: snapshot };
     setFrames((prev) => [...prev, newFrame]);
     setActiveFrameId(newFrame.id);
+    const preview = renderFramePreview(newFrame.elementsSnapshot);
+    if (preview) {
+      setFramePreviews((prev) => ({ ...prev, [newFrame.id]: preview }));
+    }
   };
 
   const handleDuplicateFrame = () => {
@@ -1277,6 +1304,14 @@ export default function ExerciseAnimatedEditor() {
       return next;
     });
     setActiveFrameId(clone.id);
+    setFramePreviews((prev) => {
+      const existing = prev[source.id];
+      if (existing) {
+        return { ...prev, [clone.id]: existing };
+      }
+      const preview = renderFramePreview(clone.elementsSnapshot);
+      return preview ? { ...prev, [clone.id]: preview } : prev;
+    });
   };
 
   const handleReplaceFrame = () => {
@@ -1289,6 +1324,23 @@ export default function ExerciseAnimatedEditor() {
           : frame,
       ),
     );
+    const preview = renderFramePreview(snapshot);
+    if (preview) {
+      setFramePreviews((prev) => ({ ...prev, [activeFrameId]: preview }));
+    }
+  };
+
+  const moveFrame = (frameId: string, direction: -1 | 1) => {
+    setFrames((prev) => {
+      const index = prev.findIndex((frame) => frame.id === frameId);
+      if (index === -1) return prev;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
   };
 
   const clearPathForSelected = () => {
@@ -1458,6 +1510,27 @@ export default function ExerciseAnimatedEditor() {
     }
   };
 
+  const renderFramePreview = (snapshot: FrameSnapshot["elementsSnapshot"]) => {
+    if (typeof document === "undefined") return null;
+    const canvas = document.createElement("canvas");
+    const width = 220;
+    const height = 130;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const pitchRect = drawPitch(ctx, width, height, pitchPreset);
+    const elementsForFrame = elements.map((el) => {
+      const snap = snapshot.find((item) => item.id === el.id);
+      return snap ? { ...el, x: snap.x, y: snap.y } : el;
+    });
+    drawElements(ctx, elementsForFrame, null, pitchRect, {}, [], null, null, {
+      showOverlays: false,
+      showLabels: false,
+    });
+    return canvas.toDataURL("image/png");
+  };
+
   const simplifyPathForSelected = () => {
     if (!selectedId) return;
     const hasStroke = strokes.some((stroke) => stroke.elementId === selectedId);
@@ -1545,6 +1618,7 @@ export default function ExerciseAnimatedEditor() {
     strokesBaseRef.current = null;
     setGroupMode(false);
     setBallAttachedToId(null);
+    setFramePreviews({});
     sequenceDragRef.current = null;
     setSnapTargetId(null);
     clearDrag();
@@ -1596,221 +1670,324 @@ export default function ExerciseAnimatedEditor() {
         </div>
       ) : null}
       {!previewMode ? (
-        <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-white/5 bg-black/40 px-6 py-4 backdrop-blur-xl">
-        <button
-          onClick={() => router.back()}
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-300 transition hover:bg-white/10"
-        >
-          Retour
-        </button>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="w-[260px] rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 placeholder:text-slate-500"
-          placeholder="Nom de l'exercice"
-        />
-        <button
-          onClick={player.toggle}
-          disabled={!hasPlayableContent}
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-        >
-          {player.isPlaying ? "Pause" : "Lecture"}
-        </button>
-        <button
-          onClick={() => {
-            player.reset();
-            player.setIsPlaying(true);
-            setPreviewMode(true);
-          }}
-          disabled={!hasPlayableContent}
-          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-        >
-          Prévisualiser
-        </button>
-        <button
-          onClick={() =>
-            setRecordMode((prev) => {
-              if (prev) {
-                sequenceDragRef.current = null;
-                setGroupMode(false);
-                return false;
-              }
-              if (!strokesBaseRef.current) {
-                const snapshot: BaseSnapshot = {};
-                elements.forEach((el) => {
-                  snapshot[el.id] = { x: el.x, y: el.y };
-                });
-                setStrokesBase(snapshot);
-                strokesBaseRef.current = snapshot;
-              }
-              return true;
-            })
-          }
-          className={[
-            "rounded-full border px-4 py-2 text-xs font-semibold transition",
-            recordMode
-              ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-100"
-              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-          ].join(" ")}
-        >
-          <span className="inline-flex items-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${
-                recordMode ? "bg-indigo-300" : "bg-white/40"
-              }`}
-            />
-            REC
-          </span>
-        </button>
-        {recordMode ? (
-          <span className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-200">
-            REC actif
-          </span>
-        ) : null}
-        {recordMode ? (
-          <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-            traits {strokes.length} ·{" "}
-            {strokes.length
-              ? `dernier ${strokes[strokes.length - 1]?.kind ?? "—"}`
-              : "aucun"}
-          </span>
-        ) : null}
-        <button
-          onClick={() => setGroupMode((prev) => !prev)}
-          title="Les actions suivantes seront jouées en même temps que la précédente"
-          className={[
-            "rounded-full border px-4 py-2 text-xs font-semibold transition",
-            groupMode
-              ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
-              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-          ].join(" ")}
-        >
-          Action groupée
-        </button>
-        <button
-          onClick={() => setShowResetConfirm(true)}
-          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-        >
-          Réinitialiser
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(0,0,0,0.35)] transition hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {saving ? "Enregistrement..." : "Enregistrer l'exercice"}
-        </button>
-      </div>
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-white/5 bg-black/40 px-4 py-3 backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10"
+              title="Retour"
+            >
+              ← Retour
+            </button>
+            <div ref={modeMenuRef} className="relative">
+              <button
+                onClick={() => setShowModeMenu((prev) => !prev)}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+              >
+                Animé ▾
+              </button>
+              {showModeMenu ? (
+                <div className="absolute left-0 top-full mt-2 w-44 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-2 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                  <button
+                    onClick={() => {
+                      setAnimationMode("image");
+                      setRecordMode(false);
+                      setGroupMode(false);
+                      setShowModeMenu(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                      animationMode === "image"
+                        ? "bg-white/10 text-white"
+                        : "text-slate-300 hover:bg-white/5"
+                    }`}
+                  >
+                    Par image
+                    {animationMode === "image" ? "✓" : ""}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAnimationMode("video");
+                      setShowModeMenu(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                      animationMode === "video"
+                        ? "bg-white/10 text-white"
+                        : "text-slate-300 hover:bg-white/5"
+                    }`}
+                  >
+                    Par vidéo
+                    {animationMode === "video" ? "✓" : ""}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={player.toggle}
+              disabled={!hasPlayableContent}
+              title={player.isPlaying ? "Pause" : "Lecture"}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              {player.isPlaying ? "⏸" : "▶"}
+            </button>
+            <button
+              onClick={() => {
+                player.reset();
+                player.setIsPlaying(true);
+                setPreviewMode(true);
+              }}
+              disabled={!hasPlayableContent}
+              title="Prévisualiser"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              👁
+            </button>
+            {animationMode === "image" ? (
+              <button
+                onClick={handleAddFrame}
+                title="Ajouter une image clé"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10"
+              >
+                ＋
+              </button>
+            ) : null}
+
+            {animationMode === "video" ? (
+              <>
+                <button
+                  onClick={() =>
+                    setRecordMode((prev) => {
+                      if (prev) {
+                        sequenceDragRef.current = null;
+                        setGroupMode(false);
+                        return false;
+                      }
+                      if (!strokesBaseRef.current) {
+                        const snapshot: BaseSnapshot = {};
+                        elements.forEach((el) => {
+                          snapshot[el.id] = { x: el.x, y: el.y };
+                        });
+                        setStrokesBase(snapshot);
+                        strokesBaseRef.current = snapshot;
+                      }
+                      return true;
+                    })
+                  }
+                  title="REC"
+                  className={[
+                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                    recordMode
+                      ? "border-rose-400/40 bg-rose-500/20 text-rose-100"
+                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  ●
+                </button>
+                <button
+                  onClick={() => setGroupMode((prev) => !prev)}
+                  title="Action groupée"
+                  className={[
+                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                    groupMode
+                      ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
+                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  ⛓
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       <div className="flex h-[calc(100vh-72px)]">
-        {!previewMode ? (
-          <aside className="w-[88px] border-r border-white/5 bg-black/40 p-3 backdrop-blur-xl">
-          <div className="space-y-2">
-            {TOOL_OPTIONS.map((option) => (
-              <button
-                key={option.key}
-                onClick={() => setTool(option.key)}
-                draggable={!previewMode}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(
-                    "application/x-infinity-tool",
-                    option.key,
-                  );
-                  event.dataTransfer.effectAllowed = "copy";
-                }}
-                className={`flex w-full flex-col items-center gap-2 rounded-2xl border px-2 py-3 text-[10px] uppercase tracking-[0.18em] transition ${
-                  tool === option.key
-                    ? "border-violet-400/40 bg-violet-500/15 text-white"
-                    : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                }`}
-              >
-                <span className="text-base">
-                  {option.key === "select"
-                    ? "⤧"
-                    : option.key === "player"
-                    ? "●"
-                    : option.key === "ball"
-                    ? "⚽"
-                    : option.key === "cone"
-                    ? "▲"
-                    : "●"}
-                </span>
-                {option.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-6">
-            <p className="text-[10px] uppercase tracking-[0.24em] text-slate-400">
-              Couleurs
-            </p>
-            <div className="mt-3 flex flex-col items-center gap-2">
-              {DEFAULT_COLORS.map((color) => (
-                <button
-                  key={color}
-                  onClick={() => setPlayerColor(color)}
-                  className={`h-8 w-8 rounded-full border transition ${
-                    playerColor === color
-                      ? "border-white/80"
-                      : "border-white/10"
-                  }`}
-                  style={{ background: color }}
-                />
-              ))}
+        <div className="relative flex flex-1">
+          <main className="relative flex flex-1 flex-col">
+            {!previewMode ? (
+              <div className="flex flex-wrap items-center gap-2 border-b border-white/5 bg-black/30 px-4 py-3 backdrop-blur-xl">
+                {TOOL_OPTIONS.map((option) => (
+                  <button
+                    key={option.key}
+                    onClick={() => setTool(option.key)}
+                    draggable={!previewMode}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData(
+                        "application/x-infinity-tool",
+                        option.key,
+                      );
+                      event.dataTransfer.effectAllowed = "copy";
+                    }}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition ${
+                      tool === option.key
+                        ? "border-violet-400/40 bg-violet-500/15 text-white"
+                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                    }`}
+                  >
+                    <span className="text-base">
+                      {option.key === "select"
+                        ? "⤧"
+                        : option.key === "player"
+                        ? "●"
+                        : option.key === "ball"
+                        ? "⚽"
+                        : option.key === "cone"
+                        ? "▲"
+                        : "●"}
+                    </span>
+                  </button>
+                ))}
+                <div className="ml-3 flex items-center gap-2">
+                  {DEFAULT_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setPlayerColor(color)}
+                      className={`h-7 w-7 rounded-full border transition ${
+                        playerColor === color
+                          ? "border-white/80"
+                          : "border-white/10"
+                      }`}
+                      style={{ background: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div
+              ref={containerRef}
+              className="relative min-h-0 flex-1 w-full overflow-visible"
+              onDragOver={(event) => {
+                if (previewMode) return;
+                event.preventDefault();
+              }}
+              onDrop={(event) => {
+                if (previewMode) return;
+                event.preventDefault();
+                const toolKey = event.dataTransfer.getData(
+                  "application/x-infinity-tool",
+                ) as ToolKey | "";
+                if (!toolKey || toolKey === "select") return;
+                const rect = event.currentTarget.getBoundingClientRect();
+                const point = {
+                  x: event.clientX - rect.left,
+                  y: event.clientY - rect.top,
+                };
+                const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
+                if (
+                  point.x < pitchRect.x ||
+                  point.x > pitchRect.x + pitchRect.w ||
+                  point.y < pitchRect.y ||
+                  point.y > pitchRect.y + pitchRect.h
+                ) {
+                  return;
+                }
+                const normalized = {
+                  x: clamp01((point.x - pitchRect.x) / pitchRect.w),
+                  y: clamp01((point.y - pitchRect.y) / pitchRect.h),
+                };
+                addElement(toolKey as ElementType, normalized);
+              }}
+            >
+              <canvas
+                ref={canvasRef}
+                className="h-full w-full"
+                onPointerDown={previewMode ? undefined : handlePointerDown}
+                onPointerMove={previewMode ? undefined : handlePointerMove}
+                onPointerUp={previewMode ? undefined : handlePointerUp}
+              />
+              {!previewMode && animationMode === "image" ? (
+                <div className="absolute left-1/2 top-full z-10 mt-2 w-[92%] -translate-x-1/2">
+                  <div className="flex items-center gap-2 overflow-x-auto">
+                    {frames.length === 0 ? (
+                      <div className="text-xs text-slate-400">
+                        Aucune séquence
+                      </div>
+                    ) : (
+                      frames.map((frame, index) => (
+                        <button
+                          key={frame.id}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                            frameDragRef.current = {
+                              id: frame.id,
+                              startX: event.clientX,
+                              lastX: event.clientX,
+                              moved: false,
+                            };
+                          }}
+                          onPointerMove={(event) => {
+                            const ref = frameDragRef.current;
+                            if (!ref || ref.id !== frame.id) return;
+                            event.preventDefault();
+                            const delta = event.clientX - ref.startX;
+                            if (Math.abs(delta) > 6) {
+                              ref.moved = true;
+                            }
+                            if (Math.abs(delta) > 12) {
+                              moveFrame(ref.id, delta > 0 ? 1 : -1);
+                              ref.startX = event.clientX;
+                              ref.lastX = event.clientX;
+                            }
+                          }}
+                          onPointerUp={(event) => {
+                            const ref = frameDragRef.current;
+                            if (!ref || ref.id !== frame.id) return;
+                            event.currentTarget.releasePointerCapture(event.pointerId);
+                            if (!ref.moved) {
+                              setActiveFrameId(frame.id);
+                            }
+                            frameDragRef.current = null;
+                          }}
+                          onPointerCancel={(event) => {
+                            event.currentTarget.releasePointerCapture(event.pointerId);
+                            frameDragRef.current = null;
+                          }}
+                          style={{ touchAction: "none" }}
+                          className={`h-16 w-16 flex-shrink-0 rounded-2xl border transition ${
+                            activeFrameId === frame.id
+                              ? "border-violet-400/50"
+                              : "border-white/10 hover:border-white/30"
+                          }`}
+                          title={`Seq ${index + 1}`}
+                        >
+                          {framePreviews[frame.id] ? (
+                            <img
+                              src={framePreviews[frame.id]}
+                              alt={`Seq ${index + 1}`}
+                              className="h-full w-full rounded-xl object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
+                              {index + 1}
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
-          </div>
-        </aside>
-        ) : null}
+          </main>
 
-        <main className="flex-1">
-          <div
-            ref={containerRef}
-            className="h-full w-full"
-            onDragOver={(event) => {
-              if (previewMode) return;
-              event.preventDefault();
-            }}
-            onDrop={(event) => {
-              if (previewMode) return;
-              event.preventDefault();
-              const toolKey = event.dataTransfer.getData(
-                "application/x-infinity-tool",
-              ) as ToolKey | "";
-              if (!toolKey || toolKey === "select") return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              const point = {
-                x: event.clientX - rect.left,
-                y: event.clientY - rect.top,
-              };
-              const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
-              if (
-                point.x < pitchRect.x ||
-                point.x > pitchRect.x + pitchRect.w ||
-                point.y < pitchRect.y ||
-                point.y > pitchRect.y + pitchRect.h
-              ) {
-                return;
-              }
-              const normalized = {
-                x: clamp01((point.x - pitchRect.x) / pitchRect.w),
-                y: clamp01((point.y - pitchRect.y) / pitchRect.h),
-              };
-              addElement(toolKey as ElementType, normalized);
-            }}
-          >
-            <canvas
-              ref={canvasRef}
-              className="h-full w-full"
-              onPointerDown={previewMode ? undefined : handlePointerDown}
-              onPointerMove={previewMode ? undefined : handlePointerMove}
-              onPointerUp={previewMode ? undefined : handlePointerUp}
-            />
-          </div>
-        </main>
+          {!previewMode ? (
+            <button
+              onClick={() => setShowSidePanel((prev) => !prev)}
+              className={[
+                "absolute top-4 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/60 text-sm text-slate-200 backdrop-blur-xl transition hover:bg-white/10",
+                showSidePanel ? "right-[332px]" : "right-4",
+              ].join(" ")}
+              title={showSidePanel ? "Fermer" : "Ouvrir"}
+            >
+              {showSidePanel ? "→" : "←"}
+            </button>
+          ) : null}
 
-        {!previewMode ? (
-          <aside className="w-[320px] border-l border-white/5 bg-black/40 p-4 backdrop-blur-xl">
+          {!previewMode && showSidePanel ? (
+            <aside className="w-[320px] border-l border-white/5 bg-black/40 p-4 backdrop-blur-xl">
           <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
               Propriétés
@@ -2052,77 +2229,7 @@ export default function ExerciseAnimatedEditor() {
             )}
           </div>
 
-          <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                Images clés
-              </h3>
-              <button
-                onClick={handleAddFrame}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
-              >
-                Ajouter une image clé
-              </button>
-            </div>
-            <div className="mt-4 space-y-2">
-              {frames.length === 0 ? (
-                <p className="text-xs text-slate-400">
-                  Ajoute une image clé pour commencer.
-                </p>
-              ) : (
-                frames.map((frame, index) => (
-                  <button
-                    key={frame.id}
-                    onClick={() => setActiveFrameId(frame.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-xs transition ${
-                      activeFrameId === frame.id
-                        ? "border-violet-400/40 bg-violet-500/15 text-white"
-                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                    }`}
-                  >
-                    <span>Image {index + 1}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {frame.elementsSnapshot.length} éléments
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-            <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-              Astuce : place les joueurs, ajoute une image clé, déplace-les,
-              ajoute la suivante, puis lance la lecture.
-            </p>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                onClick={handleDuplicateFrame}
-                disabled={!activeFrameId}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-              >
-                Dupliquer l'image clé
-              </button>
-              <button
-                onClick={handleReplaceFrame}
-                disabled={!activeFrameId}
-                className="rounded-full bg-violet-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:opacity-50"
-              >
-                Remplacer l'image clé
-              </button>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Durée:</span>
-                <input
-                  type="number"
-                  min={500}
-                  step={500}
-                  value={player.frameDuration}
-                  onChange={(event) =>
-                    player.setFrameDuration(Number(event.target.value))
-                  }
-                  className="w-20 rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-100"
-                />
-                <span>ms</span>
-              </div>
-            </div>
-          </div>
+          {/* Section images clés supprimée : séquences gérées sous le terrain en mode image */}
 
           {showSequenceDebug ? (
             <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
@@ -2196,6 +2303,7 @@ export default function ExerciseAnimatedEditor() {
           )}
         </aside>
         ) : null}
+        </div>
       </div>
       {previewMode ? (
         <div className="fixed inset-0 z-30">
