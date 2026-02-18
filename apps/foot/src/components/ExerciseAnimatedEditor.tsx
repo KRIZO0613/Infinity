@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
+import { MiniGoalIcon, PassWallIcon } from "@/components/assets";
 
 const TOOL_OPTIONS = [
   { key: "select", label: "Sélection" },
@@ -11,11 +12,27 @@ const TOOL_OPTIONS = [
   { key: "ball", label: "Ballon" },
   { key: "cone", label: "Plot" },
   { key: "disc", label: "Coupelle" },
+  { key: "slalom_pole", label: "Piquet" },
+  { key: "hurdle_bar", label: "Haie" },
+  { key: "hurdle_pole", label: "Haie V" },
+  { key: "mini_goal", label: "Mini but" },
+  { key: "ladder", label: "Échelle" },
+  { key: "pass_wall", label: "Mur" },
 ] as const;
 
 type ToolKey = (typeof TOOL_OPTIONS)[number]["key"];
 
-type ElementType = "player" | "ball" | "cone" | "disc";
+type ElementType =
+  | "player"
+  | "ball"
+  | "cone"
+  | "disc"
+  | "slalom_pole"
+  | "hurdle_bar"
+  | "hurdle_pole"
+  | "mini_goal"
+  | "ladder"
+  | "pass_wall";
 
 type CanvasElement = {
   id: string;
@@ -25,6 +42,8 @@ type CanvasElement = {
   color?: string;
   label?: string;
   size?: number;
+  orientation?: "up" | "down";
+  rotation?: number;
 };
 
 type FrameSnapshot = {
@@ -58,7 +77,7 @@ type Stroke = {
 
 type PitchPreset = "standard";
 
-type PitchRect = { x: number; y: number; w: number; h: number };
+type PitchRect = { x: number; y: number; w: number; h: number; isLandscape: boolean };
 
 type KeyframePlayer = {
   isPlaying: boolean;
@@ -86,6 +105,7 @@ const DEFAULT_COLORS = [
   "#FFFFFF",
 ];
 
+
 const buildId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -93,10 +113,112 @@ const buildId = () =>
 
 const clamp01 = (value: number) => Math.min(Math.max(value, 0), 1);
 
+const shadeColor = (hex: string, amount: number) => {
+  const safe = hex.replace("#", "");
+  const num = parseInt(safe.length === 3 ? safe.replace(/(.)/g, "$1$1") : safe, 16);
+  const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+  const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
+  const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
+const hexToRgb = (hex: string) => {
+  if (!hex.startsWith("#")) return null;
+  const safe = hex.replace("#", "");
+  const value = safe.length === 3 ? safe.replace(/(.)/g, "$1$1") : safe;
+  if (value.length !== 6) return null;
+  const num = parseInt(value, 16);
+  return {
+    r: (num >> 16) & 0xff,
+    g: (num >> 8) & 0xff,
+    b: num & 0xff,
+  };
+};
+
+const adjustColor = (hex: string, amount: number) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return hex;
+  const clamp = (val: number) => Math.max(0, Math.min(255, val));
+  const t = amount > 0 ? 255 : 0;
+  const p = Math.min(1, Math.max(0, Math.abs(amount)));
+  const r = Math.round(clamp(rgb.r + (t - rgb.r) * p));
+  const g = Math.round(clamp(rgb.g + (t - rgb.g) * p));
+  const b = Math.round(clamp(rgb.b + (t - rgb.b) * p));
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
+const lighten = (hex: string, amount: number) => adjustColor(hex, Math.abs(amount));
+const darken = (hex: string, amount: number) => adjustColor(hex, -Math.abs(amount));
+
+const getLuminance = (hex: string) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 1;
+  const srgb = [rgb.r, rgb.g, rgb.b].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
+};
+
+const chooseTextColor = (hex: string) => (getLuminance(hex) < 0.6 ? "#fff" : "#111");
+
+const drawRoundedRect = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) => {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+};
+
+const drawBustPath = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  bustW: number,
+  bustH: number,
+) => {
+  const topY = y - bustH * 0.35;
+  const bottomY = y + bustH * 0.55;
+  const leftX = x - bustW * 0.55;
+  const rightX = x + bustW * 0.55;
+  const midY = y + bustH * 0.2;
+  const neckDepth = bustH * 0.18;
+  const neckWidth = bustW * 0.22;
+  const curve = bustW * 0.18;
+
+  ctx.beginPath();
+  ctx.moveTo(leftX, topY);
+  ctx.quadraticCurveTo(leftX + curve, topY - bustH * 0.12, x - neckWidth, topY);
+  ctx.quadraticCurveTo(x, topY + neckDepth, x + neckWidth, topY);
+  ctx.quadraticCurveTo(rightX - curve, topY - bustH * 0.12, rightX, topY);
+  ctx.quadraticCurveTo(rightX + bustW * 0.05, midY, rightX - bustW * 0.18, bottomY);
+  ctx.quadraticCurveTo(x, bottomY + bustH * 0.18, leftX + bustW * 0.18, bottomY);
+  ctx.quadraticCurveTo(leftX - bustW * 0.05, midY, leftX, topY);
+  ctx.closePath();
+};
+
 const getPitchRect = (width: number, height: number): PitchRect => {
-  const padding = Math.min(width, height) * 0.06;
-  // Portrait pitch ratio (width:height = 68:105) to render goals top/bottom.
-  const ratio = 68 / 105;
+  const padding = 0;
+  const isLandscape = width > height * 1.1;
+  if (!isLandscape) {
+    return { x: 0, y: 0, w: width, h: height, isLandscape };
+  }
+  // Portrait ratio (2/3) or landscape ratio (105/68).
+  const ratio = isLandscape ? 105 / 68 : 2 / 3;
   let w = width - padding * 2;
   let h = w / ratio;
   if (h > height - padding * 2) {
@@ -105,19 +227,25 @@ const getPitchRect = (width: number, height: number): PitchRect => {
   }
   const x = (width - w) / 2;
   const y = (height - h) / 2;
-  return { x, y, w, h };
+  return { x, y, w, h, isLandscape };
 };
 
 const getDefaultSize = (type: ElementType) => {
   if (type === "player") return 0.035;
   if (type === "ball") return 0.018;
   if (type === "cone") return 0.03;
-  return 0.024;
+  if (type === "slalom_pole") return 0.02;
+  if (type === "hurdle_bar") return 0.02;
+  if (type === "hurdle_pole") return 0.02;
+  if (type === "mini_goal") return 0.025;
+  if (type === "ladder") return 0.025;
+  if (type === "pass_wall") return 0.028;
+  return 0.02;
 };
 
 // Global scale to keep elements visually minimal by default.
 const ELEMENT_SIZE_SCALE = 0.75;
-const PLAYER_SIZE_SCALE = 0.85;
+const PLAYER_SIZE_SCALE = 0.95;
 const CONE_SIZE_SCALE = 0.8;
 
 const getRenderSize = (type: ElementType, size: number) => {
@@ -127,57 +255,1036 @@ const getRenderSize = (type: ElementType, size: number) => {
   return base;
 };
 
+const drawCupDisc = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.25)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.25)";
+    ctx.shadowBlur = r * 1.2;
+    ctx.lineWidth = r * 0.14;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 2.05, r * 0.55, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.24)";
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "rgba(0,0,0,0.24)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.55, r * 1.35, r * 0.45, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const topY = y;
+  const topRx = r * 1.35;
+  const topRy = r * 0.55;
+  const topGradient = ctx.createRadialGradient(
+    x - r * 0.25,
+    topY - r * 0.18,
+    r * 0.18,
+    x,
+    topY,
+    r * 1.4,
+  );
+  topGradient.addColorStop(0, lighten(color, 0.1));
+  topGradient.addColorStop(0.6, color);
+  topGradient.addColorStop(1, darken(color, 0.18));
+  ctx.fillStyle = topGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, topY, topRx, topRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.lineWidth = Math.max(1.5, r * 0.09);
+  ctx.beginPath();
+  ctx.ellipse(x, topY, topRx, topRy, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const holeY = y - r * 0.2;
+  const holeGradient = ctx.createRadialGradient(
+    x,
+    holeY,
+    r * 0.06,
+    x,
+    holeY,
+    r * 0.45,
+  );
+  holeGradient.addColorStop(0, "rgba(0,0,0,0.9)");
+  holeGradient.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = holeGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, holeY, r * 0.55, r * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.15, holeY - r * 0.05, r * 0.4, r * 0.12, 0, 0.2, 1.0);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawPlotCone = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.25)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.25)";
+    ctx.shadowBlur = r * 1.3;
+    ctx.lineWidth = r * 0.16;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.9, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.65, r * 1.5, r * 0.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const baseGradient = ctx.createRadialGradient(
+    x - r * 0.2,
+    y - r * 0.15,
+    r * 0.2,
+    x,
+    y,
+    r * 1.4,
+  );
+  baseGradient.addColorStop(0, lighten(color, 0.06));
+  baseGradient.addColorStop(1, darken(color, 0.22));
+  ctx.fillStyle = baseGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.25, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.25, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const domeGradient = ctx.createRadialGradient(
+    x - r * 0.1,
+    y - r * 0.35,
+    r * 0.12,
+    x,
+    y - r * 0.12,
+    r * 1.2,
+  );
+  domeGradient.addColorStop(0, lighten(color, 0.18));
+  domeGradient.addColorStop(1, darken(color, 0.1));
+  ctx.fillStyle = domeGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.12, r * 0.9, r * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const holeGradient = ctx.createRadialGradient(
+    x,
+    y - r * 0.22,
+    r * 0.08,
+    x,
+    y - r * 0.22,
+    r * 0.6,
+  );
+  holeGradient.addColorStop(0, "rgba(0,0,0,0.88)");
+  holeGradient.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = holeGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.28, r * 0.4, r * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.28, r * 0.4, r * 0.18, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 1.2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.ellipse(x - r * 0.18, y - r * 0.3, r * 0.55, r * 0.22, 0, 0.2, 1.05);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawPlotIso = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+  color: string,
+  selected: boolean,
+) => {
+  const cx = x;
+  const cy = y;
+  const baseW = s * 2.6;
+  const baseH = s * 1.1;
+  const topCy = cy - s * 1.75;
+  const p1 = { x: cx, y: cy + baseH * 0.65 };
+  const p2 = { x: cx + baseW * 0.5, y: cy };
+  const p3 = { x: cx, y: cy - baseH * 0.65 };
+  const p4 = { x: cx - baseW * 0.5, y: cy };
+  const innerW = baseW * 0.6;
+  const innerLeft = { x: cx - innerW * 0.5, y: cy };
+  const innerRight = { x: cx + innerW * 0.5, y: cy };
+  const topRx = s * 0.3;
+  const topRy = s * 0.14;
+  const topCx = cx;
+  const topLeft = { x: topCx - topRx, y: topCy };
+  const topRight = { x: topCx + topRx, y: topCy };
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.25)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.25)";
+    ctx.shadowBlur = s * 2;
+    ctx.lineWidth = s * 0.16;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy - s * 0.9, baseW * 0.45, baseH * 0.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + baseH * 0.9, baseW * 0.45, baseH * 0.25, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = darken(color, 0.25);
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.lineTo(p4.x, p4.y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.lineTo(p3.x, p3.y);
+  ctx.lineTo(p4.x, p4.y);
+  ctx.closePath();
+  ctx.stroke();
+
+  const bodyGradient = ctx.createLinearGradient(cx, topCy, cx, cy);
+  bodyGradient.addColorStop(0, lighten(color, 0.18));
+  bodyGradient.addColorStop(1, darken(color, 0.1));
+  ctx.fillStyle = bodyGradient;
+  ctx.beginPath();
+  ctx.moveTo(innerLeft.x, innerLeft.y);
+  ctx.quadraticCurveTo(cx - baseW * 0.18, cy - s * 1.05, topLeft.x, topLeft.y);
+  ctx.quadraticCurveTo(cx, topCy - topRy * 0.6, topRight.x, topRight.y);
+  ctx.quadraticCurveTo(cx + baseW * 0.18, cy - s * 1.05, innerRight.x, innerRight.y);
+  ctx.quadraticCurveTo(cx, cy + baseH * 0.35, innerLeft.x, innerLeft.y);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.15)";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx, topCy + topRy * 0.1);
+  ctx.lineTo(cx, cy + baseH * 0.1);
+  ctx.stroke();
+
+  const holeRx = topRx * 0.55;
+  const holeRy = topRy * 0.55;
+
+  ctx.fillStyle = "rgba(255,255,255,0.06)";
+  ctx.beginPath();
+  ctx.ellipse(topCx, topCy, topRx, topRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(topCx, topCy, topRx, topRy, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const holeGradient = ctx.createRadialGradient(
+    topCx,
+    topCy,
+    holeRx * 0.2,
+    topCx,
+    topCy,
+    holeRx,
+  );
+  holeGradient.addColorStop(0, "rgba(0,0,0,0.92)");
+  holeGradient.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = holeGradient;
+  ctx.beginPath();
+  ctx.ellipse(topCx, topCy, holeRx, holeRy, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(topCx, topCy, holeRx, holeRy, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.ellipse(topCx - topRx * 0.15, topCy - topRy * 0.2, topRx * 0.5, topRy * 0.35, 0, 0.2, 1.0);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawSlalomPole = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.35, r * 0.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.25)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.25, r * 1.6, r * 0.45, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const baseGradient = ctx.createRadialGradient(
+    x - r * 0.15,
+    y - r * 0.1,
+    r * 0.2,
+    x,
+    y,
+    r * 1.4,
+  );
+  baseGradient.addColorStop(0, lighten(color, 0.18));
+  baseGradient.addColorStop(1, darken(color, 0.2));
+  ctx.fillStyle = baseGradient;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.2, r * 0.45, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.2, r * 0.45, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(0,0,0,0.8)";
+  ctx.beginPath();
+  ctx.ellipse(x, y - 1, r * 0.18, r * 0.1, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const poleHeight = r * 4.5;
+  const poleWidth = r * 0.28;
+  const poleX = x - poleWidth / 2;
+  const poleY = y - poleHeight;
+
+  const poleGradient = ctx.createLinearGradient(poleX, 0, poleX + poleWidth, 0);
+  poleGradient.addColorStop(0, darken(color, 0.25));
+  poleGradient.addColorStop(0.5, lighten(color, 0.15));
+  poleGradient.addColorStop(1, darken(color, 0.25));
+  ctx.fillStyle = poleGradient;
+  drawRoundedRect(ctx, poleX, poleY, poleWidth, poleHeight, poleWidth / 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, poleX, poleY, poleWidth, poleHeight, poleWidth / 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - poleWidth * 0.15, poleY + poleHeight * 0.05);
+  ctx.lineTo(x - poleWidth * 0.15, y);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawHurdleBar = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const gap = r * 2.9;
+  const leftX = x - gap / 2;
+  const rightX = x + gap / 2;
+  const baseY = y;
+  const barY = y - r * 0.95;
+  const barW = gap + r * 0.9;
+  const barH = r * 0.22;
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y - r * 0.4, gap / 2 + r * 1.3, r * 1.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.2)";
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = "rgba(0,0,0,0.20)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.3, gap / 2 + r * 1.1, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = "rgba(0,0,0,0.14)";
+  ctx.beginPath();
+  ctx.ellipse(x, barY + r * 0.55, barW * 0.35, r * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  const barGradient = ctx.createLinearGradient(
+    x - barW / 2,
+    barY,
+    x + barW / 2,
+    barY,
+  );
+  barGradient.addColorStop(0, darken(color, 0.22));
+  barGradient.addColorStop(0.5, lighten(color, 0.15));
+  barGradient.addColorStop(1, darken(color, 0.22));
+  ctx.fillStyle = barGradient;
+  drawRoundedRect(ctx, x - barW / 2, barY - barH / 2, barW, barH, barH / 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, x - barW / 2, barY - barH / 2, barW, barH, barH / 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.14)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x - barW / 2 + barH, barY - barH * 0.25);
+  ctx.lineTo(x + barW / 2 - barH, barY - barH * 0.25);
+  ctx.stroke();
+
+  drawPlotIso(ctx, leftX, baseY, r * 0.95, color, false);
+  drawPlotIso(ctx, rightX, baseY, r * 0.95, color, false);
+
+  const clipR = r * 0.1;
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.arc(leftX, barY, clipR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(rightX, barY, clipR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+};
+
+const drawHurdlePole = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const gap = r * 2.8;
+  const topY = y - gap / 2;
+  const bottomY = y + gap / 2;
+  const barX = x;
+  const barH = gap - r * 0.2;
+  const barW = r * 0.22;
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.6, gap * 0.6, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.2)";
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.3, r * 1.2, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  drawPlotIso(ctx, x, topY, r * 0.85, color, false);
+  drawPlotIso(ctx, x - r * 0.18, bottomY, r * 0.85, color, false);
+
+  const poleGradient = ctx.createLinearGradient(barX, y - barH / 2, barX, y + barH / 2);
+  poleGradient.addColorStop(0, darken(color, 0.35));
+  poleGradient.addColorStop(0.5, lighten(color, 0.22));
+  poleGradient.addColorStop(1, darken(color, 0.35));
+  ctx.fillStyle = poleGradient;
+  drawRoundedRect(ctx, barX - barW / 2, y - barH / 2, barW, barH, barW / 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 1.6;
+  drawRoundedRect(ctx, barX - barW / 2, y - barH / 2, barW, barH, barW / 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(barX - barW * 0.2, y - barH / 2 + barW);
+  ctx.lineTo(barX - barW * 0.2, y + barH / 2 - barW);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.arc(x, topY, r * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, bottomY, r * 0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+};
+
+const drawMiniGoal = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const goalW = r * 2.4;
+  const goalH = r * 1.6;
+  const postW = Math.max(2.5, r * 0.16);
+
+  ctx.save();
+  const frontTopY = y - goalH;
+  const frontBotY = y;
+  const leftX = x - goalW / 2;
+  const rightX = x + goalW / 2;
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.rect(
+      leftX - r * 0.2,
+      frontTopY - r * 0.2,
+      goalW + r * 0.4,
+      goalH + r * 0.4,
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = "rgba(235,235,255,0.92)";
+  ctx.lineWidth = postW;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  ctx.moveTo(leftX, frontBotY);
+  ctx.lineTo(leftX, frontTopY);
+  ctx.moveTo(rightX, frontBotY);
+  ctx.lineTo(rightX, frontTopY);
+  ctx.moveTo(leftX, frontTopY);
+  ctx.lineTo(rightX, frontTopY);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 1;
+  const v1 = leftX + goalW * 0.3125;
+  const v2 = leftX + goalW * 0.6875;
+  const h1 = frontTopY + goalH * 0.46;
+  ctx.beginPath();
+  ctx.moveTo(v1, frontTopY);
+  ctx.lineTo(v1, frontBotY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(v2, frontTopY);
+  ctx.lineTo(v2, frontBotY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(leftX, h1);
+  ctx.lineTo(rightX, h1);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawLadder = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  length: number,
+  color: string,
+  selected: boolean,
+) => {
+  const width = length * 0.3;
+  const railW = Math.max(1.8, width * 0.11);
+  const railExt = length * 0.08;
+  const rungH = Math.max(1, width * 0.06);
+  const rungCount = 6;
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y, width * 0.9, length * 0.45, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.24)";
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + length * 0.12, width * 0.6, width * 0.25, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const halfLen = length / 2;
+  const leftX = x - width / 2 + railW / 2;
+  const rightX = x + width / 2 - railW / 2;
+
+  ctx.fillStyle = color;
+  drawRoundedRect(
+    ctx,
+    leftX - railW / 2,
+    y - halfLen - railExt,
+    railW,
+    length + railExt * 2,
+    railW / 2,
+  );
+  ctx.fill();
+  drawRoundedRect(
+    ctx,
+    rightX - railW / 2,
+    y - halfLen - railExt,
+    railW,
+    length + railExt * 2,
+    railW / 2,
+  );
+  ctx.fill();
+
+  ctx.fillStyle = lighten(color, 0.12);
+  for (let i = 0; i < rungCount; i += 1) {
+    const t = rungCount === 1 ? 0 : i / (rungCount - 1);
+    const yy = y - halfLen + t * length;
+    drawRoundedRect(
+      ctx,
+      x - width * 0.45,
+      yy - rungH / 2,
+      width * 0.9,
+      rungH,
+      rungH / 2,
+    );
+    ctx.fill();
+  }
+
+  ctx.restore();
+};
+
+const drawPassWall = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const wallW = r * 4.2;
+  const wallH = r * 1.75;
+  const radius = r * 0.16;
+
+  ctx.save();
+
+  // Shadow
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(
+    x,
+    y + wallH * 0.52,
+    wallW * 0.55,
+    r * 0.22,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+  ctx.restore();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(139,92,246,0.55)";
+    ctx.lineWidth = 2;
+    drawRoundedRect(
+      ctx,
+      x - wallW / 2 - radius * 0.35,
+      y - wallH / 2 - radius * 0.35,
+      wallW + radius * 0.7,
+      wallH + radius * 0.7,
+      radius,
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Body (simple block like toolbar icon)
+  const bodyGrad = ctx.createLinearGradient(
+    x,
+    y - wallH / 2,
+    x,
+    y + wallH / 2,
+  );
+  bodyGrad.addColorStop(0, lighten(color, 0.06));
+  bodyGrad.addColorStop(1, darken(color, 0.12));
+
+  ctx.fillStyle = bodyGrad;
+  ctx.strokeStyle = "rgba(0,0,0,0.22)";
+  ctx.lineWidth = 1.2;
+  drawRoundedRect(ctx, x - wallW / 2, y - wallH / 2, wallW, wallH, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  // Slot
+  const slotW = wallW * 0.62;
+  const slotH = wallH * 0.12;
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
+  drawRoundedRect(
+    ctx,
+    x - slotW / 2,
+    y - wallH * 0.05 - slotH / 2,
+    slotW,
+    slotH,
+    slotH / 2,
+  );
+  ctx.fill();
+
+  ctx.restore();
+};
+
+const drawPlayerBodyHead = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  number: string | undefined,
+  selected: boolean,
+  isBallCarrier: boolean,
+  isGoalkeeper: boolean,
+) => {
+  ctx.save();
+
+  const headR = r * 0.46;
+  const headCx = x;
+  const headCy = y - r * 0.44;
+
+  const bustW = r * 1.49;
+  const bustH = r * 1.2;
+  const bustCx = x;
+  const bustCy = y + r * 0.05;
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(120,80,255,0.30)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(x, y + r * 0.1, r * 1.35, r * 1.35, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.85, r * 1.05, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const bustGradient = ctx.createRadialGradient(
+    x - r * 0.25,
+    y - r * 0.35,
+    r * 0.2,
+    x,
+    y,
+    r * 1.4,
+  );
+  bustGradient.addColorStop(0, lighten(color, 0.08));
+  bustGradient.addColorStop(1, darken(color, 0.1));
+  ctx.fillStyle = bustGradient;
+  drawBustPath(ctx, bustCx, bustCy, bustW, bustH);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.20)";
+  ctx.lineWidth = 1.2;
+  drawBustPath(ctx, bustCx, bustCy, bustW, bustH);
+  ctx.stroke();
+
+  const headGradient = ctx.createRadialGradient(
+    headCx - headR * 0.3,
+    headCy - headR * 0.3,
+    headR * 0.2,
+    headCx,
+    headCy,
+    headR,
+  );
+  headGradient.addColorStop(0, lighten(color, 0.1));
+  headGradient.addColorStop(1, darken(color, 0.12));
+  ctx.fillStyle = headGradient;
+  ctx.beginPath();
+  ctx.arc(headCx, headCy, headR, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.18)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(headCx, headCy, headR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.arc(headCx - headR * 0.2, headCy - headR * 0.2, headR * 0.7, -0.2, 0.4);
+  ctx.stroke();
+
+  if (number) {
+    ctx.save();
+    ctx.fillStyle = chooseTextColor(color);
+    ctx.shadowColor = "rgba(0,0,0,0.30)";
+    ctx.shadowBlur = 2;
+    ctx.font = `${Math.floor(r * 0.85)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(number, x, bustCy + bustH * 0.05);
+    ctx.restore();
+  }
+
+  if (isBallCarrier) {
+    ctx.strokeStyle = "rgba(255,255,255,0.70)";
+    ctx.lineWidth = 1.6;
+    drawBustPath(ctx, bustCx, bustCy, bustW, bustH);
+    ctx.stroke();
+  }
+
+  if (isGoalkeeper) {
+    const badgeR = r * 0.35;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.arc(bustCx + r * 0.65, bustCy + r * 0.35, badgeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.max(8, r * 0.6)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("G", bustCx + r * 0.65, bustCy + r * 0.35);
+    ctx.restore();
+  }
+
+  ctx.restore();
+};
+
+const drawBallPremium = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  selected: boolean,
+) => {
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.25)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.25)";
+    ctx.shadowBlur = r * 1.6;
+    ctx.lineWidth = r * 0.18;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.25, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.7, r * 1.1, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(10, r * 2.2)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.fillText("⚽", x, y + r * 0.02);
+
+  ctx.restore();
+};
+
 export const drawPitch = (
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   preset: PitchPreset,
 ) => {
-  const { x, y, w, h } = getPitchRect(width, height);
+  const { x, y, w, h, isLandscape } = getPitchRect(width, height);
   ctx.save();
-  const gradient = ctx.createLinearGradient(0, 0, width, height);
-  gradient.addColorStop(0, "#0A0D16");
-  gradient.addColorStop(1, "#161832");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.fillStyle = "rgba(10, 12, 22, 0.65)";
+  ctx.clearRect(0, 0, width, height);
+  const fieldGradient = ctx.createLinearGradient(x, y, x + w, y + h);
+  fieldGradient.addColorStop(0, "#0A0D16");
+  fieldGradient.addColorStop(1, "#161832");
+  ctx.fillStyle = fieldGradient;
   ctx.fillRect(x, y, w, h);
 
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.lineWidth = Math.max(1, Math.min(width, height) * 0.0022);
+  ctx.lineWidth = Math.max(0.8, Math.min(width, height) * 0.0011);
   ctx.strokeRect(x, y, w, h);
 
   const centerX = x + w / 2;
   const centerY = y + h / 2;
-  ctx.beginPath();
-  ctx.moveTo(x, centerY);
-  ctx.lineTo(x + w, centerY);
-  ctx.stroke();
 
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, w * 0.1, 0, Math.PI * 2);
-  ctx.stroke();
+  if (isLandscape) {
+    ctx.beginPath();
+    ctx.moveTo(centerX, y);
+    ctx.lineTo(centerX, y + h);
+    ctx.stroke();
 
-  const boxWidth = w * 0.6;
-  const boxHeight = h * 0.16;
-  ctx.strokeRect(centerX - boxWidth / 2, y, boxWidth, boxHeight);
-  ctx.strokeRect(
-    centerX - boxWidth / 2,
-    y + h - boxHeight,
-    boxWidth,
-    boxHeight,
-  );
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, h * 0.1, 0, Math.PI * 2);
+    ctx.stroke();
 
-  const smallBoxWidth = w * 0.25;
-  const smallBoxHeight = h * 0.06;
-  ctx.strokeRect(centerX - smallBoxWidth / 2, y, smallBoxWidth, smallBoxHeight);
-  ctx.strokeRect(
-    centerX - smallBoxWidth / 2,
-    y + h - smallBoxHeight,
-    smallBoxWidth,
-    smallBoxHeight,
-  );
+    const boxWidth = w * 0.16;
+    const boxHeight = h * 0.6;
+    ctx.strokeRect(x, centerY - boxHeight / 2, boxWidth, boxHeight);
+    ctx.strokeRect(
+      x + w - boxWidth,
+      centerY - boxHeight / 2,
+      boxWidth,
+      boxHeight,
+    );
+
+    const smallBoxWidth = w * 0.06;
+    const smallBoxHeight = h * 0.25;
+    ctx.strokeRect(
+      x,
+      centerY - smallBoxHeight / 2,
+      smallBoxWidth,
+      smallBoxHeight,
+    );
+    ctx.strokeRect(
+      x + w - smallBoxWidth,
+      centerY - smallBoxHeight / 2,
+      smallBoxWidth,
+      smallBoxHeight,
+    );
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x, centerY);
+    ctx.lineTo(x + w, centerY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, w * 0.1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const boxWidth = w * 0.6;
+    const boxHeight = h * 0.16;
+    ctx.strokeRect(centerX - boxWidth / 2, y, boxWidth, boxHeight);
+    ctx.strokeRect(
+      centerX - boxWidth / 2,
+      y + h - boxHeight,
+      boxWidth,
+      boxHeight,
+    );
+
+    const smallBoxWidth = w * 0.25;
+    const smallBoxHeight = h * 0.06;
+    ctx.strokeRect(
+      centerX - smallBoxWidth / 2,
+      y,
+      smallBoxWidth,
+      smallBoxHeight,
+    );
+    ctx.strokeRect(
+      centerX - smallBoxWidth / 2,
+      y + h - smallBoxHeight,
+      smallBoxWidth,
+      smallBoxHeight,
+    );
+  }
 
   ctx.restore();
   return { x, y, w, h, preset };
@@ -338,19 +1445,25 @@ export const drawElements = (
       ctx.shadowColor = "rgba(168, 85, 247, 0.6)";
       ctx.shadowBlur = radius * 0.8;
     }
+    const rotation = (element.rotation ?? 0) * (Math.PI / 180);
+    if (rotation) {
+      ctx.translate(px, py);
+      ctx.rotate(rotation);
+      ctx.translate(-px, -py);
+    }
 
     if (element.type === "player") {
-      ctx.fillStyle = element.color ?? "#7B66FF";
-      ctx.beginPath();
-      ctx.arc(px, py, radius, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (showOverlays && element.id === ballAttachedToId) {
-        ctx.fillStyle = "rgba(253, 224, 71, 0.95)";
-        ctx.beginPath();
-        ctx.arc(px + radius * 0.6, py - radius * 0.6, radius * 0.22, 0, Math.PI * 2);
-        ctx.fill();
-      }
+      drawPlayerBodyHead(
+        ctx,
+        px,
+        py,
+        Math.max(6, radius),
+        element.color ?? "#7B66FF",
+        showLabels ? element.label ?? undefined : undefined,
+        showOverlays && element.id === selectedId,
+        showOverlays && element.id === ballAttachedToId,
+        (element.label ?? "").toUpperCase() === "G",
+      );
 
       if (showOverlays && element.id === snapTargetId) {
         ctx.strokeStyle = "rgba(253, 224, 71, 0.6)";
@@ -359,38 +1472,90 @@ export const drawElements = (
         ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
         ctx.stroke();
       }
-
-      if (showLabels && element.label) {
-        ctx.fillStyle = "rgba(255,255,255,0.95)";
-        ctx.font = `${Math.max(10, radius * 0.9)}px Inter, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(element.label, px, py + 0.5);
-      }
     } else if (element.type === "ball") {
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(px, py, radius * 0.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0,0,0,0.2)";
-      ctx.lineWidth = Math.max(1, radius * 0.12);
-      ctx.stroke();
+      drawBallPremium(ctx, px, py, Math.max(4, radius), showOverlays && element.id === selectedId);
     } else if (element.type === "cone") {
-      ctx.fillStyle = element.color ?? "#F8C12C";
-      ctx.beginPath();
-      ctx.moveTo(px, py - radius);
-      ctx.lineTo(px + radius, py + radius);
-      ctx.lineTo(px - radius, py + radius);
-      ctx.closePath();
-      ctx.fill();
+      const baseColor = element.color ?? "#F8C12C";
+      drawPlotIso(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "slalom_pole") {
+      const baseColor = element.color ?? "#6A5CFF";
+      drawSlalomPole(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "hurdle_bar") {
+      const baseColor = element.color ?? "#7B66FF";
+      drawHurdleBar(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "hurdle_pole") {
+      const baseColor = element.color ?? "#7B66FF";
+      drawHurdlePole(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "mini_goal") {
+      drawMiniGoal(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        element.color ?? "rgba(245,245,250,0.95)",
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "ladder") {
+      const baseColor = element.color ?? "#7B66FF";
+      drawLadder(
+        ctx,
+        px,
+        py,
+        Math.max(8, radius * 6),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "pass_wall") {
+      const baseColor = element.color ?? "#6B7280";
+      drawPassWall(
+        ctx,
+        px,
+        py,
+        Math.max(6, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
     } else if (element.type === "disc") {
-      ctx.fillStyle = element.color ?? "#FF6F91";
-      ctx.beginPath();
-      ctx.ellipse(px, py, radius, radius * 0.45, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const baseColor = element.color ?? "#FF6F91";
+      drawCupDisc(
+        ctx,
+        px,
+        py,
+        Math.max(2, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
     }
 
-    if (showOverlays && element.id === selectedId) {
+    if (showOverlays && element.id === selectedId && element.type !== "player") {
       ctx.strokeStyle = "rgba(255,255,255,0.6)";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
@@ -434,6 +1599,38 @@ const hitTest = (
       continue;
     }
 
+    if (element.type === "hurdle_bar" || element.type === "hurdle_pole") {
+      if (
+        point.x >= px - radius * 2.2 &&
+        point.x <= px + radius * 2.2 &&
+        point.y >= py - radius * 2.2 &&
+        point.y <= py + radius * 1.2
+      ) {
+        return element.id;
+      }
+      continue;
+    }
+
+    if (element.type === "mini_goal") {
+      if (
+        point.x >= px - radius * 1.4 &&
+        point.x <= px + radius * 1.4 &&
+        point.y >= py - radius * 1.6 &&
+        point.y <= py + radius * 1.2
+      ) {
+        return element.id;
+      }
+      continue;
+    }
+    if (element.type === "ladder") {
+      const length = radius * 6;
+      const reach = Math.max(length * 0.6, radius * 2);
+      const dx = point.x - px;
+      const dy = point.y - py;
+      if (dx * dx + dy * dy <= reach * reach) return element.id;
+      continue;
+    }
+
     const scaleY = element.type === "disc" ? 0.45 : 1;
     const dx = (point.x - px) / radius;
     const dy = (point.y - py) / (radius * scaleY);
@@ -471,7 +1668,11 @@ const useCanvasElements = (
 
   const addElement = (type: ElementType, position: { x: number; y: number }) => {
     const baseColor =
-      type === "ball" ? "#ffffff" : playerColor;
+      type === "ball"
+        ? "#ffffff"
+        : type === "mini_goal"
+        ? "#F5F5FA"
+        : playerColor;
     const newElement: CanvasElement = {
       id: buildId(),
       type,
@@ -480,6 +1681,8 @@ const useCanvasElements = (
       color: baseColor,
       label: type === "player" ? "" : undefined,
       size: getDefaultSize(type),
+      orientation: type === "mini_goal" ? "down" : undefined,
+      rotation: 0,
     };
     setElements((prev) => [...prev, newElement]);
     setSelectedId(newElement.id);
@@ -530,9 +1733,6 @@ const useCanvasElements = (
     } else {
       if (tool !== "select") {
         addElement(tool as ElementType, normalized);
-        if (!event.shiftKey) {
-          setTool("select");
-        }
         return;
       }
       setSelectedId(null);
@@ -878,16 +2078,22 @@ export default function ExerciseAnimatedEditor() {
   const [strokesBase, setStrokesBase] = useState<BaseSnapshot | null>(null);
   const [groupMode, setGroupMode] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  const [animationMode, setAnimationMode] = useState<"image" | "video">("video");
+  const [animationMode, setAnimationMode] = useState<"image" | "video" | null>(null);
   const [showModeMenu, setShowModeMenu] = useState(false);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showToolboxMenu, setShowToolboxMenu] = useState(false);
+  const toolboxMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showColorMenu, setShowColorMenu] = useState(false);
+  const colorMenuRef = useRef<HTMLDivElement | null>(null);
   const [showSidePanel, setShowSidePanel] = useState(false);
   const [ballAttachedToId, setBallAttachedToId] = useState<string | null>(null);
   const [framePreviews, setFramePreviews] = useState<Record<string, string>>({});
   const [showSequenceDebug, setShowSequenceDebug] = useState(false);
   const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
+  const orientationRef = useRef<"landscape" | "portrait" | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const strokesBaseRef = useRef<BaseSnapshot | null>(null);
+  const discIconRef = useRef<HTMLCanvasElement | null>(null);
   const [associationTargetPlayerId, setAssociationTargetPlayerId] = useState<
     string | null
   >(null);
@@ -895,6 +2101,20 @@ export default function ExerciseAnimatedEditor() {
     string | null
   >(null);
   const [paths, setPaths] = useState<Record<string, PathPoint[]>>({});
+  const plotIconRef = useRef<HTMLCanvasElement | null>(null);
+  const playerIconRef = useRef<HTMLCanvasElement | null>(null);
+  const slalomPoleIconRef = useRef<HTMLCanvasElement | null>(null);
+  const hurdleBarIconRef = useRef<HTMLCanvasElement | null>(null);
+  const hurdlePoleIconRef = useRef<HTMLCanvasElement | null>(null);
+  const ladderIconRef = useRef<HTMLCanvasElement | null>(null);
+  const discMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const plotMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const slalomMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const hurdleBarMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const hurdlePoleMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const ladderMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const toolboxDiscIconRef = useRef<HTMLCanvasElement | null>(null);
+  const toolboxPoleIconRef = useRef<HTMLCanvasElement | null>(null);
   const pathRecordRef = useRef<{
     id: string;
     startTime: number;
@@ -1215,6 +2435,105 @@ export default function ExerciseAnimatedEditor() {
     };
   }, []);
 
+  const renderToolIcon = (
+    canvas: HTMLCanvasElement | null,
+    size: number,
+    renderer: (ctx: CanvasRenderingContext2D, size: number) => void,
+  ) => {
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    canvas.style.width = `${size}px`;
+    canvas.style.height = `${size}px`;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    renderer(ctx, size);
+  };
+
+  const rotatePointCW = (point: { x: number; y: number }) => ({
+    x: clamp01(1 - point.y),
+    y: clamp01(point.x),
+  });
+
+  const rotatePointCCW = (point: { x: number; y: number }) => ({
+    x: clamp01(point.y),
+    y: clamp01(1 - point.x),
+  });
+
+  const rotateAllDataPositions = (direction: "cw" | "ccw") => {
+    const rotate = direction === "cw" ? rotatePointCW : rotatePointCCW;
+
+    setElements((prev) =>
+      prev.map((el) => {
+        const next = rotate({ x: el.x, y: el.y });
+        return { ...el, x: next.x, y: next.y };
+      }),
+    );
+
+    setFrames((prev) =>
+      prev.map((frame) => ({
+        ...frame,
+        elementsSnapshot: frame.elementsSnapshot.map((snap) => {
+          const next = rotate({ x: snap.x, y: snap.y });
+          return { ...snap, x: next.x, y: next.y };
+        }),
+      })),
+    );
+
+    setPaths((prev) => {
+      const next: Record<string, PathPoint[]> = {};
+      Object.entries(prev).forEach(([id, points]) => {
+        next[id] = points.map((pt) => {
+          const rotated = rotate({ x: pt.x, y: pt.y });
+          return { ...pt, x: rotated.x, y: rotated.y };
+        });
+      });
+      return next;
+    });
+
+    setStrokes((prev) =>
+      prev.map((stroke) => ({
+        ...stroke,
+        points: stroke.points.map((pt) => rotate(pt)),
+      })),
+    );
+
+    setStrokesBase((prev) => {
+      if (!prev) return prev;
+      const next: BaseSnapshot = {};
+      Object.entries(prev).forEach(([id, pos]) => {
+        next[id] = rotate(pos);
+      });
+      return next;
+    });
+
+    setFramePreviews({});
+    clearDrag();
+  };
+
+  useEffect(() => {
+    const isLandscape = canvasSize.w > canvasSize.h * 1.1;
+    const nextOrientation: "landscape" | "portrait" = isLandscape
+      ? "landscape"
+      : "portrait";
+    if (!orientationRef.current) {
+      orientationRef.current = nextOrientation;
+      return;
+    }
+    if (orientationRef.current !== nextOrientation) {
+      rotateAllDataPositions(nextOrientation === "landscape" ? "cw" : "ccw");
+      orientationRef.current = nextOrientation;
+    }
+  }, [canvasSize.w, canvasSize.h]);
+
+
+  useEffect(() => {
+    // no-op: sprite preloading removed (canvas draw for discs is procedural)
+  }, []);
+
   useEffect(() => {
     if (!showModeMenu) return;
     const handler = (event: MouseEvent) => {
@@ -1226,6 +2545,37 @@ export default function ExerciseAnimatedEditor() {
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [showModeMenu]);
+
+  useEffect(() => {
+    if (!showToolboxMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!toolboxMenuRef.current) return;
+      if (!toolboxMenuRef.current.contains(event.target as Node)) {
+        setShowToolboxMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showToolboxMenu]);
+
+  useEffect(() => {
+    if (!showColorMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!colorMenuRef.current) return;
+      if (!colorMenuRef.current.contains(event.target as Node)) {
+        setShowColorMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showColorMenu]);
+
+  const toggleTool = (next: ToolKey) => {
+    setTool((prev) => {
+      if (next === "select") return "select";
+      return prev === next ? "select" : next;
+    });
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1263,6 +2613,82 @@ export default function ExerciseAnimatedEditor() {
     snapTargetId,
     previewMode,
   ]);
+
+  useEffect(() => {
+    renderToolIcon(playerIconRef.current, 28, (ctx, s) => {
+      drawPlayerBodyHead(ctx, s / 2, s / 2, s * 0.32, playerColor ?? "#7B66FF", "10", false, false, false);
+    });
+
+    renderToolIcon(discIconRef.current, 28, (ctx, s) => {
+      drawCupDisc(ctx, s / 2, s / 2, s * 0.33, playerColor ?? "#FF6F91", false);
+    });
+
+    renderToolIcon(plotIconRef.current, 32, (ctx, s) => {
+      drawPlotIso(
+        ctx,
+        s / 2,
+        s / 2 + s * 0.12,
+        s * 0.32,
+        playerColor ?? "#F8C12C",
+        false,
+      );
+    });
+
+    renderToolIcon(slalomPoleIconRef.current, 30, (ctx, s) => {
+      drawSlalomPole(ctx, s / 2, s * 0.72, s * 0.18, playerColor ?? "#6A5CFF", false);
+    });
+
+    renderToolIcon(hurdleBarIconRef.current, 34, (ctx, s) => {
+      drawHurdleBar(ctx, s / 2, s * 0.72, s * 0.18, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(hurdlePoleIconRef.current, 34, (ctx, s) => {
+      drawHurdlePole(ctx, s / 2, s * 0.6, s * 0.2, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(ladderIconRef.current, 34, (ctx, s) => {
+      drawLadder(ctx, s / 2, s / 2, s * 0.7, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(toolboxDiscIconRef.current, 20, (ctx, s) => {
+      drawCupDisc(ctx, s / 2, s / 2, s * 0.33, playerColor ?? "#FF6F91", false);
+    });
+
+    renderToolIcon(toolboxPoleIconRef.current, 20, (ctx, s) => {
+      drawSlalomPole(ctx, s / 2, s * 0.72, s * 0.18, playerColor ?? "#6A5CFF", false);
+    });
+
+    renderToolIcon(discMenuIconRef.current, 26, (ctx, s) => {
+      drawCupDisc(ctx, s / 2, s / 2, s * 0.33, playerColor ?? "#FF6F91", false);
+    });
+
+    renderToolIcon(plotMenuIconRef.current, 28, (ctx, s) => {
+      drawPlotIso(
+        ctx,
+        s / 2,
+        s / 2 + s * 0.12,
+        s * 0.32,
+        playerColor ?? "#F8C12C",
+        false,
+      );
+    });
+
+    renderToolIcon(slalomMenuIconRef.current, 26, (ctx, s) => {
+      drawSlalomPole(ctx, s / 2, s * 0.72, s * 0.18, playerColor ?? "#6A5CFF", false);
+    });
+
+    renderToolIcon(hurdleBarMenuIconRef.current, 30, (ctx, s) => {
+      drawHurdleBar(ctx, s / 2, s * 0.72, s * 0.18, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(hurdlePoleMenuIconRef.current, 30, (ctx, s) => {
+      drawHurdlePole(ctx, s / 2, s * 0.6, s * 0.2, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(ladderMenuIconRef.current, 30, (ctx, s) => {
+      drawLadder(ctx, s / 2, s / 2, s * 0.7, playerColor ?? "#7B66FF", false);
+    });
+  }, [playerColor, showToolboxMenu]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -1674,17 +3100,17 @@ export default function ExerciseAnimatedEditor() {
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.back()}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/10"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10"
               title="Retour"
             >
-              ← Retour
+              ←
             </button>
             <div ref={modeMenuRef} className="relative">
               <button
                 onClick={() => setShowModeMenu((prev) => !prev)}
                 className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
               >
-                Animé ▾
+                Animation
               </button>
               {showModeMenu ? (
                 <div className="absolute left-0 top-full mt-2 w-44 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-2 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
@@ -1720,6 +3146,150 @@ export default function ExerciseAnimatedEditor() {
                   </button>
                 </div>
               ) : null}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => toggleTool("player")}
+                title="Joueur"
+                className={[
+                  "flex h-9 w-9 items-center justify-center rounded-full border transition",
+                  tool === "player"
+                    ? "border-violet-400/70 bg-violet-500/25 text-white"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                ].join(" ")}
+              >
+                <canvas ref={playerIconRef} className="h-6 w-6" />
+              </button>
+              <button
+                onClick={() => toggleTool("ball")}
+                title="Ballon"
+                className={[
+                  "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                  tool === "ball"
+                    ? "border-violet-400/70 bg-violet-500/25 text-white"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                ].join(" ")}
+              >
+                ⚽
+              </button>
+              <div ref={toolboxMenuRef} className="relative">
+                <button
+                  onClick={() => setShowToolboxMenu((prev) => !prev)}
+                  title="Boîte à outils"
+                  className={[
+                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                    showToolboxMenu
+                      ? "border-violet-400/70 bg-violet-500/25 text-white"
+                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  🧩
+                </button>
+                {showToolboxMenu ? (
+                  <div className="absolute left-0 top-full z-20 mt-2 grid w-52 grid-cols-4 gap-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                    {(
+                      [
+                        "cone",
+                        "disc",
+                        "slalom_pole",
+                        "hurdle_bar",
+                        "hurdle_pole",
+                        "mini_goal",
+                        "ladder",
+                        "pass_wall",
+                      ] as ToolKey[]
+                    ).map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          toggleTool(key);
+                          setShowToolboxMenu(false);
+                        }}
+                        className={[
+                          "flex h-10 w-10 items-center justify-center rounded-xl border transition",
+                          tool === key
+                            ? "border-violet-400/70 bg-violet-500/25 text-white"
+                            : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                        ].join(" ")}
+                        title={key}
+                      >
+                        {key === "disc" ? (
+                          <canvas ref={discMenuIconRef} className="h-6 w-6" />
+                        ) : key === "cone" ? (
+                          <canvas ref={plotMenuIconRef} className="h-6 w-6" />
+                        ) : key === "slalom_pole" ? (
+                          <canvas ref={slalomMenuIconRef} className="h-6 w-6" />
+                        ) : key === "hurdle_bar" ? (
+                          <canvas ref={hurdleBarMenuIconRef} className="h-6 w-6" />
+                        ) : key === "hurdle_pole" ? (
+                          <canvas ref={hurdlePoleMenuIconRef} className="h-6 w-6" />
+                        ) : key === "ladder" ? (
+                          <canvas ref={ladderMenuIconRef} className="h-6 w-6" />
+                        ) : key === "mini_goal" ? (
+                          <MiniGoalIcon
+                            size={22}
+                            selected={tool === "mini_goal"}
+                            className="text-[rgba(235,235,255,0.92)]"
+                          />
+                        ) : key === "pass_wall" ? (
+                          <PassWallIcon
+                            size={22}
+                            selected={tool === "pass_wall"}
+                            className="text-[rgba(235,235,255,0.92)]"
+                          />
+                        ) : (
+                          <span className="text-sm">•</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div ref={colorMenuRef} className="relative">
+                <button
+                  onClick={() => setShowColorMenu((prev) => !prev)}
+                  title="Couleurs"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
+                  style={{
+                    background:
+                      "conic-gradient(from 90deg, #7B66FF, #22D3EE, #F59E0B, #F472B6, #34D399, #7B66FF)",
+                  }}
+                >
+                  <span className="h-6 w-6 rounded-full bg-black/40" />
+                </button>
+                {showColorMenu ? (
+                  <div className="absolute left-0 top-full z-20 mt-2 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                    {DEFAULT_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        onClick={() => {
+                          setPlayerColor(color);
+                          setShowColorMenu(false);
+                        }}
+                        className={`h-8 w-8 rounded-full border transition ${
+                          playerColor === color
+                            ? "border-white/80"
+                            : "border-white/10"
+                        }`}
+                        style={{ background: color }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <button
+                onClick={() => setRecordPathMode((prev) => !prev)}
+                title="Trajet"
+                className={[
+                  "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                  recordPathMode
+                    ? "border-violet-400/70 bg-violet-500/25 text-white"
+                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                ].join(" ")}
+              >
+                〰
+              </button>
             </div>
           </div>
 
@@ -1806,170 +3376,134 @@ export default function ExerciseAnimatedEditor() {
       <div className="flex h-[calc(100vh-72px)]">
         <div className="relative flex flex-1">
           <main className="relative flex flex-1 flex-col">
-            {!previewMode ? (
-              <div className="flex flex-wrap items-center gap-2 border-b border-white/5 bg-black/30 px-4 py-3 backdrop-blur-xl">
-                {TOOL_OPTIONS.map((option) => (
-                  <button
-                    key={option.key}
-                    onClick={() => setTool(option.key)}
-                    draggable={!previewMode}
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData(
-                        "application/x-infinity-tool",
-                        option.key,
-                      );
-                      event.dataTransfer.effectAllowed = "copy";
-                    }}
-                    className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition ${
-                      tool === option.key
-                        ? "border-violet-400/40 bg-violet-500/15 text-white"
-                        : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                    }`}
+            {null}
+            <div className="relative min-h-0 flex-1 w-full overflow-visible">
+              <div className="flex h-full w-full items-center justify-center">
+                <div className="mx-auto inline-flex h-full w-full items-center justify-center">
+                  <div
+                    ref={containerRef}
+                    className="relative h-full w-full"
+                  onDragOver={(event) => {
+                    if (previewMode) return;
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    if (previewMode) return;
+                    event.preventDefault();
+                    const toolKey = event.dataTransfer.getData(
+                      "application/x-infinity-tool",
+                    ) as ToolKey | "";
+                    if (!toolKey || toolKey === "select") return;
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const point = {
+                      x: event.clientX - rect.left,
+                      y: event.clientY - rect.top,
+                    };
+                    const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
+                    if (
+                      point.x < pitchRect.x ||
+                      point.x > pitchRect.x + pitchRect.w ||
+                      point.y < pitchRect.y ||
+                      point.y > pitchRect.y + pitchRect.h
+                    ) {
+                      return;
+                    }
+                    const normalized = {
+                      x: clamp01((point.x - pitchRect.x) / pitchRect.w),
+                      y: clamp01((point.y - pitchRect.y) / pitchRect.h),
+                    };
+                    addElement(toolKey as ElementType, normalized);
+                  }}
                   >
-                    <span className="text-base">
-                      {option.key === "select"
-                        ? "⤧"
-                        : option.key === "player"
-                        ? "●"
-                        : option.key === "ball"
-                        ? "⚽"
-                        : option.key === "cone"
-                        ? "▲"
-                        : "●"}
-                    </span>
-                  </button>
-                ))}
-                <div className="ml-3 flex items-center gap-2">
-                  {DEFAULT_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setPlayerColor(color)}
-                      className={`h-7 w-7 rounded-full border transition ${
-                        playerColor === color
-                          ? "border-white/80"
-                          : "border-white/10"
-                      }`}
-                      style={{ background: color }}
+                    <canvas
+                      ref={canvasRef}
+                      className="h-full w-full"
+                      onPointerDown={previewMode ? undefined : handlePointerDown}
+                      onPointerMove={previewMode ? undefined : handlePointerMove}
+                      onPointerUp={previewMode ? undefined : handlePointerUp}
                     />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            <div
-              ref={containerRef}
-              className="relative min-h-0 flex-1 w-full overflow-visible"
-              onDragOver={(event) => {
-                if (previewMode) return;
-                event.preventDefault();
-              }}
-              onDrop={(event) => {
-                if (previewMode) return;
-                event.preventDefault();
-                const toolKey = event.dataTransfer.getData(
-                  "application/x-infinity-tool",
-                ) as ToolKey | "";
-                if (!toolKey || toolKey === "select") return;
-                const rect = event.currentTarget.getBoundingClientRect();
-                const point = {
-                  x: event.clientX - rect.left,
-                  y: event.clientY - rect.top,
-                };
-                const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
-                if (
-                  point.x < pitchRect.x ||
-                  point.x > pitchRect.x + pitchRect.w ||
-                  point.y < pitchRect.y ||
-                  point.y > pitchRect.y + pitchRect.h
-                ) {
-                  return;
-                }
-                const normalized = {
-                  x: clamp01((point.x - pitchRect.x) / pitchRect.w),
-                  y: clamp01((point.y - pitchRect.y) / pitchRect.h),
-                };
-                addElement(toolKey as ElementType, normalized);
-              }}
-            >
-              <canvas
-                ref={canvasRef}
-                className="h-full w-full"
-                onPointerDown={previewMode ? undefined : handlePointerDown}
-                onPointerMove={previewMode ? undefined : handlePointerMove}
-                onPointerUp={previewMode ? undefined : handlePointerUp}
-              />
-              {!previewMode && animationMode === "image" ? (
-                <div className="absolute left-1/2 top-full z-10 mt-2 w-[92%] -translate-x-1/2">
-                  <div className="flex items-center gap-2 overflow-x-auto">
-                    {frames.length === 0 ? (
-                      <div className="text-xs text-slate-400">
-                        Aucune séquence
-                      </div>
-                    ) : (
-                      frames.map((frame, index) => (
-                        <button
-                          key={frame.id}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            event.currentTarget.setPointerCapture(event.pointerId);
-                            frameDragRef.current = {
-                              id: frame.id,
-                              startX: event.clientX,
-                              lastX: event.clientX,
-                              moved: false,
-                            };
-                          }}
-                          onPointerMove={(event) => {
-                            const ref = frameDragRef.current;
-                            if (!ref || ref.id !== frame.id) return;
-                            event.preventDefault();
-                            const delta = event.clientX - ref.startX;
-                            if (Math.abs(delta) > 6) {
-                              ref.moved = true;
-                            }
-                            if (Math.abs(delta) > 12) {
-                              moveFrame(ref.id, delta > 0 ? 1 : -1);
-                              ref.startX = event.clientX;
-                              ref.lastX = event.clientX;
-                            }
-                          }}
-                          onPointerUp={(event) => {
-                            const ref = frameDragRef.current;
-                            if (!ref || ref.id !== frame.id) return;
-                            event.currentTarget.releasePointerCapture(event.pointerId);
-                            if (!ref.moved) {
-                              setActiveFrameId(frame.id);
-                            }
-                            frameDragRef.current = null;
-                          }}
-                          onPointerCancel={(event) => {
-                            event.currentTarget.releasePointerCapture(event.pointerId);
-                            frameDragRef.current = null;
-                          }}
-                          style={{ touchAction: "none" }}
-                          className={`h-16 w-16 flex-shrink-0 rounded-2xl border transition ${
-                            activeFrameId === frame.id
-                              ? "border-violet-400/50"
-                              : "border-white/10 hover:border-white/30"
-                          }`}
-                          title={`Seq ${index + 1}`}
-                        >
-                          {framePreviews[frame.id] ? (
-                            <img
-                              src={framePreviews[frame.id]}
-                              alt={`Seq ${index + 1}`}
-                              className="h-full w-full rounded-xl object-cover"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
-                              {index + 1}
+                    {!previewMode && animationMode === "image" ? (
+                      <div className="absolute left-1/2 top-full z-10 mt-2 w-[92%] -translate-x-1/2">
+                        <div className="flex items-center gap-2 overflow-x-auto">
+                          {frames.length === 0 ? (
+                            <div className="text-xs text-slate-400">
+                              Aucune séquence
                             </div>
+                          ) : (
+                            frames.map((frame, index) => (
+                              <button
+                                key={frame.id}
+                                onPointerDown={(event) => {
+                                  event.preventDefault();
+                                  event.currentTarget.setPointerCapture(
+                                    event.pointerId,
+                                  );
+                                  frameDragRef.current = {
+                                    id: frame.id,
+                                    startX: event.clientX,
+                                    lastX: event.clientX,
+                                    moved: false,
+                                  };
+                                }}
+                                onPointerMove={(event) => {
+                                  const ref = frameDragRef.current;
+                                  if (!ref || ref.id !== frame.id) return;
+                                  event.preventDefault();
+                                  const delta = event.clientX - ref.startX;
+                                  if (Math.abs(delta) > 6) {
+                                    ref.moved = true;
+                                  }
+                                  if (Math.abs(delta) > 12) {
+                                    moveFrame(ref.id, delta > 0 ? 1 : -1);
+                                    ref.startX = event.clientX;
+                                    ref.lastX = event.clientX;
+                                  }
+                                }}
+                                onPointerUp={(event) => {
+                                  const ref = frameDragRef.current;
+                                  if (!ref || ref.id !== frame.id) return;
+                                  event.currentTarget.releasePointerCapture(
+                                    event.pointerId,
+                                  );
+                                  if (!ref.moved) {
+                                    setActiveFrameId(frame.id);
+                                  }
+                                  frameDragRef.current = null;
+                                }}
+                                onPointerCancel={(event) => {
+                                  event.currentTarget.releasePointerCapture(
+                                    event.pointerId,
+                                  );
+                                  frameDragRef.current = null;
+                                }}
+                                style={{ touchAction: "none" }}
+                                className={`h-16 w-16 flex-shrink-0 rounded-2xl border transition ${
+                                  activeFrameId === frame.id
+                                    ? "border-violet-400/50"
+                                    : "border-white/10 hover:border-white/30"
+                                }`}
+                                title={`Seq ${index + 1}`}
+                              >
+                                {framePreviews[frame.id] ? (
+                                  <img
+                                    src={framePreviews[frame.id]}
+                                    alt={`Seq ${index + 1}`}
+                                    className="h-full w-full rounded-xl object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
+                                    {index + 1}
+                                  </div>
+                                )}
+                              </button>
+                            ))
                           )}
-                        </button>
-                      ))
-                    )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-              ) : null}
+              </div>
             </div>
           </main>
 
@@ -2051,15 +3585,31 @@ export default function ExerciseAnimatedEditor() {
                   </p>
                   <input
                     type="range"
-                    min={10}
-                    max={40}
-                    value={Math.round(
-                      (selectedElement.size ?? getDefaultSize(selectedElement.type)) *
-                        600,
-                    )}
+                    min={0.006}
+                    max={0.08}
+                    step={0.001}
+                    value={selectedElement.size ?? getDefaultSize(selectedElement.type)}
                     onChange={(event) =>
                       updateElement(selectedElement.id, {
-                        size: Number(event.target.value) / 600,
+                        size: Number(event.target.value),
+                      })
+                    }
+                    className="mt-2 w-full"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                    Angle
+                  </p>
+                  <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={5}
+                    value={selectedElement.rotation ?? 0}
+                    onChange={(event) =>
+                      updateElement(selectedElement.id, {
+                        rotation: Number(event.target.value),
                       })
                     }
                     className="mt-2 w-full"
