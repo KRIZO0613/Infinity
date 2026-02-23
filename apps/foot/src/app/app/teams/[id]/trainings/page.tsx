@@ -1,11 +1,12 @@
 import TeamTrainingsClient from "./TeamTrainingsClient";
 
 type PageProps = {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 };
 
-export default function TeamTrainingsPage({ params }: PageProps) {
-  return <TeamTrainingsClient teamId={params.id} />;
+export default async function TeamTrainingsPage({ params }: PageProps) {
+  const { id } = await params;
+  return <TeamTrainingsClient teamId={id} />;
 }

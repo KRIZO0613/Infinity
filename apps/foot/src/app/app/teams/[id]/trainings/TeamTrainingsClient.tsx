@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -62,6 +62,7 @@ export default function TeamTrainingsClient({
   teamId,
 }: TeamTrainingsClientProps) {
   const params = useParams<{ id?: string | string[] }>();
+  const searchParams = useSearchParams();
   const resolvedTeamId =
     teamId ||
     (typeof params?.id === "string"
@@ -74,6 +75,13 @@ export default function TeamTrainingsClient({
   >("sessions");
   const [filter, setFilter] = useState<"all" | "upcoming" | "past">("all");
   const [weekOnly, setWeekOnly] = useState(false);
+
+  useEffect(() => {
+    const tab = searchParams?.get("tab");
+    if (tab === "exercises" || tab === "templates" || tab === "sessions") {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const [trainings, setTrainings] = useState<TeamEvent[]>([]);
   const [players, setPlayers] = useState<PlayerLite[]>([]);
@@ -470,50 +478,35 @@ export default function TeamTrainingsClient({
   return (
     <div className="min-h-screen bg-[#070a14] text-slate-100">
       <div className="mx-auto w-full max-w-6xl px-6 py-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              Calendrier de l’équipe
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-100">
-              Entraînements
-            </h1>
-            <p className="mt-2 text-sm text-slate-400">
-              Séances d’entraînement de l’équipe
-            </p>
+        <div className="flex flex-wrap items-center gap-4">
+          <h1 className="text-2xl font-semibold text-slate-100">
+            Entraînements
+          </h1>
+          <div className="hidden md:block h-px flex-1 bg-gradient-to-r from-transparent via-violet-400/70 to-transparent opacity-70 shadow-[0_0_18px_rgba(168,85,247,0.55)] animate-pulse" />
+          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 backdrop-blur">
+            {[
+              { key: "sessions", label: "Séances" },
+              { key: "exercises", label: "Exercices" },
+              { key: "templates", label: "Modèles" },
+            ].map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key as typeof activeTab)}
+                  className={[
+                    "rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.22em] transition",
+                    isActive
+                      ? "bg-white/15 text-white shadow-[0_0_18px_rgba(168,85,247,0.35)] ring-1 ring-violet-400/40"
+                      : "text-slate-400 hover:bg-white/10 hover:text-slate-200",
+                  ].join(" ")}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-100 transition hover:bg-white/10"
-          >
-            + Nouvelle séance
-          </button>
-        </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          {[
-            { key: "sessions", label: "Séances" },
-            { key: "exercises", label: "Exercices" },
-            { key: "templates", label: "Modèles" },
-          ].map((tab) => {
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setActiveTab(tab.key as typeof activeTab)}
-                className={[
-                  "rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition",
-                  isActive
-                    ? "border border-white/15 bg-white/10 text-slate-100"
-                    : "border border-white/10 bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200",
-                ].join(" ")}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
         </div>
 
         {activeTab === "exercises" ? (

@@ -1,3 +1,4 @@
+@import url("https://fonts.cdnfonts.com/css/satoshi");
 @import "tailwindcss";
 
 /* Thème global aligné sur ton header (bg-slate-950) */
@@ -17,6 +18,12 @@ body {
 /* Optionnel : sécuriser le body */
 body {
   margin: 0;
+}
+
+.font-satoshi {
+  font-family: "Satoshi", "Inter", "SF Pro Display", "SF Pro Text", system-ui,
+    -apple-system, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans",
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 }
 /* === Onglets de sélection d'équipe intégrés dans la carte === */
 

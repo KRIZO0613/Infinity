@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
 import { MiniGoalIcon, PassWallIcon } from "@/components/assets";
+import { useExerciseAnimationPlayer } from "@/components/useExerciseAnimationPlayer";
 
 const TOOL_OPTIONS = [
   { key: "select", label: "Sélection" },
@@ -12,27 +13,53 @@ const TOOL_OPTIONS = [
   { key: "ball", label: "Ballon" },
   { key: "cone", label: "Plot" },
   { key: "disc", label: "Coupelle" },
+  { key: "hoop", label: "Cerceau" },
+  { key: "baton", label: "Baton" },
   { key: "slalom_pole", label: "Piquet" },
   { key: "hurdle_bar", label: "Haie" },
   { key: "hurdle_pole", label: "Haie V" },
   { key: "mini_goal", label: "Mini but" },
   { key: "ladder", label: "Échelle" },
   { key: "pass_wall", label: "Mur" },
+  { key: "line", label: "Forme - Ligne" },
+  { key: "arrow", label: "Forme - Flèche" },
+  { key: "line_dashed", label: "Forme - Ligne pointillée" },
+  { key: "arrow_dashed", label: "Forme - Flèche pointillée" },
+  { key: "polyline_dashed", label: "Forme - Multi points" },
+  { key: "polyarrow_dashed", label: "Forme - Multi flèche" },
+  { key: "rect_dashed", label: "Forme - Carré pointillé" },
+  { key: "circle", label: "Forme - Cercle" },
+  { key: "hexagon", label: "Forme - Hexagone" },
 ] as const;
 
 type ToolKey = (typeof TOOL_OPTIONS)[number]["key"];
+
+type ShapeKind =
+  | "line"
+  | "arrow"
+  | "line_dashed"
+  | "arrow_dashed"
+  | "polyline_dashed"
+  | "polyarrow_dashed"
+  | "rect"
+  | "rect_dashed"
+  | "circle"
+  | "hexagon";
 
 type ElementType =
   | "player"
   | "ball"
   | "cone"
   | "disc"
+  | "hoop"
+  | "baton"
   | "slalom_pole"
   | "hurdle_bar"
   | "hurdle_pole"
   | "mini_goal"
   | "ladder"
-  | "pass_wall";
+  | "pass_wall"
+  | "shape";
 
 type CanvasElement = {
   id: string;
@@ -44,7 +71,42 @@ type CanvasElement = {
   size?: number;
   orientation?: "up" | "down";
   rotation?: number;
+  shapeKind?: ShapeKind;
+  shapePoints?: Array<{ x: number; y: number }>;
 };
+
+const SHAPE_TOOLS: ShapeKind[] = [
+  "line",
+  "arrow",
+  "line_dashed",
+  "arrow_dashed",
+  "polyline_dashed",
+  "polyarrow_dashed",
+  "rect_dashed",
+  "circle",
+  "hexagon",
+];
+
+const isShapeTool = (tool: ToolKey): tool is ShapeKind =>
+  SHAPE_TOOLS.includes(tool as ShapeKind);
+
+const ROTATABLE_SHAPES: ShapeKind[] = [
+  "line",
+  "arrow",
+  "line_dashed",
+  "arrow_dashed",
+];
+
+const isRotatableShape = (kind?: ShapeKind) =>
+  Boolean(kind && ROTATABLE_SHAPES.includes(kind));
+
+const POLYLINE_SHAPES: ShapeKind[] = ["polyline_dashed", "polyarrow_dashed"];
+
+const isPolylineShape = (kind?: ShapeKind) =>
+  Boolean(kind && POLYLINE_SHAPES.includes(kind));
+
+const isPolylineTool = (tool: ToolKey): tool is ShapeKind =>
+  POLYLINE_SHAPES.includes(tool as ShapeKind);
 
 type FrameSnapshot = {
   id: string;
@@ -64,7 +126,9 @@ type Stroke = {
   kind: "move" | "carry";
   order: number;
   phaseId: number;
+  sequenceIndex?: number;
   elementId?: string;
+  ballIds?: string[];
   points: Array<{ x: number; y: number }>;
   style?: {
     dashed?: boolean;
@@ -96,14 +160,84 @@ type ToastState = {
   message: string;
 } | null;
 
+type EditorSnapshot = {
+  elements: CanvasElement[];
+  frames: FrameSnapshot[];
+  paths: Record<string, PathPoint[]>;
+  strokes: Stroke[];
+  strokesBase: BaseSnapshot | null;
+  ballAttachments: Record<string, string>;
+  activeFrameId: string | null;
+};
+
 const DEFAULT_COLORS = [
   "#7B66FF",
-  "#6A5CFF",
+  "#3B5BDB",
   "#00C8B4",
   "#F8C12C",
   "#FF6F91",
   "#FFFFFF",
 ];
+
+const CATEGORY_MAIN_OPTIONS = [
+  "Échauffement / Activation",
+  "Motricité",
+  "Technique",
+  "Tactique",
+  "Physique",
+  "Jeu / Opposition",
+  "Situation réelle",
+  "Retour au calme",
+];
+
+const TRAINING_TYPE_OPTIONS = ["Avec ballon", "Sans ballon", "Mixte"];
+
+const OBJECTIVE_OPTIONS = [
+  "Passe",
+  "Contrôle",
+  "Conduite",
+  "Tir",
+  "Finition",
+  "Centres",
+  "Défense individuelle",
+  "Défense collective",
+  "Pressing",
+  "Appels",
+  "Conservation",
+];
+
+const LEVEL_OPTIONS = ["U6-U9", "U10-U11", "U12-U13", "U14-U15", "U16+"];
+
+const CATEGORY_VALUE_MAP: Record<string, string> = {
+  "Échauffement / Activation": "échauffement",
+  "Motricité": "motricité",
+  "Technique": "technique",
+  "Tactique": "tactique",
+  "Physique": "physique",
+  "Jeu / Opposition": "jeu_opposition",
+  "Situation réelle": "situation_réelle",
+  "Retour au calme": "retour_au_calme",
+};
+
+const TYPE_VALUE_MAP: Record<string, string> = {
+  "Avec ballon": "avec_ballon",
+  "Sans ballon": "sans_ballon",
+  "Mixte": "mixte",
+};
+
+const OBJECTIVE_VALUE_MAP: Record<string, string> = {
+  "Passe": "passe",
+  "Contrôle": "contrôle",
+  "Conduite": "conduite",
+  "Tir": "tir",
+  "Finition": "finition",
+  "Centres": "centres",
+  "Défense individuelle": "défense_individuelle",
+  "Défense collective": "défense_collective",
+  "Pressing": "pressing",
+  "Appels": "appels",
+  "Conservation": "conservation",
+};
 
 
 const buildId = () =>
@@ -112,6 +246,70 @@ const buildId = () =>
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const clamp01 = (value: number) => Math.min(Math.max(value, 0), 1);
+
+const simplifyStrokePoints = (
+  points: Array<{ x: number; y: number }>,
+  tolerance = 0.012,
+  angleTolerance = 18,
+  lengthRatioMax = 1.03,
+  turnThreshold = 0.35,
+) => {
+  if (points.length < 3) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-5) return points;
+  const lineAngle = Math.atan2(dy, dx);
+  let maxDist = 0;
+  let maxAngleDiff = 0;
+  let totalLen = 0;
+  let totalTurn = 0;
+  let prevAngle: number | null = null;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const p = points[i];
+    const dist =
+      Math.abs(dy * (p.x - first.x) - dx * (p.y - first.y)) / len;
+    if (dist > maxDist) maxDist = dist;
+    const segDx = p.x - points[i - 1].x;
+    const segDy = p.y - points[i - 1].y;
+    const segLen = Math.hypot(segDx, segDy);
+    if (segLen > 1e-5) {
+      totalLen += segLen;
+      const segAngle = Math.atan2(segDy, segDx);
+      const diff = Math.abs(
+        Math.atan2(Math.sin(segAngle - lineAngle), Math.cos(segAngle - lineAngle)),
+      );
+      if (diff > maxAngleDiff) maxAngleDiff = diff;
+      if (prevAngle !== null) {
+        const turn = Math.abs(
+          Math.atan2(Math.sin(segAngle - prevAngle), Math.cos(segAngle - prevAngle)),
+        );
+        totalTurn += turn;
+      }
+      prevAngle = segAngle;
+    }
+  }
+  totalLen += Math.hypot(
+    points[points.length - 1].x - points[points.length - 2].x,
+    points[points.length - 1].y - points[points.length - 2].y,
+  );
+  const straightRatio = totalLen / len;
+  const adaptiveTolerance = Math.max(
+    tolerance,
+    Math.min(0.02, len * 0.03),
+  );
+  if (
+    maxDist <= adaptiveTolerance &&
+    maxAngleDiff <= (angleTolerance * Math.PI) / 180 &&
+    straightRatio <= lengthRatioMax &&
+    totalTurn <= turnThreshold
+  ) {
+    return [first, last];
+  }
+  return points;
+};
 
 const shadeColor = (hex: string, amount: number) => {
   const safe = hex.replace("#", "");
@@ -149,6 +347,13 @@ const adjustColor = (hex: string, amount: number) => {
 
 const lighten = (hex: string, amount: number) => adjustColor(hex, Math.abs(amount));
 const darken = (hex: string, amount: number) => adjustColor(hex, -Math.abs(amount));
+
+const cloneData = <T,>(data: T): T => {
+  if (typeof structuredClone === "function") {
+    return structuredClone(data);
+  }
+  return JSON.parse(JSON.stringify(data)) as T;
+};
 
 const getLuminance = (hex: string) => {
   const rgb = hexToRgb(hex);
@@ -211,12 +416,14 @@ const drawBustPath = (
   ctx.closePath();
 };
 
-const getPitchRect = (width: number, height: number): PitchRect => {
+const getPitchRect = (
+  width: number,
+  height: number,
+  orientation?: "landscape" | "portrait",
+): PitchRect => {
   const padding = 0;
-  const isLandscape = width > height * 1.1;
-  if (!isLandscape) {
-    return { x: 0, y: 0, w: width, h: height, isLandscape };
-  }
+  const isLandscape =
+    orientation ? orientation === "landscape" : width > height * 1.1;
   // Portrait ratio (2/3) or landscape ratio (105/68).
   const ratio = isLandscape ? 105 / 68 : 2 / 3;
   let w = width - padding * 2;
@@ -234,12 +441,15 @@ const getDefaultSize = (type: ElementType) => {
   if (type === "player") return 0.035;
   if (type === "ball") return 0.018;
   if (type === "cone") return 0.03;
+  if (type === "hoop") return 0.03;
+  if (type === "baton") return 0.028;
   if (type === "slalom_pole") return 0.02;
   if (type === "hurdle_bar") return 0.02;
   if (type === "hurdle_pole") return 0.02;
   if (type === "mini_goal") return 0.025;
   if (type === "ladder") return 0.025;
   if (type === "pass_wall") return 0.028;
+  if (type === "shape") return 0.05;
   return 0.02;
 };
 
@@ -252,7 +462,116 @@ const getRenderSize = (type: ElementType, size: number) => {
   const base = size * ELEMENT_SIZE_SCALE;
   if (type === "player") return base * PLAYER_SIZE_SCALE;
   if (type === "cone") return base * CONE_SIZE_SCALE;
+  if (type === "shape") return base * 1.15;
   return base;
+};
+
+const rotatePoint = (
+  point: { x: number; y: number },
+  center: { x: number; y: number },
+  angle: number,
+) => {
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+};
+
+const getPointsCenter = (points: Array<{ x: number; y: number }>) => {
+  if (points.length === 0) return { x: 0.5, y: 0.5 };
+  const sum = points.reduce(
+    (acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }),
+    { x: 0, y: 0 },
+  );
+  return { x: sum.x / points.length, y: sum.y / points.length };
+};
+
+const getShapeHandlePosition = (
+  element: CanvasElement,
+  pitchRect: PitchRect,
+  applyRotation = false,
+) => {
+  if (element.type !== "shape") return null;
+  const px = pitchRect.x + element.x * pitchRect.w;
+  const py = pitchRect.y + element.y * pitchRect.h;
+  const size = getRenderSize(
+    element.type,
+    element.size ?? getDefaultSize(element.type),
+  );
+  const radius = size * pitchRect.w;
+  const kind = element.shapeKind ?? "rect";
+  if (isPolylineShape(kind)) return null;
+  if (
+    kind === "line" ||
+    kind === "arrow" ||
+    kind === "line_dashed" ||
+    kind === "arrow_dashed"
+  ) {
+    const length = Math.max(20, radius * 3.2);
+    const handle = { x: px + length / 2, y: py, px, py };
+    if (applyRotation && (element.rotation ?? 0) !== 0) {
+      const angle = ((element.rotation ?? 0) * Math.PI) / 180;
+      const rotated = rotatePoint(
+        { x: handle.x, y: handle.y },
+        { x: px, y: py },
+        angle,
+      );
+      return { ...handle, x: rotated.x, y: rotated.y };
+    }
+    return handle;
+  }
+  const baseSize = Math.max(12, radius * 2.2);
+  const half = baseSize * 0.75;
+  const handle = { x: px + half, y: py + half, px, py };
+  if (applyRotation && (element.rotation ?? 0) !== 0) {
+    const angle = ((element.rotation ?? 0) * Math.PI) / 180;
+    const rotated = rotatePoint(
+      { x: handle.x, y: handle.y },
+      { x: px, y: py },
+      angle,
+    );
+    return { ...handle, x: rotated.x, y: rotated.y };
+  }
+  return handle;
+};
+
+const getElementHandlePosition = (
+  element: CanvasElement,
+  pitchRect: PitchRect,
+  applyRotation = false,
+) => {
+  const px = pitchRect.x + element.x * pitchRect.w;
+  const py = pitchRect.y + element.y * pitchRect.h;
+  const size = getRenderSize(
+    element.type,
+    element.size ?? getDefaultSize(element.type),
+  );
+  const radius = size * pitchRect.w;
+  const offset = Math.max(12, radius + 10);
+  const handle = { x: px + offset, y: py - offset, px, py };
+  if (applyRotation && (element.rotation ?? 0) !== 0) {
+    const angle = ((element.rotation ?? 0) * Math.PI) / 180;
+    const rotated = rotatePoint(
+      { x: handle.x, y: handle.y },
+      { x: px, y: py },
+      angle,
+    );
+    return { ...handle, x: rotated.x, y: rotated.y };
+  }
+  return handle;
+};
+
+const getResizeHandlePosition = (
+  element: CanvasElement,
+  pitchRect: PitchRect,
+  applyRotation = false,
+) => {
+  if (element.type !== "shape") return null;
+  return getShapeHandlePosition(element, pitchRect, applyRotation);
 };
 
 const drawCupDisc = (
@@ -332,6 +651,136 @@ const drawCupDisc = (
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.ellipse(x - r * 0.15, holeY - r * 0.05, r * 0.4, r * 0.12, 0, 0.2, 1.0);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawHoop = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const outerR = r * 1.15;
+  const innerR = r * 0.92;
+  const ringR = (outerR + innerR) / 2;
+  const thickness = Math.max(2, outerR - innerR);
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.3)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.35)";
+    ctx.shadowBlur = thickness * 1.8;
+    ctx.lineWidth = thickness * 0.45;
+    ctx.beginPath();
+    ctx.ellipse(x, y, ringR * 1.3, ringR * 0.9, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.22)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.22)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + outerR * 0.35, ringR * 1.1, ringR * 0.35, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const ringGradient = ctx.createRadialGradient(
+    x - r * 0.2,
+    y - r * 0.2,
+    r * 0.2,
+    x,
+    y,
+    outerR * 1.1,
+  );
+  ringGradient.addColorStop(0, lighten(color, 0.18));
+  ringGradient.addColorStop(1, darken(color, 0.25));
+  ctx.strokeStyle = ringGradient;
+  ctx.lineWidth = thickness;
+  ctx.beginPath();
+  ctx.arc(x, y, ringR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.2)";
+  ctx.lineWidth = Math.max(1, thickness * 0.3);
+  ctx.beginPath();
+  ctx.arc(x, y, ringR, -0.2, 1.2);
+  ctx.stroke();
+
+  ctx.restore();
+};
+
+const drawBaton = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  selected: boolean,
+) => {
+  const barW = r * 4.6;
+  const barH = Math.max(1.5, r * 0.26);
+  const radius = barH / 2;
+
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.28)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.35)";
+    ctx.shadowBlur = barH * 2.2;
+    ctx.lineWidth = Math.max(1.5, barH * 0.35);
+    drawRoundedRect(
+      ctx,
+      x - barW / 2 - barH,
+      y - barH,
+      barW + barH * 2,
+      barH * 2,
+      barH,
+    );
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.25)";
+  ctx.shadowBlur = 5;
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + barH * 0.9, barW * 0.55, barH * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  const barGradient = ctx.createLinearGradient(
+    x - barW / 2,
+    y,
+    x + barW / 2,
+    y,
+  );
+  barGradient.addColorStop(0, darken(color, 0.25));
+  barGradient.addColorStop(0.5, lighten(color, 0.2));
+  barGradient.addColorStop(1, darken(color, 0.25));
+  ctx.fillStyle = barGradient;
+  drawRoundedRect(ctx, x - barW / 2, y - barH / 2, barW, barH, radius);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, x - barW / 2, y - barH / 2, barW, barH, radius);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = Math.max(1, barH * 0.15);
+  ctx.beginPath();
+  ctx.moveTo(x - barW / 2 + barH, y - barH * 0.2);
+  ctx.lineTo(x + barW / 2 - barH, y - barH * 0.2);
   ctx.stroke();
 
   ctx.restore();
@@ -1052,16 +1501,6 @@ const drawPlayerBodyHead = (
   const bustCx = x;
   const bustCy = y + r * 0.05;
 
-  if (selected) {
-    ctx.save();
-    ctx.strokeStyle = "rgba(120,80,255,0.30)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(x, y + r * 0.1, r * 1.35, r * 1.35, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.22)";
   ctx.shadowBlur = 5;
@@ -1089,6 +1528,23 @@ const drawPlayerBodyHead = (
   ctx.lineWidth = 1.2;
   drawBustPath(ctx, bustCx, bustCy, bustW, bustH);
   ctx.stroke();
+
+  ctx.save();
+  drawBustPath(ctx, bustCx, bustCy, bustW, bustH);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(0,0,0,0.55)";
+  ctx.lineWidth = Math.max(0.6, r * 0.045);
+  ctx.lineCap = "round";
+  const stripeTop = bustCy - bustH * 0.45;
+  const stripeBottom = bustCy + bustH * 0.45;
+  [-0.22, 0, 0.22].forEach((offset) => {
+    const stripeX = bustCx + bustW * offset;
+    ctx.beginPath();
+    ctx.moveTo(stripeX, stripeTop);
+    ctx.lineTo(stripeX, stripeBottom);
+    ctx.stroke();
+  });
+  ctx.restore();
 
   const headGradient = ctx.createRadialGradient(
     headCx - headR * 0.3,
@@ -1199,8 +1655,13 @@ export const drawPitch = (
   width: number,
   height: number,
   preset: PitchPreset,
+  orientation?: "landscape" | "portrait",
 ) => {
-  const { x, y, w, h, isLandscape } = getPitchRect(width, height);
+  const { x, y, w, h, isLandscape } = getPitchRect(
+    width,
+    height,
+    orientation,
+  );
   ctx.save();
   ctx.clearRect(0, 0, width, height);
   const fieldGradient = ctx.createLinearGradient(x, y, x + w, y + h);
@@ -1290,6 +1751,16 @@ export const drawPitch = (
   return { x, y, w, h, preset };
 };
 
+const getStrokeSequenceIndex = (stroke: Stroke) => {
+  if (Number.isFinite(stroke.sequenceIndex)) {
+    return Math.max(1, Math.floor(stroke.sequenceIndex as number));
+  }
+  if (Number.isFinite(stroke.phaseId)) {
+    return Math.max(1, Math.floor(stroke.phaseId + 1));
+  }
+  return 1;
+};
+
 export const drawElements = (
   ctx: CanvasRenderingContext2D,
   elements: CanvasElement[],
@@ -1297,12 +1768,24 @@ export const drawElements = (
   pitchRect: PitchRect,
   paths: Record<string, PathPoint[]> = {},
   strokes: Stroke[] = [],
-  ballAttachedToId?: string | null,
+  ballAttachments?: Record<string, string>,
   snapTargetId?: string | null,
-  options?: { showOverlays?: boolean; showLabels?: boolean },
+  options?: {
+    showOverlays?: boolean;
+    showLabels?: boolean;
+    showSequenceNumbers?: boolean;
+    showRotateHandle?: boolean;
+    showResizeHandle?: boolean;
+    hoveredHandle?: { id: string; type: "rotate" | "resize" } | null;
+  },
 ) => {
   const showOverlays = options?.showOverlays ?? true;
   const showLabels = options?.showLabels ?? true;
+  const showSequenceNumbers = options?.showSequenceNumbers ?? false;
+  const showRotateHandle = options?.showRotateHandle ?? false;
+  const showResizeHandle = options?.showResizeHandle ?? false;
+  const hoveredHandle = options?.hoveredHandle ?? null;
+  const ballCarrierIds = new Set(Object.values(ballAttachments ?? {}));
   const drawSmoothPath = (points: PathPoint[]) => {
     if (points.length < 2) return;
     // Quadratic Bézier smoothing: use each point as control and midpoints as end points.
@@ -1397,6 +1880,33 @@ export const drawElements = (
     }
     ctx.restore();
   };
+  const getPointAlong = (points: Array<{ x: number; y: number }>, t: number) => {
+    if (points.length <= 1) return points[0] ?? { x: 0, y: 0 };
+    const lengths: number[] = [];
+    let total = 0;
+    for (let i = 1; i < points.length; i += 1) {
+      const dist = Math.hypot(
+        points[i].x - points[i - 1].x,
+        points[i].y - points[i - 1].y,
+      );
+      lengths.push(dist);
+      total += dist;
+    }
+    if (total === 0) return points[Math.floor(points.length / 2)];
+    const target = total * t;
+    let acc = 0;
+    for (let i = 0; i < lengths.length; i += 1) {
+      if (acc + lengths[i] >= target) {
+        const ratio = (target - acc) / Math.max(1e-6, lengths[i]);
+        return {
+          x: points[i].x + (points[i + 1].x - points[i].x) * ratio,
+          y: points[i].y + (points[i + 1].y - points[i].y) * ratio,
+        };
+      }
+      acc += lengths[i];
+    }
+    return points[points.length - 1];
+  };
 
   if (showOverlays) {
     strokes.forEach((stroke) => {
@@ -1415,6 +1925,30 @@ export const drawElements = (
         stroke.style?.arrow ?? true,
       );
     });
+
+    if (showSequenceNumbers) {
+      strokes.forEach((stroke) => {
+        if (stroke.points.length === 0) return;
+        const sequenceIndex = getStrokeSequenceIndex(stroke);
+        const midPoint = getPointAlong(stroke.points, 0.5);
+        const x = pitchRect.x + midPoint.x * pitchRect.w;
+        const y = pitchRect.y + midPoint.y * pitchRect.h;
+        ctx.save();
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(15, 23, 42, 0.82)";
+        ctx.arc(x, y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(sequenceIndex), x, y);
+        ctx.restore();
+      });
+    }
 
     Object.entries(paths).forEach(([id, points]) => {
       if (points.length < 2) return;
@@ -1439,16 +1973,15 @@ export const drawElements = (
       element.size ?? getDefaultSize(element.type),
     );
     const radius = size * pitchRect.w;
-
     ctx.save();
     if (showOverlays && element.id === selectedId) {
-      ctx.shadowColor = "rgba(168, 85, 247, 0.6)";
-      ctx.shadowBlur = radius * 0.8;
+      ctx.shadowColor = "rgba(167, 139, 250, 0.95)";
+      ctx.shadowBlur = radius * 1.6;
     }
-    const rotation = (element.rotation ?? 0) * (Math.PI / 180);
-    if (rotation) {
+    const rotationRad = (element.rotation ?? 0) * (Math.PI / 180);
+    if (rotationRad) {
       ctx.translate(px, py);
-      ctx.rotate(rotation);
+      ctx.rotate(rotationRad);
       ctx.translate(-px, -py);
     }
 
@@ -1461,7 +1994,7 @@ export const drawElements = (
         element.color ?? "#7B66FF",
         showLabels ? element.label ?? undefined : undefined,
         showOverlays && element.id === selectedId,
-        showOverlays && element.id === ballAttachedToId,
+        showOverlays && ballCarrierIds.has(element.id),
         (element.label ?? "").toUpperCase() === "G",
       );
 
@@ -1543,6 +2076,140 @@ export const drawElements = (
         baseColor,
         showOverlays && element.id === selectedId,
       );
+    } else if (element.type === "shape") {
+      const kind = element.shapeKind ?? "rect";
+      const stroke = element.color ?? "#7B66FF";
+      const lineWidth = 0.8;
+      const size = Math.max(12, radius * 2.2);
+      ctx.strokeStyle = stroke;
+      if (showOverlays && element.id === selectedId) {
+        ctx.shadowColor = "rgba(168, 85, 247, 1)";
+        ctx.shadowBlur = Math.max(14, radius * 2.6);
+        ctx.strokeStyle = "#C4B5FD";
+      }
+      ctx.lineWidth = lineWidth;
+      if (
+        kind === "rect_dashed" ||
+        kind === "line_dashed" ||
+        kind === "arrow_dashed" ||
+        kind === "polyline_dashed" ||
+        kind === "polyarrow_dashed"
+      ) {
+        ctx.setLineDash([10, 8]);
+      } else if (kind === "rect" || kind === "circle" || kind === "hexagon") {
+        ctx.setLineDash([4, 10]);
+        ctx.lineCap = "round";
+      }
+
+      if (isPolylineShape(kind)) {
+        const points = element.shapePoints ?? [];
+        if (points.length === 1) {
+          const p = points[0];
+          const sx = pitchRect.x + p.x * pitchRect.w;
+          const sy = pitchRect.y + p.y * pitchRect.h;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+          ctx.fillStyle = stroke;
+          ctx.fill();
+        } else if (points.length > 1) {
+          ctx.beginPath();
+          points.forEach((p, index) => {
+            const sx = pitchRect.x + p.x * pitchRect.w;
+            const sy = pitchRect.y + p.y * pitchRect.h;
+            if (index === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          });
+          ctx.stroke();
+          if (kind === "polyarrow_dashed") {
+            ctx.setLineDash([]);
+            ctx.fillStyle = stroke;
+            for (let i = 0; i < points.length - 1; i += 1) {
+              const from = {
+                x: pitchRect.x + points[i].x * pitchRect.w,
+                y: pitchRect.y + points[i].y * pitchRect.h,
+              };
+              const to = {
+                x: pitchRect.x + points[i + 1].x * pitchRect.w,
+                y: pitchRect.y + points[i + 1].y * pitchRect.h,
+              };
+              drawArrow(from, to);
+            }
+          }
+        }
+      } else if (
+        kind === "line" ||
+        kind === "arrow" ||
+        kind === "line_dashed" ||
+        kind === "arrow_dashed"
+      ) {
+        const length = Math.max(20, radius * 3.2);
+        const from = { x: px - length / 2, y: py };
+        const to = { x: px + length / 2, y: py };
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+        if (kind === "arrow" || kind === "arrow_dashed") {
+          ctx.fillStyle = stroke;
+          drawArrow(from, to);
+        }
+      } else if (kind === "circle") {
+        const r = size * 0.7;
+        ctx.beginPath();
+        ctx.arc(px, py, r, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (kind === "hexagon") {
+        const r = size * 0.75;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i += 1) {
+          const angle = Math.PI / 6 + i * (Math.PI / 3);
+          const x = px + r * Math.cos(angle);
+          const y = py + r * Math.sin(angle);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else if (kind === "rect" || kind === "rect_dashed") {
+        const side = size * 1.4;
+        ctx.lineJoin = "miter";
+        ctx.beginPath();
+        ctx.rect(px - side / 2, py - side / 2, side, side);
+        ctx.stroke();
+      } else {
+        const side = size * 1.4;
+        drawRoundedRect(
+          ctx,
+          px - side / 2,
+          py - side / 2,
+          side,
+          side,
+          Math.max(2, side * 0.12),
+        );
+        ctx.stroke();
+      }
+
+      ctx.setLineDash([]);
+    } else if (element.type === "hoop") {
+      const baseColor = element.color ?? "#7B66FF";
+      drawHoop(
+        ctx,
+        px,
+        py,
+        Math.max(4, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
+    } else if (element.type === "baton") {
+      const baseColor = element.color ?? "#7B66FF";
+      drawBaton(
+        ctx,
+        px,
+        py,
+        Math.max(4, radius),
+        baseColor,
+        showOverlays && element.id === selectedId,
+      );
     } else if (element.type === "disc") {
       const baseColor = element.color ?? "#FF6F91";
       drawCupDisc(
@@ -1555,12 +2222,54 @@ export const drawElements = (
       );
     }
 
-    if (showOverlays && element.id === selectedId && element.type !== "player") {
-      ctx.strokeStyle = "rgba(255,255,255,0.6)";
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(px, py, radius + 3, 0, Math.PI * 2);
-      ctx.stroke();
+    if (showOverlays && showRotateHandle && element.id === selectedId) {
+      const handle = getElementHandlePosition(element, pitchRect, false);
+      if (handle) {
+        ctx.save();
+        const isHover =
+          hoveredHandle?.id === element.id && hoveredHandle?.type === "rotate";
+        const baseRadius = 6;
+        const radius = isHover ? baseRadius + 1.6 : baseRadius;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        if (isHover) {
+          ctx.shadowColor = "rgba(139, 92, 246, 0.8)";
+          ctx.shadowBlur = 12;
+          ctx.strokeStyle = "rgba(139, 92, 246, 0.9)";
+          ctx.beginPath();
+          ctx.arc(handle.x, handle.y, radius + 1.2, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // subtle rotate hint
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, radius - 2, Math.PI * 0.4, Math.PI * 1.4);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    if (showOverlays && showResizeHandle && element.id === selectedId) {
+      const handle = getResizeHandlePosition(element, pitchRect, false);
+      if (handle) {
+        ctx.save();
+        const isHover =
+          hoveredHandle?.id === element.id && hoveredHandle?.type === "resize";
+        const baseRadius = 5;
+        const radius = isHover ? baseRadius + 1.4 : baseRadius;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+        if (isHover) {
+          ctx.shadowColor = "rgba(139, 92, 246, 0.9)";
+          ctx.shadowBlur = 12;
+        }
+        ctx.beginPath();
+        ctx.arc(handle.x, handle.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     ctx.restore();
@@ -1581,6 +2290,11 @@ const hitTest = (
       element.size ?? getDefaultSize(element.type),
     );
     const radius = size * pitchRect.w;
+    const rotation = element.rotation ?? 0;
+    const rotatedPoint =
+      element.type === "shape" && rotation !== 0
+        ? rotatePoint(point, { x: px, y: py }, (-rotation * Math.PI) / 180)
+        : point;
 
     if (element.type === "cone") {
       // Simple bbox hit for triangle
@@ -1611,6 +2325,18 @@ const hitTest = (
       continue;
     }
 
+    if (element.type === "baton") {
+      if (
+        point.x >= px - radius * 2.6 &&
+        point.x <= px + radius * 2.6 &&
+        point.y >= py - radius * 0.9 &&
+        point.y <= py + radius * 0.9
+      ) {
+        return element.id;
+      }
+      continue;
+    }
+
     if (element.type === "mini_goal") {
       if (
         point.x >= px - radius * 1.4 &&
@@ -1630,6 +2356,72 @@ const hitTest = (
       if (dx * dx + dy * dy <= reach * reach) return element.id;
       continue;
     }
+    if (element.type === "shape") {
+      const kind = element.shapeKind ?? "rect";
+      const baseSize = Math.max(10, radius * 2.2);
+      if (isPolylineShape(kind)) {
+        const points = element.shapePoints ?? [];
+        if (points.length === 1) {
+          const sx = pitchRect.x + points[0].x * pitchRect.w;
+          const sy = pitchRect.y + points[0].y * pitchRect.h;
+          if (Math.hypot(point.x - sx, point.y - sy) <= 10) {
+            return element.id;
+          }
+        } else if (points.length > 1) {
+          const threshold = 12;
+          for (let i = 0; i < points.length - 1; i += 1) {
+            const a = {
+              x: pitchRect.x + points[i].x * pitchRect.w,
+              y: pitchRect.y + points[i].y * pitchRect.h,
+            };
+            const b = {
+              x: pitchRect.x + points[i + 1].x * pitchRect.w,
+              y: pitchRect.y + points[i + 1].y * pitchRect.h,
+            };
+            const abx = b.x - a.x;
+            const aby = b.y - a.y;
+            const apx = point.x - a.x;
+            const apy = point.y - a.y;
+            const abLenSq = abx * abx + aby * aby || 1;
+            let t = (apx * abx + apy * aby) / abLenSq;
+            t = Math.max(0, Math.min(1, t));
+            const closest = { x: a.x + abx * t, y: a.y + aby * t };
+            if (Math.hypot(point.x - closest.x, point.y - closest.y) <= threshold) {
+              return element.id;
+            }
+          }
+        }
+        continue;
+      }
+      if (
+        kind === "line" ||
+        kind === "arrow" ||
+        kind === "line_dashed" ||
+        kind === "arrow_dashed"
+      ) {
+        const length = Math.max(20, radius * 3.2);
+        const padding = 18;
+        if (
+          rotatedPoint.x >= px - length / 2 - padding &&
+          rotatedPoint.x <= px + length / 2 + padding &&
+          rotatedPoint.y >= py - padding &&
+          rotatedPoint.y <= py + padding
+        ) {
+          return element.id;
+        }
+      } else {
+        const half = baseSize * 0.9;
+        if (
+          rotatedPoint.x >= px - half &&
+          rotatedPoint.x <= px + half &&
+          rotatedPoint.y >= py - half &&
+          rotatedPoint.y <= py + half
+        ) {
+          return element.id;
+        }
+      }
+      continue;
+    }
 
     const scaleY = element.type === "disc" ? 0.45 : 1;
     const dx = (point.x - px) / radius;
@@ -1647,11 +2439,18 @@ const useCanvasElements = (
     onDragEnd?: (id: string) => void;
     onElementClick?: (element: CanvasElement) => void;
   },
+  options?: {
+    showRotateHandle?: boolean;
+    showResizeHandle?: boolean;
+  },
 ) => {
   const [elements, setElements] = useState<CanvasElement[]>(initial);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tool, setTool] = useState<ToolKey>("select");
   const [playerColor, setPlayerColor] = useState(DEFAULT_COLORS[0]);
+  const [activeShapePathId, setActiveShapePathId] = useState<string | null>(null);
+  const allowRotateHandle = options?.showRotateHandle ?? true;
+  const allowResizeHandle = options?.showResizeHandle ?? true;
   const draggingRef = useRef<{
     id: string;
     offsetX: number;
@@ -1659,14 +2458,41 @@ const useCanvasElements = (
     startX: number;
     startY: number;
     moved: boolean;
+    created?: boolean;
+    createdFirst?: boolean;
+  } | null>(null);
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchRef = useRef<{
+    id: string;
+    startDistance: number;
+    startSize: number;
+  } | null>(null);
+  const resizeRef = useRef<{
+    id: string;
+    startDistance: number;
+    startSize: number;
+    center: { x: number; y: number };
+    rotate: boolean;
+    scale: boolean;
   } | null>(null);
   const pitchRef = useRef<PitchRect>({ x: 0, y: 0, w: 1, h: 1 });
+  const clampElementSize = (value: number) =>
+    Math.min(Math.max(value, 0.012), 0.32);
+
+  useEffect(() => {
+    if (!isPolylineTool(tool)) {
+      setActiveShapePathId(null);
+    }
+  }, [tool]);
 
   const setPitchRect = (rect: PitchRect) => {
     pitchRef.current = rect;
   };
 
-  const addElement = (type: ElementType, position: { x: number; y: number }) => {
+  const addElement = (toolKey: ToolKey, position: { x: number; y: number }) => {
+    const isShape = isShapeTool(toolKey);
+    const isPolyline = isPolylineTool(toolKey);
+    const type: ElementType = isShape ? "shape" : (toolKey as ElementType);
     const baseColor =
       type === "ball"
         ? "#ffffff"
@@ -1683,9 +2509,12 @@ const useCanvasElements = (
       size: getDefaultSize(type),
       orientation: type === "mini_goal" ? "down" : undefined,
       rotation: 0,
+      shapeKind: isShape ? toolKey : undefined,
+      shapePoints: isPolyline ? [position] : undefined,
     };
     setElements((prev) => [...prev, newElement]);
     setSelectedId(newElement.id);
+    return newElement;
   };
 
   const updateElement = (id: string, patch: Partial<CanvasElement>) => {
@@ -1699,6 +2528,24 @@ const useCanvasElements = (
     setElements((prev) => prev.filter((el) => el.id !== selectedId));
     setSelectedId(null);
   };
+  const nudgeSelected = (dx: number, dy: number) => {
+    if (!selectedElement) return;
+    const nextX = clamp01(selectedElement.x + dx);
+    const nextY = clamp01(selectedElement.y + dy);
+    if (selectedElement.type === "shape" && selectedElement.shapePoints?.length) {
+      const nextPoints = selectedElement.shapePoints.map((p) => ({
+        x: clamp01(p.x + dx),
+        y: clamp01(p.y + dy),
+      }));
+      updateElement(selectedElement.id, {
+        x: nextX,
+        y: nextY,
+        shapePoints: nextPoints,
+      });
+    } else {
+      updateElement(selectedElement.id, { x: nextX, y: nextY });
+    }
+  };
 
   const handlePointerDown = (
     event: React.PointerEvent<HTMLCanvasElement>,
@@ -1710,9 +2557,186 @@ const useCanvasElements = (
       x: clamp01((point.x - pitchRect.x) / pitchRect.w),
       y: clamp01((point.y - pitchRect.y) / pitchRect.h),
     };
+    if (event.pointerType === "touch") {
+      pointersRef.current.set(event.pointerId, point);
+    }
 
-    // Priority: hit-test selection/drag first, even in placement mode.
-    const hitId = hitTest(elements, point, pitchRect);
+    if (isPolylineTool(tool)) {
+      const sameKindSelected =
+        selectedId &&
+        elements.find(
+          (el) =>
+            el.id === selectedId &&
+            el.type === "shape" &&
+            el.shapeKind === tool,
+        );
+      const activeId = activeShapePathId ?? sameKindSelected?.id ?? null;
+      if (activeId) {
+        const target = elements.find((el) => el.id === activeId);
+        if (
+          target &&
+          target.type === "shape" &&
+          target.shapeKind === tool &&
+          target.shapePoints
+        ) {
+          const nextPoints = [...target.shapePoints, normalized];
+          const center = getPointsCenter(nextPoints);
+          updateElement(target.id, {
+            shapePoints: nextPoints,
+            x: center.x,
+            y: center.y,
+          });
+          setActiveShapePathId(target.id);
+          setSelectedId(target.id);
+          return;
+        }
+        setActiveShapePathId(null);
+      }
+
+      const created = addElement(tool, normalized);
+      setActiveShapePathId(created.id);
+      setSelectedId(created.id);
+      return;
+    }
+
+    // Priority: handle drag first (resize/rotate), then hit-test selection/drag.
+    const selectedElement = selectedId
+      ? elements.find((el) => el.id === selectedId) ?? null
+      : null;
+    const handleHitRadius = 30;
+    const tryStartRotateFromHandle = (element: CanvasElement) => {
+      if (!allowRotateHandle) return false;
+      const shapeKind = element.shapeKind ?? "rect";
+      const canRotate =
+        element.type === "shape" ? isRotatableShape(shapeKind) : true;
+      if (!canRotate) return false;
+      const handle = getElementHandlePosition(element, pitchRect, true);
+      if (!handle) return false;
+      const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
+      if (dist >= handleHitRadius) return false;
+      resizeRef.current = {
+        id: element.id,
+        startDistance: Math.max(
+          6,
+          Math.hypot(point.x - handle.px, point.y - handle.py),
+        ),
+        startSize: element.size ?? getDefaultSize(element.type),
+        center: { x: handle.px, y: handle.py },
+        rotate: true,
+        scale: false,
+      };
+      draggingRef.current = null;
+      setSelectedId(element.id);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return true;
+    };
+    const tryStartScaleFromHandle = (element: CanvasElement) => {
+      if (!allowResizeHandle) return false;
+      if (element.type !== "shape") return false;
+      const handle = getResizeHandlePosition(element, pitchRect, true);
+      if (!handle) return false;
+      const handleDistance = Math.hypot(point.x - handle.x, point.y - handle.y);
+      if (handleDistance >= handleHitRadius) return false;
+      resizeRef.current = {
+        id: element.id,
+        startDistance: Math.max(
+          6,
+          Math.hypot(point.x - handle.px, point.y - handle.py),
+        ),
+        startSize: element.size ?? getDefaultSize(element.type),
+        center: { x: handle.px, y: handle.py },
+        rotate: false,
+        scale: true,
+      };
+      draggingRef.current = null;
+      setSelectedId(element.id);
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return true;
+    };
+
+    if (selectedElement) {
+      if (tryStartScaleFromHandle(selectedElement)) return;
+      if (tryStartRotateFromHandle(selectedElement)) return;
+    }
+    if (isShapeTool(tool)) {
+      const candidates = elements.filter(
+        (el) => el.type === "shape" && el.shapeKind === tool,
+      );
+      for (let i = candidates.length - 1; i >= 0; i -= 1) {
+        if (tryStartScaleFromHandle(candidates[i])) return;
+        if (tryStartRotateFromHandle(candidates[i])) return;
+      }
+    }
+
+    let hitId = selectedElement
+      ? hitTest([selectedElement], point, pitchRect)
+      : null;
+    const sameKindHit = isShapeTool(tool)
+      ? hitTest(
+          elements.filter(
+            (el) => el.type === "shape" && el.shapeKind === tool,
+          ),
+          point,
+          pitchRect,
+        )
+      : null;
+    const nonShapeHit = hitTest(
+      elements.filter((el) => el.type !== "shape"),
+      point,
+      pitchRect,
+    );
+    const shapeHit = hitTest(
+      elements.filter((el) => el.type === "shape"),
+      point,
+      pitchRect,
+    );
+    if (nonShapeHit) {
+      hitId = nonShapeHit;
+    } else if (sameKindHit) {
+      hitId = sameKindHit;
+    } else if (tool === "select") {
+      hitId = hitId ?? shapeHit;
+    } else if (!hitId) {
+      hitId = shapeHit;
+    }
+
+    if (event.pointerType === "touch" && pointersRef.current.size === 2) {
+      const targetId =
+        selectedElement?.type === "shape" ? selectedElement.id : hitId;
+      const target = targetId
+        ? elements.find((el) => el.id === targetId)
+        : null;
+      if (target?.type === "shape") {
+        const points = Array.from(pointersRef.current.values());
+        const startDistance = Math.max(
+          6,
+          Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+        );
+        pinchRef.current = {
+          id: target.id,
+          startDistance,
+          startSize: target.size ?? getDefaultSize(target.type),
+        };
+        setSelectedId(target.id);
+        draggingRef.current = null;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
+    }
+    if (tool !== "select" && hitId) {
+      const hitElement = elements.find((el) => el.id === hitId);
+      if (isShapeTool(tool)) {
+        if (
+          hitElement?.type === "shape" &&
+          hitElement.shapeKind !== tool
+        ) {
+          hitId = null;
+        }
+      } else if (hitElement?.type === "shape") {
+        hitId = null;
+      }
+    }
+
     if (hitId) {
       setSelectedId(hitId);
       const px = pitchRect.x + (elements.find((el) => el.id === hitId)?.x ?? 0) * pitchRect.w;
@@ -1725,6 +2749,8 @@ const useCanvasElements = (
         startX: point.x,
         startY: point.y,
         moved: false,
+        created: false,
+        createdFirst: false,
       };
       event.currentTarget.setPointerCapture(event.pointerId);
       if (element) {
@@ -1732,7 +2758,22 @@ const useCanvasElements = (
       }
     } else {
       if (tool !== "select") {
-        addElement(tool as ElementType, normalized);
+        const isFirstElement = elements.length === 0;
+        const created = addElement(tool, normalized);
+        const px = pitchRect.x + created.x * pitchRect.w;
+        const py = pitchRect.y + created.y * pitchRect.h;
+        draggingRef.current = {
+          id: created.id,
+          offsetX: point.x - px,
+          offsetY: point.y - py,
+          startX: point.x,
+          startY: point.y,
+          moved: false,
+          created: true,
+          createdFirst: isFirstElement,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        handlers?.onDragStart?.(created.id, created.x, created.y);
         return;
       }
       setSelectedId(null);
@@ -1742,9 +2783,51 @@ const useCanvasElements = (
   const handlePointerMove = (
     event: React.PointerEvent<HTMLCanvasElement>,
   ) => {
-    if (!draggingRef.current) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (event.pointerType === "touch") {
+      pointersRef.current.set(event.pointerId, point);
+    }
+    if (pinchRef.current) {
+      const points = Array.from(pointersRef.current.values());
+      if (points.length < 2) return;
+      const distance = Math.max(
+        6,
+        Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+      );
+      const ratio = distance / pinchRef.current.startDistance;
+      const nextSize = clampElementSize(
+        pinchRef.current.startSize * ratio,
+      );
+      updateElement(pinchRef.current.id, { size: nextSize });
+      return;
+    }
+    if (resizeRef.current) {
+      const distance = Math.max(
+        6,
+        Math.hypot(
+          point.x - resizeRef.current.center.x,
+          point.y - resizeRef.current.center.y,
+        ),
+      );
+      const patch: Partial<CanvasElement> = {};
+      if (resizeRef.current.scale) {
+        const ratio = distance / resizeRef.current.startDistance;
+        const nextSize = clampElementSize(resizeRef.current.startSize * ratio);
+        patch.size = nextSize;
+      }
+      if (resizeRef.current.rotate) {
+        const angle = Math.atan2(
+          point.y - resizeRef.current.center.y,
+          point.x - resizeRef.current.center.x,
+        );
+        const degrees = ((angle * 180) / Math.PI + 360) % 360;
+        patch.rotation = degrees;
+      }
+      updateElement(resizeRef.current.id, patch);
+      return;
+    }
+    if (!draggingRef.current) return;
     const movedDistance = Math.hypot(
       point.x - draggingRef.current.startX,
       point.y - draggingRef.current.startY,
@@ -1755,17 +2838,52 @@ const useCanvasElements = (
     const pitchRect = pitchRef.current;
     const nextX = clamp01((point.x - draggingRef.current.offsetX - pitchRect.x) / pitchRect.w);
     const nextY = clamp01((point.y - draggingRef.current.offsetY - pitchRect.y) / pitchRect.h);
-    updateElement(draggingRef.current.id, { x: nextX, y: nextY });
+    const active = elements.find((el) => el.id === draggingRef.current?.id);
+    if (active?.type === "shape" && active.shapePoints?.length) {
+      const deltaX = nextX - active.x;
+      const deltaY = nextY - active.y;
+      const nextPoints = active.shapePoints.map((p) => ({
+        x: clamp01(p.x + deltaX),
+        y: clamp01(p.y + deltaY),
+      }));
+      updateElement(draggingRef.current.id, {
+        x: nextX,
+        y: nextY,
+        shapePoints: nextPoints,
+      });
+    } else {
+      updateElement(draggingRef.current.id, { x: nextX, y: nextY });
+    }
     handlers?.onDragMove?.(draggingRef.current.id, nextX, nextY);
   };
 
   const handlePointerUp = (
     event: React.PointerEvent<HTMLCanvasElement>,
   ) => {
+    const wasResizing = Boolean(resizeRef.current);
+    const wasPinching = Boolean(pinchRef.current);
+    if (event.pointerType === "touch") {
+      pointersRef.current.delete(event.pointerId);
+      if (pointersRef.current.size < 2) {
+        pinchRef.current = null;
+      }
+    }
+    if (wasResizing) {
+      resizeRef.current = null;
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
+    if (wasPinching) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     if (draggingRef.current) {
       event.currentTarget.releasePointerCapture(event.pointerId);
       handlers?.onDragEnd?.(draggingRef.current.id);
-      if (!draggingRef.current.moved) {
+      const shouldTriggerClick =
+        (!draggingRef.current.created && !draggingRef.current.moved) ||
+        draggingRef.current.createdFirst;
+      if (shouldTriggerClick) {
         const element = elements.find((el) => el.id === draggingRef.current?.id);
         if (element) {
           handlers?.onElementClick?.(element);
@@ -1777,6 +2895,9 @@ const useCanvasElements = (
 
   const clearDrag = () => {
     draggingRef.current = null;
+    resizeRef.current = null;
+    pinchRef.current = null;
+    pointersRef.current.clear();
   };
 
   return {
@@ -1799,270 +2920,26 @@ const useCanvasElements = (
   };
 };
 
-const useKeyframesPlayer = (
-  elements: CanvasElement[],
-  frames: FrameSnapshot[],
-  paths: Record<string, PathPoint[]>,
-  strokes: Stroke[],
-  strokesBase: BaseSnapshot | null,
-): KeyframePlayer => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playhead, setPlayhead] = useState(0);
-  const [frameDuration, setFrameDuration] = useState(2000);
-  const rafRef = useRef<number | null>(null);
-  const startRef = useRef<number | null>(null);
-  const hasPaths = useMemo(
-    () => Object.values(paths).some((points) => points.length >= 2),
-    [paths],
-  );
-  const phases = useMemo(() => {
-    const grouped = new Map<number, Stroke[]>();
-    strokes.forEach((stroke) => {
-      const phaseId = Number.isFinite(stroke.phaseId) ? stroke.phaseId : 0;
-      if (!grouped.has(phaseId)) grouped.set(phaseId, []);
-      grouped.get(phaseId)?.push(stroke);
-    });
-    return Array.from(grouped.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([phaseId, items]) => ({
-        id: phaseId,
-        strokes: items,
-        duration: Math.max(1, ...items.map((item) => item.durationMs || 1)),
-      }));
-  }, [strokes]);
-  const hasActions = phases.length > 0;
-
-  useEffect(() => {
-    if (!isPlaying || (frames.length < 2 && !hasPaths && !hasActions)) return;
-    const loop = (time: number) => {
-      if (!startRef.current) startRef.current = time;
-      const elapsed = time - startRef.current;
-      setPlayhead(elapsed);
-      rafRef.current = requestAnimationFrame(loop);
-    };
-    rafRef.current = requestAnimationFrame(loop);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-      startRef.current = null;
-    };
-  }, [isPlaying, frames.length, hasPaths, hasActions]);
-
-  const animatedElements = useMemo(() => {
-    let animated = elements;
-
-    if (isPlaying && phases.length > 0) {
-      const totalDuration = phases.reduce(
-        (sum, phase) => sum + (phase.duration || 0),
-        0,
-      );
-      if (totalDuration > 0) {
-        const local = playhead % totalDuration;
-        let elapsed = 0;
-        let currentPhaseIndex = 0;
-        for (let i = 0; i < phases.length; i += 1) {
-          const duration = Math.max(1, phases[i].duration || 0);
-          if (local <= elapsed + duration) {
-            currentPhaseIndex = i;
-            break;
-          }
-          elapsed += duration;
-        }
-        const currentPhase = phases[currentPhaseIndex];
-        const phaseDuration = Math.max(1, currentPhase.duration || 0);
-        const phaseTime = Math.min(phaseDuration, Math.max(0, local - elapsed));
-
-        const positions = new Map<string, { x: number; y: number }>();
-        elements.forEach((el) => {
-          const base = strokesBase?.[el.id];
-          positions.set(el.id, base ?? { x: el.x, y: el.y });
-        });
-
-        const ballId = elements.find((el) => el.type === "ball")?.id ?? null;
-        for (let i = 0; i < currentPhaseIndex; i += 1) {
-          const phase = phases[i];
-          phase.strokes.forEach((stroke) => {
-            if (stroke.kind === "move" || stroke.kind === "carry") {
-              const points = stroke.points;
-              if (points.length >= 1 && stroke.elementId) {
-                positions.set(stroke.elementId, {
-                  x: points[points.length - 1].x,
-                  y: points[points.length - 1].y,
-                });
-              }
-              if (stroke.kind === "carry" && stroke.elementId && ballId) {
-                const carried = positions.get(stroke.elementId);
-                if (carried) {
-                  positions.set(ballId, {
-                    x: carried.x + 0.015,
-                    y: carried.y + 0.01,
-                  });
-                }
-              }
-            }
-          });
-        }
-
-        const getPointAlong = (
-          points: Array<{ x: number; y: number }>,
-          t: number,
-        ) => {
-          if (points.length <= 1) return points[0] ?? { x: 0, y: 0 };
-          const lengths: number[] = [];
-          let total = 0;
-          for (let i = 1; i < points.length; i += 1) {
-            const dist = Math.hypot(
-              points[i].x - points[i - 1].x,
-              points[i].y - points[i - 1].y,
-            );
-            lengths.push(dist);
-            total += dist;
-          }
-          if (total === 0) return points[points.length - 1];
-          const target = total * t;
-          let acc = 0;
-          for (let i = 0; i < lengths.length; i += 1) {
-            if (acc + lengths[i] >= target) {
-              const ratio = (target - acc) / Math.max(1e-6, lengths[i]);
-              return {
-                x:
-                  points[i].x + (points[i + 1].x - points[i].x) * ratio,
-                y:
-                  points[i].y + (points[i + 1].y - points[i].y) * ratio,
-              };
-            }
-            acc += lengths[i];
-          }
-          return points[points.length - 1];
-        };
-
-        const animatedPositions = new Map(positions);
-        currentPhase.strokes.forEach((stroke) => {
-          if (!stroke.elementId || stroke.points.length < 2) return;
-          const t = Math.min(1, phaseTime / Math.max(1, stroke.durationMs || 0));
-          const point = getPointAlong(stroke.points, t);
-          animatedPositions.set(stroke.elementId, { x: point.x, y: point.y });
-        });
-
-        const activeCarry = currentPhase.strokes.find(
-          (stroke) => stroke.kind === "carry",
-        );
-        if (activeCarry && ballId && activeCarry.elementId) {
-          const carried =
-            animatedPositions.get(activeCarry.elementId) ??
-            positions.get(activeCarry.elementId);
-          if (carried) {
-            animatedPositions.set(ballId, {
-              x: carried.x + 0.015,
-              y: carried.y + 0.01,
-            });
-          }
-        }
-
-        animated = elements.map((element) => {
-          const base = animatedPositions.get(element.id) ?? { x: element.x, y: element.y };
-          return { ...element, x: base.x, y: base.y };
-        });
-
-        return animated;
-      }
-    }
-
-    if (isPlaying && frames.length >= 2) {
-      const totalDuration = frames.length * frameDuration;
-      const local = playhead % totalDuration;
-      const index = Math.floor(local / frameDuration);
-      const nextIndex = (index + 1) % frames.length;
-      const t = (local % frameDuration) / frameDuration;
-
-      const currentMap = new Map(
-        frames[index].elementsSnapshot.map((snap) => [snap.id, snap]),
-      );
-      const nextMap = new Map(
-        frames[nextIndex].elementsSnapshot.map((snap) => [snap.id, snap]),
-      );
-
-      animated = elements.map((element) => {
-        const current = currentMap.get(element.id) ?? {
-          x: element.x,
-          y: element.y,
-        };
-        const next = nextMap.get(element.id) ?? current;
-        return {
-          ...element,
-          x: current.x + (next.x - current.x) * t,
-          y: current.y + (next.y - current.y) * t,
-        };
-      });
-    }
-
-    if (isPlaying && hasPaths) {
-      animated = animated.map((element) => {
-        const points = paths[element.id];
-        if (!points || points.length < 2) return element;
-        const duration = points[points.length - 1].t;
-        if (duration <= 0) return element;
-        const local = playhead % duration;
-        let index = 0;
-        while (index < points.length - 2 && points[index + 1].t < local) {
-          index += 1;
-        }
-        const current = points[index];
-        const next = points[index + 1] ?? current;
-        const segment = Math.max(1, next.t - current.t);
-        const t = Math.min(1, Math.max(0, (local - current.t) / segment));
-        return {
-          ...element,
-          x: current.x + (next.x - current.x) * t,
-          y: current.y + (next.y - current.y) * t,
-        };
-      });
-    }
-
-    return animated;
-  }, [
-    elements,
-    frames,
-    frameDuration,
-    isPlaying,
-    playhead,
-    paths,
-    hasPaths,
-    phases,
-    strokesBase,
-  ]);
-
-  const toggle = () => setIsPlaying((prev) => !prev);
-  const reset = () => {
-    startRef.current = null;
-    setPlayhead(0);
-  };
-  const restart = () => {
-    startRef.current = null;
-    setPlayhead(0);
-    setIsPlaying(true);
-  };
-
-  return {
-    isPlaying,
-    playhead,
-    toggle,
-    setIsPlaying,
-    reset,
-    restart,
-    frameDuration,
-    setFrameDuration,
-    animatedElements,
-  };
-};
-
 export default function ExerciseAnimatedEditor() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const [canvasSize, setCanvasSize] = useState({ w: 1200, h: 720 });
-  const [name, setName] = useState("Exercice animé");
+  const [name, setName] = useState("");
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [categoryMain, setCategoryMain] = useState("");
+  const [trainingType, setTrainingType] = useState("");
+  const [objectives, setObjectives] = useState<string[]>([]);
+  const [levels, setLevels] = useState<string[]>([]);
+  const [durationMinutesInput, setDurationMinutesInput] = useState("");
+  const [notes, setNotes] = useState("");
+  const [showNotesField, setShowNotesField] = useState(false);
+  const [openSaveSelect, setOpenSaveSelect] = useState<
+    null | "category" | "type" | "objective"
+  >(null);
   const [frames, setFrames] = useState<FrameSnapshot[]>([]);
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
   const [pitchPreset] = useState<PitchPreset>("standard");
@@ -2077,19 +2954,55 @@ export default function ExerciseAnimatedEditor() {
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [strokesBase, setStrokesBase] = useState<BaseSnapshot | null>(null);
   const [groupMode, setGroupMode] = useState(false);
+  const [currentSequenceIndex, setCurrentSequenceIndex] = useState(1);
+  const [selectedStrokeId, setSelectedStrokeId] = useState<string | null>(null);
+  const [sequenceEditor, setSequenceEditor] = useState<{
+    strokeId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [sequenceEditorValue, setSequenceEditorValue] = useState("");
   const [previewMode, setPreviewMode] = useState(false);
+  const [immersiveMode] = useState(false);
   const [animationMode, setAnimationMode] = useState<"image" | "video" | null>(null);
-  const [showModeMenu, setShowModeMenu] = useState(false);
-  const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const [showToolboxMenu, setShowToolboxMenu] = useState(false);
   const toolboxMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showShapeMenu, setShowShapeMenu] = useState(false);
+  const shapeMenuRef = useRef<HTMLDivElement | null>(null);
   const [showColorMenu, setShowColorMenu] = useState(false);
   const colorMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showElementColorMenu, setShowElementColorMenu] = useState(false);
+  const elementColorMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
   const [showSidePanel, setShowSidePanel] = useState(false);
-  const [ballAttachedToId, setBallAttachedToId] = useState<string | null>(null);
+  const [showRotateHandle, setShowRotateHandle] = useState(false);
+  const [showSelectionToolbar, setShowSelectionToolbar] = useState(false);
+  const [hoveredHandle, setHoveredHandle] = useState<
+    { id: string; type: "rotate" | "resize" } | null
+  >(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveStep, setSaveStep] = useState<"form" | "success">("form");
+  const [showSpeedPanel, setShowSpeedPanel] = useState(false);
+  const [actionSpeedMultipliers, setActionSpeedMultipliers] = useState<Record<number, number>>({});
+  const [frameSpeedMultipliers, setFrameSpeedMultipliers] = useState<Record<string, number>>({});
+  const [capturePulse, setCapturePulse] = useState(false);
+  const captureTimerRef = useRef<number | null>(null);
+  const [ballAttachments, setBallAttachments] = useState<Record<string, string>>({});
+  const lastBallAttachmentsRef = useRef<Record<string, string>>({});
+  const prevRecordModeRef = useRef(recordMode);
   const [framePreviews, setFramePreviews] = useState<Record<string, string>>({});
   const [showSequenceDebug, setShowSequenceDebug] = useState(false);
   const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
+  const historyRef = useRef<EditorSnapshot[]>([]);
+  const historyIndexRef = useRef(-1);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const saveCategoryRef = useRef<HTMLDivElement | null>(null);
+  const saveTypeRef = useRef<HTMLDivElement | null>(null);
+  const saveObjectiveRef = useRef<HTMLDivElement | null>(null);
+  const historyTimerRef = useRef<number | null>(null);
+  const isRestoringHistoryRef = useRef(false);
+  const lastSnapshotRef = useRef<string | null>(null);
   const orientationRef = useRef<"landscape" | "portrait" | null>(null);
   const strokesRef = useRef<Stroke[]>([]);
   const strokesBaseRef = useRef<BaseSnapshot | null>(null);
@@ -2113,6 +3026,8 @@ export default function ExerciseAnimatedEditor() {
   const hurdleBarMenuIconRef = useRef<HTMLCanvasElement | null>(null);
   const hurdlePoleMenuIconRef = useRef<HTMLCanvasElement | null>(null);
   const ladderMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const hoopMenuIconRef = useRef<HTMLCanvasElement | null>(null);
+  const batonMenuIconRef = useRef<HTMLCanvasElement | null>(null);
   const toolboxDiscIconRef = useRef<HTMLCanvasElement | null>(null);
   const toolboxPoleIconRef = useRef<HTMLCanvasElement | null>(null);
   const pathRecordRef = useRef<{
@@ -2137,6 +3052,21 @@ export default function ExerciseAnimatedEditor() {
     moved: boolean;
   } | null>(null);
 
+  useEffect(() => {
+    if (!showSaveDialog) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (saveCategoryRef.current?.contains(target)) return;
+      if (saveTypeRef.current?.contains(target)) return;
+      if (saveObjectiveRef.current?.contains(target)) return;
+      setOpenSaveSelect(null);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [showSaveDialog]);
+
   const {
     elements,
     setElements,
@@ -2154,14 +3084,21 @@ export default function ExerciseAnimatedEditor() {
     handlePointerUp,
     setPitchRect,
     clearDrag,
-  } = useCanvasElements([], {
-    onDragStart: (id, x, y) => {
-      const element = elements.find((el) => el.id === id);
-      const isRecordable =
-        element?.type === "player" || element?.type === "ball";
+  } = useCanvasElements(
+    [],
+    {
+      onDragStart: (id, x, y) => {
+        const element = elements.find((el) => el.id === id);
+        const isRecordable =
+          element?.type === "player" || element?.type === "ball";
 
-      if (element?.type === "ball" && ballAttachedToId) {
-        setBallAttachedToId(null);
+      if (element?.type === "ball") {
+        setBallAttachments((prev) => {
+          if (!prev[element.id]) return prev;
+          const next = { ...prev };
+          delete next[element.id];
+          return next;
+        });
       }
 
       if (recordMode && element && isRecordable) {
@@ -2207,13 +3144,14 @@ export default function ExerciseAnimatedEditor() {
       });
     },
     onDragMove: (id, x, y) => {
-      if (ballAttachedToId && primaryBall) {
-        if (id === ballAttachedToId) {
-          updateElement(primaryBall.id, {
+      const attachedBallIds = getAttachedBallIdsForPlayer(id);
+      if (attachedBallIds.length > 0) {
+        attachedBallIds.forEach((ballId) => {
+          updateElement(ballId, {
             x: clamp01(x + 0.015),
             y: clamp01(y + 0.01),
           });
-        }
+        });
       }
 
       if (recordMode) {
@@ -2262,12 +3200,14 @@ export default function ExerciseAnimatedEditor() {
           }, 0);
           if (totalDist >= 0.01) {
             const isBall = element?.type === "ball";
-            const isCarry = !isBall && ballAttachedToId === seq.id;
+            const attachedBallIds = getAttachedBallIdsForPlayer(seq.id);
+            const isCarry = !isBall && attachedBallIds.length > 0;
             const durationMs = seq.points[seq.points.length - 1].t || 1200;
             appendStroke({
               id: buildId(),
               kind: isCarry ? "carry" : "move",
               elementId: seq.id,
+              ballIds: isCarry ? attachedBallIds : undefined,
               points: seq.points.map((point) => ({
                 x: point.x,
                 y: point.y,
@@ -2289,40 +3229,149 @@ export default function ExerciseAnimatedEditor() {
         pathRecordRef.current = null;
       }
     },
-    onElementClick: (element) => {
-      void element;
+      onElementClick: () => {
+        setShowSelectionToolbar(true);
+      },
     },
-  });
+    { showRotateHandle, showResizeHandle: !previewMode && !recordMode },
+  );
 
-  const player = useKeyframesPlayer(
+  const player = useExerciseAnimationPlayer(
     elements,
     frames,
     paths,
-    strokes,
-    strokesBase,
+    animationMode === "video" ? strokes : [],
+    animationMode === "video" ? strokesBase : null,
+    ballAttachments,
+    actionSpeedMultipliers,
+    frameSpeedMultipliers,
+  );
+
+  const getCurrentPitchRect = () =>
+    getPitchRect(
+      canvasSize.w,
+      canvasSize.h,
+      orientationRef.current ?? undefined,
+    );
+
+  const pitchRectForUI = useMemo(
+    () => getCurrentPitchRect(),
+    [canvasSize.w, canvasSize.h],
   );
 
   const selectedElement = useMemo(
     () => elements.find((el) => el.id === selectedId) ?? null,
     [elements, selectedId],
   );
+  const pencilPosition = useMemo(() => {
+    if (!selectedElement) return null;
+    const pitchRect = pitchRectForUI;
+    const x = pitchRect.x + selectedElement.x * pitchRect.w;
+    const y = pitchRect.y + selectedElement.y * pitchRect.h;
+    const radius =
+      getRenderSize(
+        selectedElement.type,
+        selectedElement.size ?? getDefaultSize(selectedElement.type),
+      ) * pitchRect.w;
+    const offset = Math.max(32, radius + 18);
+    const targetY = y - offset;
+    const minX = pitchRect.x + 16;
+    const maxX = pitchRect.x + pitchRect.w - 16;
+    const minY = pitchRect.y + 16;
+    const maxY = pitchRect.y + pitchRect.h - 16;
+    const clampedX = Math.min(maxX, Math.max(minX, x));
+    const clampedY = Math.min(maxY, Math.max(minY, targetY));
+    return { x: clampedX, y: clampedY };
+  }, [pitchRectForUI, selectedElement]);
+  const selectionToolbarPosition = useMemo(() => {
+    if (!selectedElement) return null;
+    const pitchRect = pitchRectForUI;
+    const x = pitchRect.x + pitchRect.w / 2;
+    const y = pitchRect.y + pitchRect.h - 40;
+    const minX = pitchRect.x + 24;
+    const maxX = pitchRect.x + pitchRect.w - 24;
+    const minY = pitchRect.y + 24;
+    const maxY = pitchRect.y + pitchRect.h - 24;
+    const clampedX = Math.min(maxX, Math.max(minX, x));
+    const clampedY = Math.min(maxY, Math.max(minY, y));
+    return { x: clampedX, y: clampedY };
+  }, [pitchRectForUI, selectedElement]);
+  const sideToolbarPosition = useMemo(() => {
+    const pitchRect = pitchRectForUI;
+    return {
+      x: 6,
+      y: pitchRect.y + pitchRect.h / 2,
+    };
+  }, [pitchRectForUI]);
+  const selectedStroke = useMemo(() => {
+    if (selectedStrokeId) {
+      return strokes.find((stroke) => stroke.id === selectedStrokeId) ?? null;
+    }
+    if (!selectedElement) return null;
+    for (let i = strokes.length - 1; i >= 0; i -= 1) {
+      if (strokes[i].elementId === selectedElement.id) return strokes[i];
+    }
+    return null;
+  }, [selectedElement, selectedStrokeId, strokes]);
+  useEffect(() => {
+    setShowRotateHandle(false);
+    setHoveredHandle(null);
+  }, [selectedId]);
+  useEffect(() => {
+    if (!selectedId) {
+      setShowSelectionToolbar(false);
+    }
+  }, [selectedId]);
   const playerElements = useMemo(
     () => elements.filter((el) => el.type === "player"),
     [elements],
   );
+  const toolboxToolActive = useMemo(
+    () =>
+      [
+        "cone",
+        "disc",
+        "hoop",
+        "baton",
+        "slalom_pole",
+        "hurdle_bar",
+        "hurdle_pole",
+        "mini_goal",
+        "ladder",
+        "pass_wall",
+      ].includes(tool),
+    [tool],
+  );
+  const shapeToolActive = useMemo(() => isShapeTool(tool), [tool]);
   const ballElements = useMemo(
     () => elements.filter((el) => el.type === "ball"),
     [elements],
   );
-  const primaryBall = useMemo(
-    () => ballElements[0] ?? null,
-    [ballElements],
-  );
   const hasPlayableContent = useMemo(() => {
-    if (strokes.length > 0) return true;
+    if (animationMode === "video" && strokes.length > 0) return true;
     if (frames.length >= 2) return true;
     return Object.values(paths).some((points) => points.length >= 2);
-  }, [strokes.length, frames.length, paths]);
+  }, [animationMode, strokes.length, frames.length, paths]);
+  const canUndo = historyIndex > 0;
+  const canRedo =
+    historyIndex >= 0 && historyIndex < historyRef.current.length - 1;
+  const speedSteps = [1, 2, 3];
+  const getNextSpeed = (current: number) => {
+    const index = speedSteps.indexOf(current);
+    if (index === -1 || index === speedSteps.length - 1) return speedSteps[0];
+    return speedSteps[index + 1];
+  };
+  const actionSequenceList = useMemo(() => {
+    const set = new Set<number>();
+    strokes.forEach((stroke) => {
+      set.add(getStrokeSequenceIndex(stroke));
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [strokes]);
+  const getAttachedBallIdsForPlayer = (playerId: string) =>
+    Object.entries(ballAttachments)
+      .filter(([, id]) => id === playerId)
+      .map(([ballId]) => ballId);
 
   useEffect(() => {
     strokesRef.current = strokes;
@@ -2341,6 +3390,41 @@ export default function ExerciseAnimatedEditor() {
     }
   }, [selectedElement, playerElements, ballElements]);
 
+  useEffect(() => {
+    if (Object.keys(ballAttachments).length > 0) {
+      lastBallAttachmentsRef.current = ballAttachments;
+    }
+  }, [ballAttachments]);
+
+  useEffect(() => {
+    if (!prevRecordModeRef.current && recordMode) {
+      if (Object.keys(ballAttachments).length === 0) {
+        const fallback = lastBallAttachmentsRef.current;
+        if (Object.keys(fallback).length > 0) {
+          setBallAttachments(fallback);
+        }
+      }
+    }
+    prevRecordModeRef.current = recordMode;
+  }, [recordMode, ballAttachments]);
+
+  useEffect(() => {
+    if (!selectedStrokeId) return;
+    const stroke = strokes.find((item) => item.id === selectedStrokeId);
+    if (!stroke || (selectedElement && stroke.elementId !== selectedElement.id)) {
+      setSelectedStrokeId(null);
+    }
+  }, [selectedStrokeId, selectedElement, strokes]);
+
+  useEffect(() => {
+    if (previewMode || animationMode !== "video") {
+      setSequenceEditor(null);
+    }
+  }, [previewMode, animationMode]);
+  useEffect(() => {
+    setShowSpeedPanel(false);
+  }, [animationMode]);
+
   const showToast = (kind: "success" | "error", message: string) => {
     setToast({ kind, message });
     if (toastTimerRef.current) {
@@ -2351,7 +3435,91 @@ export default function ExerciseAnimatedEditor() {
     }, 3200);
   };
 
-  const appendStroke = (stroke: Omit<Stroke, "order" | "phaseId">) => {
+  const buildSnapshot = (): EditorSnapshot =>
+    cloneData({
+      elements,
+      frames,
+      paths,
+      strokes,
+      strokesBase,
+      ballAttachments,
+      activeFrameId,
+    });
+
+  const pushHistory = (snapshot: EditorSnapshot) => {
+    const signature = JSON.stringify(snapshot);
+    if (signature === lastSnapshotRef.current) return;
+    const next = historyRef.current.slice(0, historyIndexRef.current + 1);
+    next.push(snapshot);
+    historyRef.current = next;
+    historyIndexRef.current = next.length - 1;
+    setHistoryIndex(historyIndexRef.current);
+    lastSnapshotRef.current = signature;
+  };
+
+  const restoreSnapshot = (snapshot: EditorSnapshot) => {
+    isRestoringHistoryRef.current = true;
+    setElements(snapshot.elements);
+    setFrames(snapshot.frames);
+    setPaths(snapshot.paths);
+    setStrokes(snapshot.strokes);
+    strokesRef.current = snapshot.strokes;
+    setStrokesBase(snapshot.strokesBase);
+    strokesBaseRef.current = snapshot.strokesBase;
+    setBallAttachments(snapshot.ballAttachments ?? {});
+    setActiveFrameId(snapshot.activeFrameId);
+    setSelectedId(null);
+    setSelectedStrokeId(null);
+    setSequenceEditor(null);
+    lastSnapshotRef.current = JSON.stringify(snapshot);
+    window.setTimeout(() => {
+      isRestoringHistoryRef.current = false;
+    }, 0);
+  };
+
+  const undo = () => {
+    if (historyIndexRef.current <= 0) return;
+    const nextIndex = historyIndexRef.current - 1;
+    historyIndexRef.current = nextIndex;
+    setHistoryIndex(nextIndex);
+    restoreSnapshot(historyRef.current[nextIndex]);
+  };
+
+  const redo = () => {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    const nextIndex = historyIndexRef.current + 1;
+    historyIndexRef.current = nextIndex;
+    setHistoryIndex(nextIndex);
+    restoreSnapshot(historyRef.current[nextIndex]);
+  };
+
+  useEffect(() => {
+    if (isRestoringHistoryRef.current) return;
+    if (historyTimerRef.current) {
+      window.clearTimeout(historyTimerRef.current);
+    }
+    historyTimerRef.current = window.setTimeout(() => {
+      pushHistory(buildSnapshot());
+    }, 260);
+    return () => {
+      if (historyTimerRef.current) {
+        window.clearTimeout(historyTimerRef.current);
+      }
+    };
+  }, [elements, frames, paths, strokes, strokesBase, ballAttachments, activeFrameId]);
+
+  const updateStrokeSequenceIndex = (strokeId: string, nextValue: number) => {
+    const next = Math.max(1, Math.floor(nextValue || 1));
+    setStrokes((prev) =>
+      prev.map((stroke) =>
+        stroke.id === strokeId
+          ? { ...stroke, sequenceIndex: next, phaseId: Math.max(0, next - 1) }
+          : stroke,
+      ),
+    );
+  };
+
+  const appendStroke = (stroke: Omit<Stroke, "order" | "phaseId" | "sequenceIndex">) => {
     if (!strokesBaseRef.current) {
       const snapshot: BaseSnapshot = {};
       elements.forEach((el) => {
@@ -2361,39 +3529,35 @@ export default function ExerciseAnimatedEditor() {
       setStrokesBase(snapshot);
     }
     const prev = strokesRef.current;
-    const last = prev[prev.length - 1];
-    const nextPhaseId =
-      groupMode && last ? last.phaseId : last ? last.phaseId + 1 : 0;
-    if (groupMode && last && stroke.elementId) {
-      const phaseStrokes = prev.filter((item) => item.phaseId === nextPhaseId);
-      const sameElement = phaseStrokes.some(
-        (item) => item.elementId === stroke.elementId,
-      );
-      const ballId = primaryBall?.id ?? null;
-      const hasCarry = phaseStrokes.some((item) => item.kind === "carry");
-      const hasBallMove =
-        ballId &&
-        phaseStrokes.some(
-          (item) => item.kind === "move" && item.elementId === ballId,
-        );
-      const isBallMove = ballId && stroke.kind === "move" && stroke.elementId === ballId;
-      if (sameElement) {
-        showToast("error", "Impossible: 2 actions sur le même joueur.");
-        return;
-      }
-      if ((stroke.kind === "carry" && (hasCarry || hasBallMove)) || (isBallMove && hasCarry)) {
-        showToast("error", "Impossible: 2 actions sur le ballon en action groupée.");
-        return;
-      }
-    }
+    const lastStroke = prev[prev.length - 1];
+    const nextSequenceIndex = groupMode
+      ? getStrokeSequenceIndex(lastStroke ?? { sequenceIndex: 1 })
+      : Math.max(1, currentSequenceIndex);
+    const variant = stroke.style?.variant ?? stroke.kind;
+    const isBallStroke = variant === "ball";
+    const simplifiedPoints = isBallStroke
+      ? simplifyStrokePoints(
+          stroke.points,
+          0.015,
+          14,
+          1.03,
+          0.45,
+        )
+      : stroke.points;
     const next = [
       ...prev,
-      { ...stroke, order: prev.length + 1, phaseId: nextPhaseId },
+      {
+        ...stroke,
+        points: simplifiedPoints,
+        order: prev.length + 1,
+        phaseId: Math.max(0, nextSequenceIndex - 1),
+        sequenceIndex: nextSequenceIndex,
+      },
     ];
     strokesRef.current = next;
     setStrokes(next);
-    if (groupMode) {
-      setGroupMode(false);
+    if (!groupMode) {
+      setCurrentSequenceIndex((value) => value + 1);
     }
   };
 
@@ -2404,15 +3568,40 @@ export default function ExerciseAnimatedEditor() {
       showToast("error", "Ajoute un ballon et un joueur.");
       return;
     }
-    setBallAttachedToId(playerId);
+    setBallAttachments((prev) => ({ ...prev, [ball.id]: playerId }));
     updateElement(ball.id, {
       x: clamp01(player.x + 0.015),
       y: clamp01(player.y + 0.01),
     });
   };
 
-  const detachBall = () => {
-    setBallAttachedToId(null);
+  const detachBall = (ballId?: string | null) => {
+    if (!ballId) {
+      setBallAttachments({});
+      return;
+    }
+    setBallAttachments((prev) => {
+      if (!prev[ballId]) return prev;
+      const next = { ...prev };
+      delete next[ballId];
+      return next;
+    });
+  };
+
+  const cycleActionSpeed = (sequenceIndex: number) => {
+    setActionSpeedMultipliers((prev) => {
+      const current = prev[sequenceIndex] ?? 1;
+      const next = getNextSpeed(current);
+      return { ...prev, [sequenceIndex]: next };
+    });
+  };
+
+  const cycleFrameSpeed = (frameId: string) => {
+    setFrameSpeedMultipliers((prev) => {
+      const current = prev[frameId] ?? 1;
+      const next = getNextSpeed(current);
+      return { ...prev, [frameId]: next };
+    });
   };
 
   useEffect(() => {
@@ -2515,7 +3704,10 @@ export default function ExerciseAnimatedEditor() {
   };
 
   useEffect(() => {
-    const isLandscape = canvasSize.w > canvasSize.h * 1.1;
+    if (typeof window === "undefined") return;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const isLandscape = viewportW > viewportH * 1.1;
     const nextOrientation: "landscape" | "portrait" = isLandscape
       ? "landscape"
       : "portrait";
@@ -2535,18 +3727,6 @@ export default function ExerciseAnimatedEditor() {
   }, []);
 
   useEffect(() => {
-    if (!showModeMenu) return;
-    const handler = (event: MouseEvent) => {
-      if (!modeMenuRef.current) return;
-      if (!modeMenuRef.current.contains(event.target as Node)) {
-        setShowModeMenu(false);
-      }
-    };
-    window.addEventListener("mousedown", handler);
-    return () => window.removeEventListener("mousedown", handler);
-  }, [showModeMenu]);
-
-  useEffect(() => {
     if (!showToolboxMenu) return;
     const handler = (event: MouseEvent) => {
       if (!toolboxMenuRef.current) return;
@@ -2557,6 +3737,18 @@ export default function ExerciseAnimatedEditor() {
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [showToolboxMenu]);
+
+  useEffect(() => {
+    if (!showShapeMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!shapeMenuRef.current) return;
+      if (!shapeMenuRef.current.contains(event.target as Node)) {
+        setShowShapeMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showShapeMenu]);
 
   useEffect(() => {
     if (!showColorMenu) return;
@@ -2570,11 +3762,219 @@ export default function ExerciseAnimatedEditor() {
     return () => window.removeEventListener("mousedown", handler);
   }, [showColorMenu]);
 
+  useEffect(() => {
+    if (!showElementColorMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!elementColorMenuRef.current) return;
+      if (!elementColorMenuRef.current.contains(event.target as Node)) {
+        setShowElementColorMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showElementColorMenu]);
+
+  useEffect(() => {
+    setShowElementColorMenu(false);
+  }, [selectedElement?.id]);
+
+  useEffect(() => {
+    if (!showSettingsMenu) return;
+    const handler = (event: MouseEvent) => {
+      if (!settingsMenuRef.current) return;
+      if (!settingsMenuRef.current.contains(event.target as Node)) {
+        setShowSettingsMenu(false);
+      }
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [showSettingsMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (captureTimerRef.current) {
+        window.clearTimeout(captureTimerRef.current);
+      }
+    };
+  }, []);
+
+  const triggerCapturePulse = () => {
+    setCapturePulse(true);
+    if (captureTimerRef.current) {
+      window.clearTimeout(captureTimerRef.current);
+    }
+    captureTimerRef.current = window.setTimeout(() => {
+      setCapturePulse(false);
+    }, 700);
+  };
+
   const toggleTool = (next: ToolKey) => {
     setTool((prev) => {
       if (next === "select") return "select";
       return prev === next ? "select" : next;
     });
+  };
+
+  const openSequenceEditor = (stroke: Stroke, clientX: number, clientY: number) => {
+    const bounds = viewportRef.current?.getBoundingClientRect();
+    const x = bounds ? clientX - bounds.left : clientX;
+    const y = bounds ? clientY - bounds.top : clientY;
+    setSelectedStrokeId(stroke.id);
+    if (stroke.elementId) {
+      setSelectedId(stroke.elementId);
+    }
+    setShowSidePanel(true);
+    setSequenceEditor({
+      strokeId: stroke.id,
+      x,
+      y,
+    });
+    setSequenceEditorValue(String(getStrokeSequenceIndex(stroke)));
+  };
+
+  const findStrokeBadgeHit = (
+    clientX: number,
+    clientY: number,
+  ): Stroke | null => {
+    if (strokes.length === 0) return null;
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+    const pitchRect = getCurrentPitchRect();
+    for (let i = strokes.length - 1; i >= 0; i -= 1) {
+      const stroke = strokes[i];
+      const first = stroke.points[0];
+      if (!first) continue;
+      const sx = pitchRect.x + first.x * pitchRect.w;
+      const sy = pitchRect.y + first.y * pitchRect.h;
+      if (Math.hypot(localX - sx, localY - sy) <= 12) {
+        return stroke;
+      }
+    }
+    return null;
+  };
+
+  const handleCanvasPointerDown = (
+    event: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    if (previewMode) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const pitchRect = getCurrentPitchRect();
+    const hitId = hitTest(elements, point, pitchRect);
+    const handleHitRadius = 30;
+    let hitHandle: "rotate" | "resize" | null = null;
+    if (selectedElement) {
+      if (showRotateHandle) {
+        const handle = getElementHandlePosition(
+          selectedElement,
+          pitchRect,
+          true,
+        );
+        if (handle) {
+          const handleDistance = Math.hypot(
+            point.x - handle.x,
+            point.y - handle.y,
+          );
+          if (handleDistance < handleHitRadius) {
+            hitHandle = "rotate";
+          }
+        }
+      }
+      if (!hitHandle && !previewMode && !recordMode) {
+        const resizeHandle = getResizeHandlePosition(
+          selectedElement,
+          pitchRect,
+          true,
+        );
+        if (resizeHandle) {
+          const handleDistance = Math.hypot(
+            point.x - resizeHandle.x,
+            point.y - resizeHandle.y,
+          );
+          if (handleDistance < handleHitRadius) {
+            hitHandle = "resize";
+          }
+        }
+      }
+    }
+    if (hitHandle && selectedElement) {
+      setHoveredHandle({ id: selectedElement.id, type: hitHandle });
+    }
+    if (!hitId && !hitHandle) {
+      if (selectedId || showSelectionToolbar || showRotateHandle) {
+        setShowSelectionToolbar(false);
+        setShowRotateHandle(false);
+        setHoveredHandle(null);
+        setSelectedId(null);
+        if (tool === "select") {
+          return;
+        }
+      }
+    }
+    if (showSidePanel) {
+      setShowSidePanel(false);
+      setShowElementColorMenu(false);
+      return;
+    }
+    if (animationMode === "video") {
+      const hit = findStrokeBadgeHit(event.clientX, event.clientY);
+      if (hit) {
+        event.preventDefault();
+        event.stopPropagation();
+        openSequenceEditor(hit, event.clientX, event.clientY);
+        return;
+      }
+    }
+    handlePointerDown(event);
+  };
+
+  const handleCanvasPointerMove = (
+    event: React.PointerEvent<HTMLCanvasElement>,
+  ) => {
+    if (previewMode) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    const pitchRect = getCurrentPitchRect();
+    const handleHitRadius = 30;
+    let nextHover: { id: string; type: "rotate" | "resize" } | null = null;
+    if (selectedElement) {
+      if (showRotateHandle) {
+        const handle = getElementHandlePosition(
+          selectedElement,
+          pitchRect,
+          true,
+        );
+        if (handle) {
+          const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
+          if (dist < handleHitRadius) {
+            nextHover = { id: selectedElement.id, type: "rotate" };
+          }
+        }
+      }
+      if (!nextHover && !previewMode && !recordMode) {
+        const handle = getResizeHandlePosition(
+          selectedElement,
+          pitchRect,
+          true,
+        );
+        if (handle) {
+          const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
+          if (dist < handleHitRadius) {
+            nextHover = { id: selectedElement.id, type: "resize" };
+          }
+        }
+      }
+    }
+    if (
+      nextHover?.id !== hoveredHandle?.id ||
+      nextHover?.type !== hoveredHandle?.type
+    ) {
+      setHoveredHandle(nextHover);
+    }
+    handlePointerMove(event);
   };
 
   useEffect(() => {
@@ -2586,9 +3986,15 @@ export default function ExerciseAnimatedEditor() {
     canvas.width = canvasSize.w * dpr;
     canvas.height = canvasSize.h * dpr;
     ctx.scale(dpr, dpr);
-    const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
+    const pitchRect = getCurrentPitchRect();
     setPitchRect(pitchRect);
-    drawPitch(ctx, canvasSize.w, canvasSize.h, pitchPreset);
+    drawPitch(
+      ctx,
+      canvasSize.w,
+      canvasSize.h,
+      pitchPreset,
+      orientationRef.current ?? undefined,
+    );
     drawElements(
       ctx,
       player.animatedElements,
@@ -2596,9 +4002,16 @@ export default function ExerciseAnimatedEditor() {
       pitchRect,
       paths,
       strokes,
-      ballAttachedToId,
+      ballAttachments,
       snapTargetId,
-      { showOverlays: !previewMode, showLabels: !previewMode },
+      {
+        showOverlays: !previewMode,
+        showLabels: !previewMode,
+        showSequenceNumbers: animationMode === "video" && !previewMode,
+        showRotateHandle: showRotateHandle,
+        showResizeHandle: !previewMode && !recordMode,
+        hoveredHandle,
+      },
     );
   }, [
     canvasSize,
@@ -2609,9 +4022,13 @@ export default function ExerciseAnimatedEditor() {
     setPitchRect,
     paths,
     strokes,
-    ballAttachedToId,
+    ballAttachments,
     snapTargetId,
     previewMode,
+    animationMode,
+    showRotateHandle,
+    recordMode,
+    hoveredHandle,
   ]);
 
   useEffect(() => {
@@ -2688,7 +4105,15 @@ export default function ExerciseAnimatedEditor() {
     renderToolIcon(ladderMenuIconRef.current, 30, (ctx, s) => {
       drawLadder(ctx, s / 2, s / 2, s * 0.7, playerColor ?? "#7B66FF", false);
     });
-  }, [playerColor, showToolboxMenu]);
+
+    renderToolIcon(hoopMenuIconRef.current, 26, (ctx, s) => {
+      drawHoop(ctx, s / 2, s / 2, s * 0.22, playerColor ?? "#7B66FF", false);
+    });
+
+    renderToolIcon(batonMenuIconRef.current, 26, (ctx, s) => {
+      drawBaton(ctx, s / 2, s / 2, s * 0.22, playerColor ?? "#7B66FF", false);
+    });
+  }, [playerColor, showToolboxMenu, showShapeMenu, previewMode, animationMode, recordMode]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -2945,16 +4370,235 @@ export default function ExerciseAnimatedEditor() {
     canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    const pitchRect = drawPitch(ctx, width, height, pitchPreset);
+    const pitchRect = drawPitch(
+      ctx,
+      width,
+      height,
+      pitchPreset,
+      orientationRef.current ?? undefined,
+    );
     const elementsForFrame = elements.map((el) => {
       const snap = snapshot.find((item) => item.id === el.id);
       return snap ? { ...el, x: snap.x, y: snap.y } : el;
     });
-    drawElements(ctx, elementsForFrame, null, pitchRect, {}, [], null, null, {
+    drawElements(ctx, elementsForFrame, null, pitchRect, {}, [], {}, null, {
       showOverlays: false,
       showLabels: false,
+      showRotateHandle: false,
+      showResizeHandle: false,
     });
     return canvas.toDataURL("image/png");
+  };
+
+  const buildVideoPreviewFrames = () => {
+    if (typeof document === "undefined") return [];
+    if (strokes.length === 0) return [];
+    const width = 320;
+    const height = 180;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return [];
+
+    const grouped = new Map<number, Stroke[]>();
+    strokes.forEach((stroke) => {
+      const sequenceIndex = getStrokeSequenceIndex(stroke);
+      if (!grouped.has(sequenceIndex)) grouped.set(sequenceIndex, []);
+      grouped.get(sequenceIndex)?.push(stroke);
+    });
+    const phases = Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([sequenceIndex, items]) => ({
+        id: sequenceIndex,
+        strokes: items,
+        duration: Math.max(
+          1,
+          ...items.map((item) => {
+            const speed = actionSpeedMultipliers[sequenceIndex] ?? 1;
+            return (item.durationMs || 1) / Math.max(0.25, speed);
+          }),
+        ),
+      }));
+    const totalDuration = phases.reduce(
+      (sum, phase) => sum + (phase.duration || 0),
+      0,
+    );
+    if (totalDuration <= 0) return [];
+
+    const getPointAlong = (
+      points: Array<{ x: number; y: number }>,
+      t: number,
+    ) => {
+      if (points.length <= 1) return points[0] ?? { x: 0, y: 0 };
+      const lengths: number[] = [];
+      let total = 0;
+      for (let i = 1; i < points.length; i += 1) {
+        const dist = Math.hypot(
+          points[i].x - points[i - 1].x,
+          points[i].y - points[i - 1].y,
+        );
+        lengths.push(dist);
+        total += dist;
+      }
+      if (total === 0) return points[points.length - 1];
+      const target = total * t;
+      let acc = 0;
+      for (let i = 0; i < lengths.length; i += 1) {
+        if (acc + lengths[i] >= target) {
+          const ratio = (target - acc) / Math.max(1e-6, lengths[i]);
+          return {
+            x: points[i].x + (points[i + 1].x - points[i].x) * ratio,
+            y: points[i].y + (points[i + 1].y - points[i].y) * ratio,
+          };
+        }
+        acc += lengths[i];
+      }
+      return points[points.length - 1];
+    };
+
+    const samples = Math.min(
+      36,
+      Math.max(18, Math.round(totalDuration / 120)),
+    );
+    const previews: string[] = [];
+    for (let i = 0; i < samples; i += 1) {
+      const time = totalDuration * (i / Math.max(1, samples - 1));
+      const local = time % totalDuration;
+      let elapsed = 0;
+      let currentPhaseIndex = 0;
+      for (let p = 0; p < phases.length; p += 1) {
+        const duration = Math.max(1, phases[p].duration || 0);
+        if (local <= elapsed + duration) {
+          currentPhaseIndex = p;
+          break;
+        }
+        elapsed += duration;
+      }
+      const currentPhase = phases[currentPhaseIndex];
+      const phaseDuration = Math.max(1, currentPhase.duration || 0);
+      const phaseTime = Math.min(phaseDuration, Math.max(0, local - elapsed));
+
+      const positions = new Map<string, { x: number; y: number }>();
+      const base = strokesBase ?? {};
+      elements.forEach((el) => {
+        positions.set(el.id, base[el.id] ?? { x: el.x, y: el.y });
+      });
+
+      const ballsByPlayer = new Map<string, string[]>();
+      Object.entries(ballAttachments ?? {}).forEach(([ballId, playerId]) => {
+        if (!ballsByPlayer.has(playerId)) ballsByPlayer.set(playerId, []);
+        ballsByPlayer.get(playerId)?.push(ballId);
+      });
+      const getAttachedBalls = (playerId: string) =>
+        ballsByPlayer.get(playerId) ?? [];
+      const getCarryBallIds = (stroke: Stroke) =>
+        stroke.ballIds && stroke.ballIds.length
+          ? stroke.ballIds
+          : stroke.elementId
+          ? getAttachedBalls(stroke.elementId)
+          : [];
+
+      for (let p = 0; p < currentPhaseIndex; p += 1) {
+        const phase = phases[p];
+        phase.strokes.forEach((stroke) => {
+          if (stroke.kind === "move" || stroke.kind === "carry") {
+            const points = stroke.points;
+            if (points.length >= 1 && stroke.elementId) {
+              positions.set(stroke.elementId, {
+                x: points[points.length - 1].x,
+                y: points[points.length - 1].y,
+              });
+            }
+            if (stroke.kind === "carry" && stroke.elementId) {
+              const carried = positions.get(stroke.elementId);
+              if (carried) {
+                getCarryBallIds(stroke).forEach((attachedBallId) => {
+                  positions.set(attachedBallId, {
+                    x: carried.x + 0.015,
+                    y: carried.y + 0.01,
+                  });
+                });
+              }
+            }
+          }
+        });
+      }
+
+      const animatedPositions = new Map(positions);
+      currentPhase.strokes.forEach((stroke) => {
+        if (!stroke.elementId || stroke.points.length < 2) return;
+        const speed = actionSpeedMultipliers[currentPhase.id] ?? 1;
+        const effectiveDuration =
+          (stroke.durationMs || 0) / Math.max(0.25, speed);
+        const t = Math.min(1, phaseTime / Math.max(1, effectiveDuration));
+        const point = getPointAlong(stroke.points, t);
+        animatedPositions.set(stroke.elementId, { x: point.x, y: point.y });
+      });
+
+      currentPhase.strokes.forEach((stroke) => {
+        if (stroke.kind !== "carry" || !stroke.elementId) return;
+        const carried =
+          animatedPositions.get(stroke.elementId) ??
+          positions.get(stroke.elementId);
+        if (!carried) return;
+        getCarryBallIds(stroke).forEach((attachedBallId) => {
+          animatedPositions.set(attachedBallId, {
+            x: carried.x + 0.015,
+            y: carried.y + 0.01,
+          });
+        });
+      });
+
+      const animated = elements.map((element) => {
+        const basePos = animatedPositions.get(element.id) ?? {
+          x: element.x,
+          y: element.y,
+        };
+        return { ...element, x: basePos.x, y: basePos.y };
+      });
+
+      ctx.clearRect(0, 0, width, height);
+      const pitchRect = drawPitch(
+        ctx,
+        width,
+        height,
+        pitchPreset,
+        orientationRef.current ?? undefined,
+      );
+      drawElements(ctx, animated, null, pitchRect, {}, [], {}, null, {
+        showOverlays: false,
+        showLabels: false,
+        showRotateHandle: false,
+        showResizeHandle: false,
+      });
+      previews.push(canvas.toDataURL("image/jpeg", 0.85));
+    }
+
+    return previews;
+  };
+
+  const buildPreviewFrames = () => {
+    const ordered = frames
+      .map((frame) => framePreviews[frame.id])
+      .filter(Boolean) as string[];
+    if (ordered.length > 0) return ordered;
+
+    if (frames.length > 0) {
+      const generated = frames
+        .map((frame) => renderFramePreview(frame.elementsSnapshot))
+        .filter(Boolean) as string[];
+      if (generated.length > 0) return generated;
+    }
+
+    if (strokes.length > 0) {
+      return buildVideoPreviewFrames();
+    }
+
+    if (animationMode === "video") {
+      return buildVideoPreviewFrames();
+    }
+    return [];
   };
 
   const simplifyPathForSelected = () => {
@@ -2978,25 +4622,98 @@ export default function ExerciseAnimatedEditor() {
   };
 
   const exportExercise = () => {
+    const trimmedName = name.trim();
+    const categoryValue =
+      categoryMain && CATEGORY_VALUE_MAP[categoryMain]
+        ? (CATEGORY_VALUE_MAP[categoryMain] as
+            | "échauffement"
+            | "motricité"
+            | "technique"
+            | "tactique"
+            | "physique"
+            | "jeu_opposition"
+            | "situation_réelle"
+            | "retour_au_calme")
+        : undefined;
+    const typeValue =
+      trainingType && TYPE_VALUE_MAP[trainingType]
+        ? (TYPE_VALUE_MAP[trainingType] as "avec_ballon" | "sans_ballon" | "mixte")
+        : undefined;
+    const objectiveValue = objectives
+      .map((item) => OBJECTIVE_VALUE_MAP[item])
+      .filter(Boolean) as Array<
+      | "passe"
+      | "contrôle"
+      | "conduite"
+      | "tir"
+      | "finition"
+      | "centres"
+      | "défense_individuelle"
+      | "défense_collective"
+      | "pressing"
+      | "appels"
+      | "conservation"
+    >;
+    const metadata = {
+      id: buildId(),
+      name: trimmedName,
+      format: "animation" as const,
+      category: categoryValue,
+      type: typeValue,
+      objective: objectiveValue.length ? objectiveValue : undefined,
+      levels: levels.length
+        ? (levels as Array<"U6-U9" | "U10-U11" | "U12-U13" | "U14-U15" | "U16+">)
+        : undefined,
+      notes: notes.trim() ? notes.trim() : undefined,
+      isIncomplete: !typeValue || objectiveValue.length === 0,
+    };
+    const resolvedOrientation =
+      orientationRef.current ??
+      (typeof window !== "undefined" && window.innerWidth > window.innerHeight * 1.1
+        ? "landscape"
+        : "portrait");
     return {
-      title: name.trim() || "Exercice animé",
-      category: "echauffement",
-      duration: 15,
+      title: trimmedName || "Exercice animé",
+      category: categoryMain || "Non classé",
+      duration: 0,
       type: "animated",
       animation_data: {
         pitchPreset,
+        pitchOrientation: resolvedOrientation,
         elements,
         keyframes: frames,
         paths,
         strokes,
-        ballAttachedToId,
+        ballAttachments,
+        ballAttachedToId: Object.values(ballAttachments)[0] ?? null,
         strokesBase,
+        actionSpeedMultipliers,
+        frameSpeedMultipliers,
+        frameDuration: player.frameDuration,
+        previewFrames: buildPreviewFrames(),
+        metadata,
+        meta: metadata,
       },
     };
   };
 
   const handleSave = async () => {
     if (saving) return;
+    const trimmedName = name.trim();
+    if (!trimmedName || trimmedName.length < 3) {
+      setNameError("Donne un nom à ton exercice.");
+      showToast("error", "Donne un nom à ton exercice.");
+      return;
+    }
+    if (!categoryMain) {
+      setCategoryError("Choisis une catégorie.");
+      showToast("error", "Choisis une catégorie.");
+      return;
+    }
+    if (animationMode !== "video" || strokes.length === 0) {
+      showToast("error", "Lance un enregistrement REC avant d’enregistrer.");
+      return;
+    }
     setSaving(true);
     try {
       const { data: userData, error: userError } =
@@ -3017,6 +4734,7 @@ export default function ExerciseAnimatedEditor() {
         throw new Error(error.message);
       }
       showToast("success", "Exercice enregistré.");
+      setSaveStep("success");
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Impossible d'enregistrer.";
@@ -3043,16 +4761,52 @@ export default function ExerciseAnimatedEditor() {
     setStrokesBase(null);
     strokesBaseRef.current = null;
     setGroupMode(false);
-    setBallAttachedToId(null);
+    setCurrentSequenceIndex(1);
+    setBallAttachments({});
     setFramePreviews({});
+    setActionSpeedMultipliers({});
+    setFrameSpeedMultipliers({});
+    setCategoryMain("");
+    setCategoryError(null);
+    setTrainingType("");
+    setObjectives([]);
+    setLevels([]);
+    setDurationMinutesInput("");
+    setNotes("");
+    setName("");
+    setNameError(null);
+    setCategoryError(null);
+    setShowNotesField(false);
+    setOpenSaveSelect(null);
     sequenceDragRef.current = null;
     setSnapTargetId(null);
     clearDrag();
     showToast("success", "Éditeur réinitialisé.");
   };
 
+  const openSaveDialog = () => {
+    setSaveStep("form");
+    setNameError(null);
+    setCategoryError(null);
+    setShowNotesField(false);
+    setOpenSaveSelect(null);
+    setShowSaveDialog(true);
+  };
+
+  const goToExercisesLibrary = () => {
+    const teamId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("activeTeamId")
+        : null;
+    if (teamId) {
+      router.push(`/app/teams/${teamId}/trainings?tab=exercises&exerciseTab=mine`);
+      return;
+    }
+    router.push("/app/teams");
+  };
+
   return (
-    <div className="h-screen w-full bg-[#070a14] text-slate-100">
+    <div className="fixed inset-0 flex flex-col bg-[#070a14] text-slate-100">
       {toast ? (
         <div className="fixed right-6 top-24 z-50">
           <div
@@ -3095,168 +4849,571 @@ export default function ExerciseAnimatedEditor() {
           </div>
         </div>
       ) : null}
-      {!previewMode ? (
-        <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-white/5 bg-black/40 px-4 py-3 backdrop-blur-xl">
-          <div className="flex items-center gap-3">
+
+      {showSaveDialog ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b1020]/95 p-6 text-slate-100 shadow-[0_30px_80px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+            <div className="flex items-center justify-end">
+              <button
+                onClick={() => setShowSaveDialog(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {saveStep === "success" ? (
+              <div className="mt-6">
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                  Exercice enregistré avec succès.
+                </div>
+                <div className="mt-5 grid gap-2">
+                  <button
+                    onClick={goToExercisesLibrary}
+                    className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
+                  >
+                    Voir dans mes exercices
+                  </button>
+                  <button
+                    onClick={() => {
+                      resetEditor();
+                      setShowSaveDialog(false);
+                      setSaveStep("form");
+                    }}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                  >
+                    Créer un nouvel exercice
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="mt-5 grid max-w-[360px] gap-2 mx-auto">
+                  <label className="grid gap-0.5 text-[11px] text-slate-400">
+                    Nom de l’exercice*
+                    <input
+                      value={name}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        setName(next);
+                        if (next.trim().length >= 3) {
+                          setNameError(null);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (name.trim().length < 3) {
+                          setNameError("Donne un nom à ton exercice.");
+                        }
+                      }}
+                      className={[
+                        "h-7 rounded-xl border bg-white/5 px-2.5 text-[11px] text-white outline-none transition",
+                        nameError
+                          ? "border-rose-400/50 focus:border-rose-400/70"
+                          : "border-white/10 focus:border-violet-400/60",
+                      ].join(" ")}
+                      placeholder="Nom de l'exercice"
+                    />
+                    {nameError ? (
+                      <span className="text-[11px] text-rose-300">
+                        {nameError}
+                      </span>
+                    ) : null}
+                  </label>
+
+                  <label className="grid gap-0.5 text-[11px] text-slate-400">
+                    <span className="inline-flex items-center gap-2">
+                      Catégorie*
+                    </span>
+                    <div ref={saveCategoryRef} className="relative">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenSaveSelect((prev) =>
+                            prev === "category" ? null : "category",
+                          )
+                        }
+                        className="flex h-7 w-full items-center justify-between rounded-full border border-white/10 bg-[#0c101a]/80 px-3 text-[11px] text-white/90 shadow-[0_6px_16px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/20 focus:outline-none focus:ring-1 focus:ring-violet-400/40"
+                      >
+                        <span className={categoryMain ? "text-white/90" : "text-slate-500"}>
+                          {categoryMain || "Choisir"}
+                        </span>
+                        <span className="text-[10px] text-white/60">▾</span>
+                      </button>
+                      {openSaveSelect === "category" ? (
+                        <div className="absolute z-40 mt-2 w-full rounded-2xl border border-white/10 bg-[#0b0f1a]/95 p-1 shadow-[0_18px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCategoryMain("");
+                              setCategoryError(null);
+                              setOpenSaveSelect(null);
+                            }}
+                            className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-400 transition hover:bg-white/5"
+                          >
+                            —
+                          </button>
+                          {CATEGORY_MAIN_OPTIONS.map((item) => {
+                            const active = categoryMain === item;
+                            return (
+                              <button
+                                key={item}
+                                type="button"
+                                onClick={() => {
+                                  setCategoryMain(item);
+                                  setCategoryError(null);
+                                  setOpenSaveSelect(null);
+                                }}
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-200 transition hover:bg-white/5"
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className={[
+                                      "inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center rounded-full border",
+                                      active ? "border-white/20" : "border-white/30",
+                                    ].join(" ")}
+                                  >
+                                    <span
+                                      className="h-2 w-2 rounded-full"
+                                      style={
+                                        active
+                                          ? {
+                                              background: "#A855F7",
+                                              boxShadow:
+                                                "0 0 10px rgba(168,85,247,1)",
+                                            }
+                                          : undefined
+                                      }
+                                    />
+                                  </span>
+                                  {item}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                    {categoryError ? (
+                      <span className="text-[11px] text-rose-300">
+                        {categoryError}
+                      </span>
+                    ) : null}
+                  </label>
+
+                  <div className="grid gap-2 rounded-xl bg-transparent p-1">
+                    <div className="grid gap-3 sm:grid-cols-2 sm:items-start">
+                      <label className="grid gap-0.5 text-[11px] text-slate-400">
+                        Type
+                        <div ref={saveTypeRef} className="relative">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenSaveSelect((prev) =>
+                                prev === "type" ? null : "type",
+                              )
+                            }
+                            className="flex h-7 w-full items-center justify-between rounded-full border border-white/10 bg-[#0c101a]/80 px-3 text-[11px] text-white/90 shadow-[0_6px_16px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/20 focus:outline-none focus:ring-1 focus:ring-violet-400/40"
+                          >
+                            <span className={trainingType ? "text-white/90" : "text-slate-500"}>
+                              {trainingType || "Avec ou sans ballon"}
+                            </span>
+                            <span className="text-[10px] text-white/60">▾</span>
+                          </button>
+                          {openSaveSelect === "type" ? (
+                            <div className="absolute z-40 mt-2 w-full rounded-2xl border border-white/10 bg-[#0b0f1a]/95 p-1 shadow-[0_18px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTrainingType("");
+                                  setOpenSaveSelect(null);
+                                }}
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-400 transition hover:bg-white/5"
+                              >
+                                —
+                              </button>
+                                {TRAINING_TYPE_OPTIONS.map((item) => {
+                                  const active = trainingType === item;
+                                  return (
+                                    <button
+                                      key={item}
+                                      type="button"
+                                      onClick={() => {
+                                        setTrainingType(item);
+                                        setOpenSaveSelect(null);
+                                      }}
+                                      className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-200 transition hover:bg-white/5"
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span
+                                          className={[
+                                            "inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center rounded-full border",
+                                            active ? "border-white/20" : "border-white/30",
+                                          ].join(" ")}
+                                        >
+                                          <span
+                                            className="h-2 w-2 rounded-full"
+                                            style={
+                                              active
+                                                ? {
+                                                    background: "#A855F7",
+                                                    boxShadow:
+                                                      "0 0 10px rgba(168,85,247,1)",
+                                                  }
+                                                : undefined
+                                            }
+                                          />
+                                        </span>
+                                        {item}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                            </div>
+                          ) : null}
+                        </div>
+                      </label>
+
+                      <label className="grid gap-0.5 text-[11px] text-slate-400">
+                        Objectif
+                        <div ref={saveObjectiveRef} className="relative">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setOpenSaveSelect((prev) =>
+                                prev === "objective" ? null : "objective",
+                              )
+                            }
+                            className="flex h-7 w-full items-center justify-between rounded-full border border-white/10 bg-[#0c101a]/80 px-3 text-[11px] text-white/90 shadow-[0_6px_16px_rgba(0,0,0,0.45)] backdrop-blur-md transition hover:border-white/20 focus:outline-none focus:ring-1 focus:ring-violet-400/40"
+                          >
+                            <span className={objectives.length ? "text-white/90" : "text-slate-500"}>
+                              {objectives.length === 0
+                                ? "Passe, tir, conservation…"
+                                : objectives.length === 1
+                                  ? objectives[0]
+                                  : `${objectives.length} objectifs`}
+                            </span>
+                            <span className="text-[10px] text-white/60">▾</span>
+                          </button>
+                          {openSaveSelect === "objective" ? (
+                            <div className="absolute z-40 mt-2 w-full rounded-2xl border border-white/10 bg-[#0b0f1a]/95 p-1 shadow-[0_18px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setObjectives([]);
+                                  setOpenSaveSelect(null);
+                                }}
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-400 transition hover:bg-white/5"
+                              >
+                                —
+                              </button>
+                              {OBJECTIVE_OPTIONS.map((item) => {
+                                const active = objectives.includes(item);
+                                return (
+                                  <button
+                                    key={item}
+                                    type="button"
+                                    onClick={() => {
+                                      setObjectives((prev) =>
+                                        prev.includes(item)
+                                          ? prev.filter((value) => value !== item)
+                                          : [...prev, item],
+                                      );
+                                    }}
+                                    className="flex w-full items-center rounded-xl px-3 py-2 text-[11px] text-slate-200 transition hover:bg-white/5"
+                                  >
+                                    <span className="flex items-center gap-2">
+                                        <span
+                                          className={[
+                                            "inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center rounded-full border",
+                                            active ? "border-white/20" : "border-white/30",
+                                          ].join(" ")}
+                                        >
+                                          <span
+                                            className="h-2 w-2 rounded-full"
+                                            style={
+                                              active
+                                                ? {
+                                                    background: "#A855F7",
+                                                    boxShadow:
+                                                      "0 0 10px rgba(168,85,247,1)",
+                                                  }
+                                                : undefined
+                                            }
+                                          />
+                                        </span>
+                                      {item}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      </label>
+                    </div>
+
+                    <div className="grid gap-1 text-[11px] text-slate-400">
+                      Niveaux
+                      <div className="flex flex-wrap gap-2">
+                        {LEVEL_OPTIONS.map((level) => {
+                          const active = levels.includes(level);
+                          return (
+                            <button
+                              key={level}
+                              type="button"
+                              onClick={() =>
+                                setLevels((prev) =>
+                                  prev.includes(level)
+                                    ? prev.filter((item) => item !== level)
+                                    : [...prev, level],
+                                )
+                              }
+                              className={[
+                                "rounded-full px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.18em] transition",
+                                active
+                                  ? "border border-violet-400/50 bg-violet-500/20 text-white"
+                                  : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10",
+                              ].join(" ")}
+                            >
+                              {level}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 text-[11px] text-slate-400">
+                      <button
+                        type="button"
+                        onClick={() => setShowNotesField((prev) => !prev)}
+                        className="inline-flex items-center justify-start text-slate-300 transition hover:text-white"
+                        aria-label={showNotesField ? "Masquer les notes" : "Ajouter des notes"}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4 translate-y-[1px]"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M4 4h12l4 4v12H4z" />
+                          <path d="M12 4v4h4" />
+                          <path d="M7 12h10" />
+                          <path d="M7 16h7" />
+                          <path d="M9 19l6-6 2 2-6 6-2 0z" />
+                        </svg>
+                      </button>
+                      {showNotesField ? (
+                        <textarea
+                          value={notes}
+                          onChange={(event) => setNotes(event.target.value)}
+                          className="min-h-[70px] rounded-xl border border-white/10 bg-white/5 px-2.5 py-2 text-[11px] text-white outline-none transition focus:border-violet-400/60"
+                          placeholder="Matériel, consignes, repères..."
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex items-center justify-end gap-2">
+                  <button
+                    onClick={() => setShowSaveDialog(false)}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                  >
+                    Annuler
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={
+                      saving ||
+                      name.trim().length < 3 ||
+                      !categoryMain ||
+                      animationMode !== "video" ||
+                      strokes.length === 0
+                    }
+                    className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
+                  >
+                    {saving ? "Enregistrement..." : "Enregistrer"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {!previewMode && !immersiveMode ? (
+        <header className="grid h-14 md:h-16 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-white/5 bg-[#050816]/80 px-3 md:gap-4 md:px-4 backdrop-blur-xl z-20">
+          <div className="flex items-center">
             <button
               onClick={() => router.back()}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10"
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-xs text-slate-200 transition hover:border-white/30"
               title="Retour"
             >
               ←
             </button>
-            <div ref={modeMenuRef} className="relative">
-              <button
-                onClick={() => setShowModeMenu((prev) => !prev)}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-              >
-                Animation
-              </button>
-              {showModeMenu ? (
-                <div className="absolute left-0 top-full mt-2 w-44 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-2 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-                  <button
-                    onClick={() => {
-                      setAnimationMode("image");
-                      setRecordMode(false);
-                      setGroupMode(false);
-                      setShowModeMenu(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
-                      animationMode === "image"
-                        ? "bg-white/10 text-white"
-                        : "text-slate-300 hover:bg-white/5"
-                    }`}
-                  >
-                    Par image
-                    {animationMode === "image" ? "✓" : ""}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setAnimationMode("video");
-                      setShowModeMenu(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
-                      animationMode === "video"
-                        ? "bg-white/10 text-white"
-                        : "text-slate-300 hover:bg-white/5"
-                    }`}
-                  >
-                    Par vidéo
-                    {animationMode === "video" ? "✓" : ""}
-                  </button>
-                </div>
-              ) : null}
-            </div>
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center">
+            <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-transparent px-2 py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md md:px-3">
+              <button
+                onClick={() => toggleTool("select")}
+                title="Sélection"
+                className={[
+                  "flex h-7 w-7 items-center justify-center rounded-full border transition",
+                  tool === "select"
+                    ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                    : "border-white/10 text-slate-200 hover:border-white/30",
+                ].join(" ")}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 5L19 12L12 14L10 20L6 5Z" />
+                </svg>
+              </button>
               <button
                 onClick={() => toggleTool("player")}
                 title="Joueur"
                 className={[
-                  "flex h-9 w-9 items-center justify-center rounded-full border transition",
+                  "flex h-7 w-7 items-center justify-center rounded-full border transition",
                   tool === "player"
-                    ? "border-violet-400/70 bg-violet-500/25 text-white"
-                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                    : "border-white/10 text-slate-200 hover:border-white/30",
                 ].join(" ")}
               >
-                <canvas ref={playerIconRef} className="h-6 w-6" />
+                <canvas ref={playerIconRef} className="h-4 w-4" />
               </button>
               <button
                 onClick={() => toggleTool("ball")}
                 title="Ballon"
                 className={[
-                  "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
+                  "flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition",
                   tool === "ball"
-                    ? "border-violet-400/70 bg-violet-500/25 text-white"
-                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                    : "border-white/10 text-slate-200 hover:border-white/30",
                 ].join(" ")}
               >
                 ⚽
               </button>
-              <div ref={toolboxMenuRef} className="relative">
-                <button
-                  onClick={() => setShowToolboxMenu((prev) => !prev)}
-                  title="Boîte à outils"
+                <div ref={toolboxMenuRef} className="relative">
+                  <button
+                    onClick={() => {
+                      setShowToolboxMenu((prev) => !prev);
+                      setShowShapeMenu(false);
+                    }}
+                    title="Boîte à outils"
                   className={[
-                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
-                    showToolboxMenu
-                      ? "border-violet-400/70 bg-violet-500/25 text-white"
-                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition",
+                    showToolboxMenu || toolboxToolActive
+                      ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                      : "border-white/10 text-slate-200 hover:border-white/30",
                   ].join(" ")}
                 >
-                  🧩
+                  <canvas ref={toolboxDiscIconRef} className="h-4 w-4" />
                 </button>
-                {showToolboxMenu ? (
-                  <div className="absolute left-0 top-full z-20 mt-2 grid w-52 grid-cols-4 gap-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-                    {(
-                      [
-                        "cone",
-                        "disc",
-                        "slalom_pole",
-                        "hurdle_bar",
-                        "hurdle_pole",
-                        "mini_goal",
-                        "ladder",
-                        "pass_wall",
-                      ] as ToolKey[]
-                    ).map((key) => (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          toggleTool(key);
-                          setShowToolboxMenu(false);
-                        }}
-                        className={[
-                          "flex h-10 w-10 items-center justify-center rounded-xl border transition",
-                          tool === key
-                            ? "border-violet-400/70 bg-violet-500/25 text-white"
-                            : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-                        ].join(" ")}
-                        title={key}
-                      >
-                        {key === "disc" ? (
-                          <canvas ref={discMenuIconRef} className="h-6 w-6" />
-                        ) : key === "cone" ? (
-                          <canvas ref={plotMenuIconRef} className="h-6 w-6" />
-                        ) : key === "slalom_pole" ? (
-                          <canvas ref={slalomMenuIconRef} className="h-6 w-6" />
-                        ) : key === "hurdle_bar" ? (
-                          <canvas ref={hurdleBarMenuIconRef} className="h-6 w-6" />
-                        ) : key === "hurdle_pole" ? (
-                          <canvas ref={hurdlePoleMenuIconRef} className="h-6 w-6" />
-                        ) : key === "ladder" ? (
-                          <canvas ref={ladderMenuIconRef} className="h-6 w-6" />
-                        ) : key === "mini_goal" ? (
-                          <MiniGoalIcon
-                            size={22}
-                            selected={tool === "mini_goal"}
-                            className="text-[rgba(235,235,255,0.92)]"
-                          />
-                        ) : key === "pass_wall" ? (
-                          <PassWallIcon
-                            size={22}
-                            selected={tool === "pass_wall"}
-                            className="text-[rgba(235,235,255,0.92)]"
-                          />
-                        ) : (
-                          <span className="text-sm">•</span>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+                  {showToolboxMenu ? (
+                    <div className="absolute left-0 top-full z-20 mt-2 grid w-52 grid-cols-4 gap-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                      {(
+                        [
+                          "cone",
+                          "disc",
+                          "hoop",
+                          "baton",
+                          "slalom_pole",
+                          "hurdle_bar",
+                          "hurdle_pole",
+                          "mini_goal",
+                          "ladder",
+                          "pass_wall",
+                        ] as ToolKey[]
+                      ).map((key) => (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            toggleTool(key);
+                            setShowToolboxMenu(false);
+                          }}
+                          className={[
+                            "flex h-10 w-10 items-center justify-center rounded-xl border transition",
+                            tool === key
+                              ? "border-violet-400/70 bg-violet-500/25 text-white"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                          ].join(" ")}
+                          title={key}
+                        >
+                          {key === "disc" ? (
+                            <canvas ref={discMenuIconRef} className="h-6 w-6" />
+                          ) : key === "cone" ? (
+                            <canvas ref={plotMenuIconRef} className="h-6 w-6" />
+                          ) : key === "slalom_pole" ? (
+                            <canvas ref={slalomMenuIconRef} className="h-6 w-6" />
+                          ) : key === "hurdle_bar" ? (
+                            <canvas
+                              ref={hurdleBarMenuIconRef}
+                              className="h-6 w-6"
+                            />
+                          ) : key === "hurdle_pole" ? (
+                            <canvas
+                              ref={hurdlePoleMenuIconRef}
+                              className="h-6 w-6"
+                            />
+                          ) : key === "hoop" ? (
+                            <canvas ref={hoopMenuIconRef} className="h-6 w-6" />
+                          ) : key === "baton" ? (
+                            <canvas ref={batonMenuIconRef} className="h-6 w-6" />
+                          ) : key === "ladder" ? (
+                            <canvas
+                              ref={ladderMenuIconRef}
+                              className="h-6 w-6"
+                            />
+                          ) : key === "mini_goal" ? (
+                            <MiniGoalIcon
+                              size={22}
+                              selected={tool === "mini_goal"}
+                              className="text-[rgba(235,235,255,0.92)]"
+                            />
+                          ) : key === "pass_wall" ? (
+                            <PassWallIcon
+                              size={22}
+                              selected={tool === "pass_wall"}
+                              className="text-[rgba(235,235,255,0.92)]"
+                            />
+                          ) : (
+                            <span className="text-sm">•</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               <div ref={colorMenuRef} className="relative">
                 <button
                   onClick={() => setShowColorMenu((prev) => !prev)}
                   title="Couleurs"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
+                  className={[
+                    "flex h-6 w-6 items-center justify-center rounded-full border transition hover:border-white/30",
+                    showColorMenu
+                      ? "border-violet-400/70 shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                      : "border-white/10",
+                  ].join(" ")}
                   style={{
                     background:
                       "conic-gradient(from 90deg, #7B66FF, #22D3EE, #F59E0B, #F472B6, #34D399, #7B66FF)",
                   }}
                 >
-                  <span className="h-6 w-6 rounded-full bg-black/40" />
+                  <span className="h-3.5 w-3.5 rounded-full bg-black/40" />
                 </button>
                 {showColorMenu ? (
                   <div className="absolute left-0 top-full z-20 mt-2 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
@@ -3278,371 +5435,524 @@ export default function ExerciseAnimatedEditor() {
                   </div>
                 ) : null}
               </div>
-              <button
-                onClick={() => setRecordPathMode((prev) => !prev)}
-                title="Trajet"
-                className={[
-                  "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
-                  recordPathMode
-                    ? "border-violet-400/70 bg-violet-500/25 text-white"
-                    : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-                ].join(" ")}
-              >
-                〰
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={player.toggle}
-              disabled={!hasPlayableContent}
-              title={player.isPlaying ? "Pause" : "Lecture"}
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-            >
-              {player.isPlaying ? "⏸" : "▶"}
-            </button>
-            <button
-              onClick={() => {
-                player.reset();
-                player.setIsPlaying(true);
-                setPreviewMode(true);
-              }}
-              disabled={!hasPlayableContent}
-              title="Prévisualiser"
-              className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-            >
-              👁
-            </button>
-            {animationMode === "image" ? (
-              <button
-                onClick={handleAddFrame}
-                title="Ajouter une image clé"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-200 transition hover:bg-white/10"
-              >
-                ＋
-              </button>
-            ) : null}
-
-            {animationMode === "video" ? (
-              <>
+              <div ref={shapeMenuRef} className="relative">
                 <button
-                  onClick={() =>
-                    setRecordMode((prev) => {
-                      if (prev) {
-                        sequenceDragRef.current = null;
-                        setGroupMode(false);
-                        return false;
-                      }
-                      if (!strokesBaseRef.current) {
-                        const snapshot: BaseSnapshot = {};
-                        elements.forEach((el) => {
-                          snapshot[el.id] = { x: el.x, y: el.y };
-                        });
-                        setStrokesBase(snapshot);
-                        strokesBaseRef.current = snapshot;
-                      }
-                      return true;
-                    })
-                  }
-                  title="REC"
+                  onClick={() => {
+                    setShowShapeMenu((prev) => !prev);
+                    setShowToolboxMenu(false);
+                  }}
+                  title="Formes"
                   className={[
-                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
-                    recordMode
-                      ? "border-rose-400/40 bg-rose-500/20 text-rose-100"
-                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    "flex h-7 w-7 items-center justify-center rounded-full border text-[11px] transition",
+                    showShapeMenu || shapeToolActive
+                      ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                      : "border-white/10 text-slate-200 hover:border-white/30",
                   ].join(" ")}
                 >
-                  ●
+                  〰
                 </button>
-                <button
-                  onClick={() => setGroupMode((prev) => !prev)}
-                  title="Action groupée"
-                  className={[
-                    "flex h-9 w-9 items-center justify-center rounded-full border text-sm transition",
-                    groupMode
-                      ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
-                      : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
-                  ].join(" ")}
-                >
-                  ⛓
-                </button>
-              </>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="flex h-[calc(100vh-72px)]">
-        <div className="relative flex flex-1">
-          <main className="relative flex flex-1 flex-col">
-            {null}
-            <div className="relative min-h-0 flex-1 w-full overflow-visible">
-              <div className="flex h-full w-full items-center justify-center">
-                <div className="mx-auto inline-flex h-full w-full items-center justify-center">
-                  <div
-                    ref={containerRef}
-                    className="relative h-full w-full"
-                  onDragOver={(event) => {
-                    if (previewMode) return;
-                    event.preventDefault();
-                  }}
-                  onDrop={(event) => {
-                    if (previewMode) return;
-                    event.preventDefault();
-                    const toolKey = event.dataTransfer.getData(
-                      "application/x-infinity-tool",
-                    ) as ToolKey | "";
-                    if (!toolKey || toolKey === "select") return;
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const point = {
-                      x: event.clientX - rect.left,
-                      y: event.clientY - rect.top,
-                    };
-                    const pitchRect = getPitchRect(canvasSize.w, canvasSize.h);
-                    if (
-                      point.x < pitchRect.x ||
-                      point.x > pitchRect.x + pitchRect.w ||
-                      point.y < pitchRect.y ||
-                      point.y > pitchRect.y + pitchRect.h
-                    ) {
-                      return;
-                    }
-                    const normalized = {
-                      x: clamp01((point.x - pitchRect.x) / pitchRect.w),
-                      y: clamp01((point.y - pitchRect.y) / pitchRect.h),
-                    };
-                    addElement(toolKey as ElementType, normalized);
-                  }}
-                  >
-                    <canvas
-                      ref={canvasRef}
-                      className="h-full w-full"
-                      onPointerDown={previewMode ? undefined : handlePointerDown}
-                      onPointerMove={previewMode ? undefined : handlePointerMove}
-                      onPointerUp={previewMode ? undefined : handlePointerUp}
-                    />
-                    {!previewMode && animationMode === "image" ? (
-                      <div className="absolute left-1/2 top-full z-10 mt-2 w-[92%] -translate-x-1/2">
-                        <div className="flex items-center gap-2 overflow-x-auto">
-                          {frames.length === 0 ? (
-                            <div className="text-xs text-slate-400">
-                              Aucune séquence
-                            </div>
-                          ) : (
-                            frames.map((frame, index) => (
-                              <button
-                                key={frame.id}
-                                onPointerDown={(event) => {
-                                  event.preventDefault();
-                                  event.currentTarget.setPointerCapture(
-                                    event.pointerId,
-                                  );
-                                  frameDragRef.current = {
-                                    id: frame.id,
-                                    startX: event.clientX,
-                                    lastX: event.clientX,
-                                    moved: false,
-                                  };
-                                }}
-                                onPointerMove={(event) => {
-                                  const ref = frameDragRef.current;
-                                  if (!ref || ref.id !== frame.id) return;
-                                  event.preventDefault();
-                                  const delta = event.clientX - ref.startX;
-                                  if (Math.abs(delta) > 6) {
-                                    ref.moved = true;
-                                  }
-                                  if (Math.abs(delta) > 12) {
-                                    moveFrame(ref.id, delta > 0 ? 1 : -1);
-                                    ref.startX = event.clientX;
-                                    ref.lastX = event.clientX;
-                                  }
-                                }}
-                                onPointerUp={(event) => {
-                                  const ref = frameDragRef.current;
-                                  if (!ref || ref.id !== frame.id) return;
-                                  event.currentTarget.releasePointerCapture(
-                                    event.pointerId,
-                                  );
-                                  if (!ref.moved) {
-                                    setActiveFrameId(frame.id);
-                                  }
-                                  frameDragRef.current = null;
-                                }}
-                                onPointerCancel={(event) => {
-                                  event.currentTarget.releasePointerCapture(
-                                    event.pointerId,
-                                  );
-                                  frameDragRef.current = null;
-                                }}
-                                style={{ touchAction: "none" }}
-                                className={`h-16 w-16 flex-shrink-0 rounded-2xl border transition ${
-                                  activeFrameId === frame.id
-                                    ? "border-violet-400/50"
-                                    : "border-white/10 hover:border-white/30"
-                                }`}
-                                title={`Seq ${index + 1}`}
-                              >
-                                {framePreviews[frame.id] ? (
-                                  <img
-                                    src={framePreviews[frame.id]}
-                                    alt={`Seq ${index + 1}`}
-                                    className="h-full w-full rounded-xl object-cover"
-                                  />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
-                                    {index + 1}
-                                  </div>
-                                )}
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </main>
-
-          {!previewMode ? (
-            <button
-              onClick={() => setShowSidePanel((prev) => !prev)}
-              className={[
-                "absolute top-4 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/60 text-sm text-slate-200 backdrop-blur-xl transition hover:bg-white/10",
-                showSidePanel ? "right-[332px]" : "right-4",
-              ].join(" ")}
-              title={showSidePanel ? "Fermer" : "Ouvrir"}
-            >
-              {showSidePanel ? "→" : "←"}
-            </button>
-          ) : null}
-
-          {!previewMode && showSidePanel ? (
-            <aside className="w-[320px] border-l border-white/5 bg-black/40 p-4 backdrop-blur-xl">
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-            <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              Propriétés
-            </h3>
-            {selectedElement ? (
-              <div className="mt-4 space-y-4 text-sm">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Type
-                  </p>
-                  <p className="mt-1 text-sm text-slate-100">
-                    {selectedElement.type}
-                  </p>
-                </div>
-
-                {selectedElement.type !== "ball" ? (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                      Couleur
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {DEFAULT_COLORS.map((color) => (
+                {showShapeMenu ? (
+                  <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                    <div className="grid grid-cols-3 gap-2">
+                      {SHAPE_TOOLS.map((shape) => (
                         <button
-                          key={color}
-                          onClick={() =>
-                            updateElement(selectedElement.id, { color })
-                          }
-                          className={`h-7 w-7 rounded-full border transition ${
-                            selectedElement.color === color
-                              ? "border-white/80"
-                              : "border-white/10"
-                          }`}
-                          style={{ background: color }}
-                        />
+                          key={shape}
+                          onClick={() => {
+                            toggleTool(shape);
+                            setShowShapeMenu(false);
+                          }}
+                          className={[
+                            "flex h-10 w-10 items-center justify-center rounded-xl border transition",
+                            tool === shape
+                              ? "border-violet-400/70 bg-violet-500/25 text-white"
+                              : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                          ].join(" ")}
+                          title={shape}
+                        >
+                          {shape === "line" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                            >
+                              <line x1="3" y1="12" x2="21" y2="12" />
+                              <circle cx="3" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                              <circle cx="21" cy="12" r="1.6" fill="currentColor" stroke="none" />
+                            </svg>
+                          ) : shape === "arrow" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="3" y1="12" x2="18" y2="12" />
+                              <polyline points="12,7 18,12 12,17" />
+                            </svg>
+                          ) : shape === "line_dashed" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                            >
+                              <line x1="3" y1="12" x2="5.5" y2="12" />
+                              <line x1="7.5" y1="12" x2="10" y2="12" />
+                              <line x1="12" y1="12" x2="14.5" y2="12" />
+                              <line x1="16.5" y1="12" x2="19" y2="12" />
+                              <line x1="20.5" y1="12" x2="22" y2="12" />
+                            </svg>
+                          ) : shape === "arrow_dashed" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <line x1="3" y1="12" x2="5.5" y2="12" />
+                              <line x1="7.5" y1="12" x2="10" y2="12" />
+                              <line x1="12" y1="12" x2="14.5" y2="12" />
+                              <line x1="16.5" y1="12" x2="18" y2="12" />
+                              <polyline points="12,7 18,12 12,17" />
+                            </svg>
+                          ) : shape === "polyline_dashed" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
+                              <circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none" />
+                              <circle cx="19" cy="16" r="1.2" fill="currentColor" stroke="none" />
+                              <line x1="5" y1="17" x2="8.5" y2="13" />
+                              <line x1="10.5" y1="11" x2="12" y2="8" />
+                              <line x1="12" y1="8" x2="15" y2="12" />
+                              <line x1="16.5" y1="14" x2="19" y2="16" />
+                            </svg>
+                          ) : shape === "polyarrow_dashed" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="5" cy="17" r="1.2" fill="currentColor" stroke="none" />
+                              <circle cx="12" cy="8" r="1.2" fill="currentColor" stroke="none" />
+                              <circle cx="19" cy="16" r="1.2" fill="currentColor" stroke="none" />
+                              <line x1="5" y1="17" x2="9" y2="12.5" />
+                              <polyline points="8,11 9,12.5 7.5,12.5" />
+                              <line x1="10.5" y1="10.5" x2="12" y2="8" />
+                              <polyline points="11,7.3 12,8 10.9,8.6" />
+                              <line x1="12" y1="8" x2="17" y2="14" />
+                              <polyline points="16,12.8 17,14 15.4,13.8" />
+                            </svg>
+                          ) : shape === "rect" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="square"
+                            >
+                              <rect x="4" y="4" width="16" height="16" rx="0" />
+                            </svg>
+                          ) : shape === "rect_dashed" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinecap="round"
+                            >
+                              <line x1="4" y1="4" x2="8" y2="4" />
+                              <line x1="10" y1="4" x2="14" y2="4" />
+                              <line x1="16" y1="4" x2="20" y2="4" />
+                              <line x1="20" y1="4" x2="20" y2="8" />
+                              <line x1="20" y1="10" x2="20" y2="14" />
+                              <line x1="20" y1="16" x2="20" y2="20" />
+                              <line x1="20" y1="20" x2="16" y2="20" />
+                              <line x1="14" y1="20" x2="10" y2="20" />
+                              <line x1="8" y1="20" x2="4" y2="20" />
+                              <line x1="4" y1="20" x2="4" y2="16" />
+                              <line x1="4" y1="14" x2="4" y2="10" />
+                              <line x1="4" y1="8" x2="4" y2="4" />
+                            </svg>
+                          ) : shape === "circle" ? (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeDasharray="1.4 2.6"
+                              strokeLinecap="round"
+                            >
+                              <circle cx="12" cy="12" r="7.5" />
+                            </svg>
+                          ) : (
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1"
+                              strokeLinejoin="round"
+                              strokeDasharray="1.4 2.6"
+                              strokeLinecap="round"
+                            >
+                              <polygon points="12,4.5 19,9 19,15 12,19.5 5,15 5,9" />
+                            </svg>
+                          )}
+                        </button>
                       ))}
                     </div>
                   </div>
                 ) : null}
+              </div>
+            </div>
+          </div>
 
-                {selectedElement.type === "player" ? (
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                      Numéro
-                    </p>
-                    <input
-                      value={selectedElement.label ?? ""}
-                      onChange={(event) =>
-                        updateElement(selectedElement.id, {
-                          label: event.target.value,
-                        })
-                      }
-                      className="mt-2 w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100"
-                      placeholder="10"
-                    />
-                  </div>
-                ) : null}
+          <div className="flex items-center justify-end">
+            <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-transparent px-2 py-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur-md md:px-3">
+              <button
+                onClick={undo}
+                disabled={!canUndo}
+                title="Annuler"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[11px] text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M8 7L4.5 10.5L8 14" />
+                  <path d="M4.5 10.5H13A6.5 6.5 0 1 1 7.6 21" />
+                </svg>
+              </button>
+              <button
+                onClick={redo}
+                disabled={!canRedo}
+                title="Rétablir"
+                className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[11px] text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4 text-white"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M16 7L19.5 10.5L16 14" />
+                  <path d="M19.5 10.5H11A6.5 6.5 0 1 0 16.4 21" />
+                </svg>
+              </button>
 
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Taille
-                  </p>
-                  <input
-                    type="range"
-                    min={0.006}
-                    max={0.08}
-                    step={0.001}
-                    value={selectedElement.size ?? getDefaultSize(selectedElement.type)}
-                    onChange={(event) =>
-                      updateElement(selectedElement.id, {
-                        size: Number(event.target.value),
-                      })
-                    }
-                    className="mt-2 w-full"
-                  />
+            <div ref={settingsMenuRef} className="relative">
+              <button
+                onClick={() => setShowSettingsMenu((prev) => !prev)}
+                title="Paramètres"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10"
+              >
+                <span className="grid h-3.5 w-3.5 grid-rows-3 place-items-center gap-[2px]">
+                  <span className="h-[2px] w-3.5 rounded-full bg-white/80" />
+                  <span className="h-[2px] w-3.5 rounded-full bg-white/80" />
+                  <span className="h-[2px] w-3.5 rounded-full bg-white/80" />
+                </span>
+              </button>
+              {showSettingsMenu ? (
+                <div className="absolute right-0 top-full z-20 mt-2 w-52 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-2 text-xs shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+                  <button
+                    onClick={() => {
+                      openSaveDialog();
+                      setShowSettingsMenu(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-slate-200 transition hover:bg-white/5"
+                  >
+                    Enregistrer
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResetConfirm(true);
+                      setShowSettingsMenu(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-rose-200 transition hover:bg-white/5"
+                  >
+                    Supprimer
+                  </button>
+                  <div className="my-2 h-px bg-white/10" />
+                  <button
+                    onClick={() => {
+                      setAnimationMode("video");
+                      setRecordMode(false);
+                      setGroupMode(false);
+                      setShowSettingsMenu(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                      animationMode === "video"
+                        ? "bg-white/10 text-white"
+                        : "text-slate-300 hover:bg-white/5"
+                    }`}
+                  >
+                    Animation : Vidéo
+                    {animationMode === "video" ? "✓" : ""}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAnimationMode("image");
+                      setRecordMode(false);
+                      setGroupMode(false);
+                      setShowSettingsMenu(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                      animationMode === "image"
+                        ? "bg-white/10 text-white"
+                        : "text-slate-300 hover:bg-white/5"
+                    }`}
+                  >
+                    Animation : Image
+                    {animationMode === "image" ? "✓" : ""}
+                  </button>
                 </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Angle
-                  </p>
-                  <input
-                    type="range"
-                    min={0}
-                    max={360}
-                    step={5}
-                    value={selectedElement.rotation ?? 0}
-                    onChange={(event) =>
-                      updateElement(selectedElement.id, {
-                        rotation: Number(event.target.value),
-                      })
-                    }
-                    className="mt-2 w-full"
-                  />
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Ballon
-                  </p>
-                  {selectedElement.type === "player" ? (
-                    <div className="mt-2 space-y-2">
-                      {ballElements.length === 0 ? (
-                        <p className="text-xs text-slate-400">
-                          Ajoute un ballon pour associer.
-                        </p>
-                      ) : (
-                        <>
-                          {ballElements.length > 1 ? (
-                            <select
-                              value={associationTargetBallId ?? ""}
-                              onChange={(event) =>
-                                setAssociationTargetBallId(event.target.value)
-                              }
-                              className="w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100"
-                            >
-                              {ballElements.map((ball, index) => (
-                                <option key={ball.id} value={ball.id}>
-                                  Ballon {index + 1}
-                                </option>
-                              ))}
-                            </select>
-                          ) : null}
-                          <div className="flex flex-wrap gap-2">
+              ) : null}
+            </div>
+            </div>
+          </div>
+        </header>
+      ) : null}
+
+      <main ref={viewportRef} className="relative flex-1 overflow-hidden">
+        {!previewMode &&
+        showSelectionToolbar &&
+        selectedElement &&
+        selectionToolbarPosition ? (
+          <div
+            style={{
+              left: selectionToolbarPosition.x,
+              top: selectionToolbarPosition.y,
+            }}
+            className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
+          >
+            <div className="flex items-center gap-2 rounded-full border border-white/5 bg-gradient-to-r from-violet-600/95 via-violet-500/95 to-fuchsia-500/95 px-2.5 py-1.5 text-[11px] text-white shadow-[0_0_34px_rgba(139,92,246,0.7)] ring-1 ring-white/10 backdrop-blur-md">
+              <button
+                onClick={() => setShowSidePanel((prev) => !prev)}
+                title="Propriétés"
+                aria-pressed={showSidePanel}
+                className={[
+                  "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold transition drop-shadow-[0_0_8px_rgba(0,0,0,0.25)]",
+                  showSidePanel
+                    ? "bg-white/25 text-white shadow-[0_0_12px_rgba(255,255,255,0.45)]"
+                    : "bg-white/15 text-white/90 hover:bg-white/25",
+                ].join(" ")}
+              >
+                ✎
+              </button>
+              <button
+                onClick={() => setShowRotateHandle((prev) => !prev)}
+                title="Rotation"
+                className={[
+                  "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold transition drop-shadow-[0_0_8px_rgba(0,0,0,0.25)]",
+                  showRotateHandle
+                    ? "bg-white/25 text-white shadow-[0_0_12px_rgba(255,255,255,0.45)]"
+                    : "bg-white/15 text-white/90 hover:bg-white/25",
+                ].join(" ")}
+              >
+                ↻
+              </button>
+              <div className="h-4 w-px bg-white/20" />
+              <button
+                onClick={deleteSelected}
+                title="Supprimer"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-[11px] font-semibold text-red-200 transition hover:bg-red-500/20 hover:text-red-100"
+              >
+                🗑
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {!previewMode && showSidePanel && selectedElement ? (
+          <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2">
+            <div className="flex items-center justify-center bg-transparent">
+              <div className="flex origin-center scale-50 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1 py-0.5 text-[9px]">
+                    <button
+                      onClick={() => setShowSidePanel(false)}
+                      className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-white/10 bg-white/5 text-[7px] text-slate-200 transition hover:bg-white/10"
+                      aria-label="Fermer"
+                    >
+                      ✕
+                    </button>
+                    {selectedElement.type !== "ball" ? (
+                      <div ref={elementColorMenuRef} className="relative">
+                        <button
+                          onClick={() =>
+                            setShowElementColorMenu((prev) => !prev)
+                          }
+                          className="flex h-4 w-4 items-center justify-center rounded-full border border-white/10 bg-white/5"
+                          title="Couleur"
+                        >
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{
+                              background: selectedElement.color ?? "#7B66FF",
+                            }}
+                          />
+                        </button>
+                        {showElementColorMenu ? (
+                          <div className="absolute left-1/2 top-full z-30 mt-1 -translate-x-1/2 flex flex-wrap gap-1.5 rounded-md border border-white/10 bg-[#0b1020]/95 p-1.5 shadow-[0_12px_30px_rgba(0,0,0,0.55)] backdrop-blur-md">
+                            {DEFAULT_COLORS.map((color) => (
+                              <button
+                                key={color}
+                                onClick={() => {
+                                  updateElement(selectedElement.id, { color });
+                                  setShowElementColorMenu(false);
+                                }}
+                                className={`h-4 w-4 rounded-full border transition ${
+                                  selectedElement.color === color
+                                    ? "border-white/80"
+                                    : "border-white/10"
+                                }`}
+                                style={{ background: color }}
+                                title={color}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {selectedElement.type === "player" ? (
+                      <div className="flex items-center gap-0.5 px-1">
+                        <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                          #
+                        </span>
+                        <input
+                          value={selectedElement.label ?? ""}
+                          onChange={(event) =>
+                            updateElement(selectedElement.id, {
+                              label: event.target.value,
+                            })
+                          }
+                          className="w-6 bg-transparent text-[9px] text-slate-100 outline-none placeholder:text-slate-500"
+                          placeholder="10"
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="flex items-center gap-1 px-1">
+                      <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                        Taille
+                      </span>
+                      <input
+                        type="range"
+                        min={0.006}
+                        max={0.08}
+                        step={0.001}
+                        value={
+                          selectedElement.size ??
+                          getDefaultSize(selectedElement.type)
+                        }
+                        onChange={(event) =>
+                          updateElement(selectedElement.id, {
+                            size: Number(event.target.value),
+                          })
+                        }
+                        className="w-12"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-1 px-1">
+                      <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                        Angle
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={360}
+                        step={5}
+                        value={selectedElement.rotation ?? 0}
+                        onChange={(event) =>
+                          updateElement(selectedElement.id, {
+                            rotation: Number(event.target.value),
+                          })
+                        }
+                        className="w-12"
+                      />
+                      <span className="text-[9px] text-slate-300">
+                        {Math.round(selectedElement.rotation ?? 0)}°
+                      </span>
+                    </div>
+
+                    {animationMode === "video" && selectedStroke ? (
+                      <div className="flex items-center gap-1 px-1">
+                        <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                          Action
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={getStrokeSequenceIndex(selectedStroke)}
+                          onChange={(event) =>
+                            updateStrokeSequenceIndex(
+                              selectedStroke.id,
+                              Number(event.target.value),
+                            )
+                          }
+                          className="w-10 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] text-slate-100 outline-none"
+                        />
+                      </div>
+                    ) : null}
+
+                    {selectedElement.type === "player" ? (
+                      <div className="flex items-center gap-2">
+                        {ballElements.length === 0 ? (
+                          <span className="text-xs text-slate-400">
+                            Ajoute un ballon.
+                          </span>
+                        ) : (
+                          <>
+                            {ballElements.length > 1 ? (
+                              <select
+                                value={associationTargetBallId ?? ""}
+                                onChange={(event) =>
+                                  setAssociationTargetBallId(event.target.value)
+                                }
+                                className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-100"
+                              >
+                                {ballElements.map((ball, index) => (
+                                  <option key={ball.id} value={ball.id}>
+                                    Ballon {index + 1}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : null}
                             <button
                               onClick={() =>
                                 attachBallToPlayer(
@@ -3650,211 +5960,493 @@ export default function ExerciseAnimatedEditor() {
                                   associationTargetBallId,
                                 )
                               }
-                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                              className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
                             >
-                              ⚽ Associer ballon
+                              ⚽ Associer
                             </button>
-                            {ballAttachedToId === selectedElement.id ? (
-                              <button
-                                onClick={detachBall}
-                                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
-                              >
-                                Détacher
-                              </button>
-                            ) : null}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ) : selectedElement.type === "ball" ? (
-                    <div className="mt-2 space-y-2">
-                      {playerElements.length === 0 ? (
-                        <p className="text-xs text-slate-400">
-                          Ajoute un joueur pour associer.
-                        </p>
-                      ) : (
+                            {(() => {
+                              const targetBallId =
+                                associationTargetBallId ??
+                                ballElements[0]?.id ??
+                                null;
+                              if (
+                                targetBallId &&
+                                ballAttachments[targetBallId] ===
+                                  selectedElement.id
+                              ) {
+                                return (
+                                  <button
+                                    onClick={() => detachBall(targetBallId)}
+                                    className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                                  >
+                                    Détacher
+                                  </button>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </>
+                        )}
+                      </div>
+                    ) : selectedElement.type === "ball" ? (
+                      <div className="flex items-center gap-2">
+                        {playerElements.length === 0 ? (
+                          <span className="text-xs text-slate-400">
+                            Ajoute un joueur.
+                          </span>
+                        ) : (
                         <>
                           <select
                             value={associationTargetPlayerId ?? ""}
                             onChange={(event) =>
                               setAssociationTargetPlayerId(event.target.value)
                             }
-                            className="w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-100"
+                            className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-100"
                           >
-                            {playerElements.map((player) => (
+                            {playerElements.map((player, index) => (
                               <option key={player.id} value={player.id}>
-                                {player.label ? `J${player.label}` : player.id}
-                              </option>
-                            ))}
-                          </select>
-                          <div className="flex flex-wrap gap-2">
+                                {player.label ? `J${player.label}` : `J${index + 1}`}
+                                </option>
+                              ))}
+                            </select>
+                          <button
+                            onClick={() => {
+                              if (associationTargetPlayerId) {
+                                attachBallToPlayer(
+                                  associationTargetPlayerId,
+                                  selectedElement.id,
+                                );
+                              }
+                            }}
+                            className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                          >
+                            ⚽ Associer
+                          </button>
+                          {ballAttachments[selectedElement.id] ? (
                             <button
-                              onClick={() => {
-                                if (associationTargetPlayerId) {
-                                  attachBallToPlayer(
-                                    associationTargetPlayerId,
-                                    selectedElement.id,
-                                  );
-                                }
-                              }}
-                              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
+                              onClick={() => detachBall(selectedElement.id)}
+                              className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
                             >
-                              ⚽ Associer ballon
+                              Détacher
                             </button>
-                            {ballAttachedToId ? (
-                              <button
-                                onClick={detachBall}
-                                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10"
-                              >
-                                Détacher
-                              </button>
-                            ) : null}
-                          </div>
+                          ) : null}
                         </>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-xs text-slate-400">
-                      Sélectionne un joueur ou le ballon pour associer.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                    Tracé
-                  </p>
-                  {selectedId ? (
-                    <p className="mt-1 text-[10px] text-slate-500">
-                      {strokes.filter((stroke) => stroke.elementId === selectedId)
-                        .length}{" "}
-                      traits ·{" "}
-                      {paths[selectedId]?.length
-                        ? `${paths[selectedId].length} pts`
-                        : "0 pt"}
-                    </p>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap gap-2">
+                        )}
+                      </div>
+                    ) : null}
+
                     <button
-                      onClick={clearPathForSelected}
-                      disabled={
-                        !(
-                          paths[selectedElement.id]?.length ||
-                          strokes.some(
-                            (stroke) => stroke.elementId === selectedElement.id,
-                          )
-                        )
-                      }
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+                      onClick={() => setSelectedId(null)}
+                      className="h-6 w-6 rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10"
+                      aria-label="Désélectionner"
+                      title="Désélectionner"
                     >
-                      Effacer tracé
-                    </button>
-                    <button
-                      onClick={simplifyPathForSelected}
-                      disabled={
-                        !(
-                          paths[selectedElement.id]?.length ||
-                          strokes.some(
-                            (stroke) => stroke.elementId === selectedElement.id,
-                          )
-                        )
-                      }
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
-                    >
-                      Lisser / Simplifier
+                      ◎
                     </button>
                   </div>
                 </div>
-
-                <button
-                  onClick={() => setSelectedId(null)}
-                  className="w-full rounded-full border border-white/10 bg-transparent py-2 text-xs text-slate-300 transition hover:bg-white/5"
-                >
-                  Désélectionner
-                </button>
               </div>
-            ) : (
-              <p className="mt-4 text-xs text-slate-400">
-                Sélectionne un élément sur le terrain.
-              </p>
-            )}
+        ) : null}
+
+        {sequenceEditor ? (
+          <div
+            className="absolute z-30 -translate-x-1/2 -translate-y-full"
+            style={{ left: sequenceEditor.x, top: sequenceEditor.y }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#0b1020]/90 px-3 py-2 text-xs text-slate-200 shadow-[0_18px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+              <span className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                Action
+              </span>
+              <input
+                type="number"
+                min={1}
+                value={sequenceEditorValue}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSequenceEditorValue(value);
+                  const parsed = Number(value);
+                  if (!Number.isNaN(parsed)) {
+                    updateStrokeSequenceIndex(sequenceEditor.strokeId, parsed);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === "Escape") {
+                    setSequenceEditor(null);
+                  }
+                }}
+                onBlur={() => setSequenceEditor(null)}
+                className="w-12 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-100 outline-none"
+                autoFocus
+              />
+            </div>
           </div>
+        ) : null}
 
-          {/* Section images clés supprimée : séquences gérées sous le terrain en mode image */}
-
-          {showSequenceDebug ? (
-            <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs uppercase tracking-[0.3em] text-slate-400">
-                  Séquence (debug)
-                </h3>
-                <div className="flex items-center gap-2">
+        {!previewMode && !immersiveMode && animationMode ? (
+          <div
+            className="absolute z-20 -translate-y-1/2"
+            style={{
+              left: sideToolbarPosition.x,
+              top: sideToolbarPosition.y,
+            }}
+          >
+            <div className="flex flex-col items-center gap-2 bg-transparent p-1">
+              {animationMode === "video" ? (
+                <>
                   <button
-                    onClick={() => setShowSequenceDebug(false)}
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+                    onClick={player.toggle}
+                    disabled={!hasPlayableContent}
+                    title={player.isPlaying ? "Pause" : "Lecture"}
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
                   >
-                    Masquer
+                    {player.isPlaying ? "⏸" : "▶"}
                   </button>
-                <button
-                  onClick={() => {
-                    setStrokes([]);
-                    strokesRef.current = [];
-                    setStrokesBase(null);
-                    strokesBaseRef.current = null;
-                    setGroupMode(false);
-                    setBallAttachedToId(null);
-                  }}
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+                  <button
+                    onClick={() =>
+                      setRecordMode((prev) => {
+                        if (prev) {
+                          sequenceDragRef.current = null;
+                          setGroupMode(false);
+                          setSelectedId(null);
+                          return false;
+                        }
+                        setCurrentSequenceIndex(1);
+                        if (!strokesBaseRef.current) {
+                          const snapshot: BaseSnapshot = {};
+                          elements.forEach((el) => {
+                            snapshot[el.id] = { x: el.x, y: el.y };
+                          });
+                          setStrokesBase(snapshot);
+                          strokesBaseRef.current = snapshot;
+                        }
+                        setSelectedId(null);
+                        return true;
+                      })
+                    }
+                    title="REC"
+                    className={[
+                      "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] transition",
+                      recordMode
+                        ? "border-rose-300/40 bg-rose-500/20 text-rose-100"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ].join(" ")}
                   >
-                    Effacer
+                    ●
                   </button>
+                  <button
+                    onClick={() => {
+                      player.reset();
+                      player.setIsPlaying(true);
+                      setPreviewMode(true);
+                    }}
+                    disabled={!hasPlayableContent}
+                    title="Prévisualiser"
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    🖥
+                  </button>
+                  <button
+                    onClick={() => setShowSpeedPanel((prev) => !prev)}
+                    title="Vitesse des actions"
+                    className={[
+                      "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] transition",
+                      showSpeedPanel
+                        ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    ⏩
+                  </button>
+                  <button
+                    onClick={() => setGroupMode((prev) => !prev)}
+                    title="Associer"
+                    className={[
+                      "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] transition",
+                      groupMode
+                        ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="8.5" cy="12" r="2" fill="currentColor" stroke="none" />
+                      <path d="M11 12H19" />
+                      <path d="M17 10.5L19 12L17 13.5" />
+                      <path d="M10.5 11L16.5 5" />
+                      <path d="M14.5 5L16.5 5L16.5 7" />
+                      <path d="M10.5 13L16.5 19" />
+                      <path d="M14.5 19L16.5 19L16.5 17" />
+                    </svg>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={player.toggle}
+                    disabled={!hasPlayableContent}
+                    title={player.isPlaying ? "Pause" : "Lecture"}
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {player.isPlaying ? "⏸" : "▶"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      player.reset();
+                      player.setIsPlaying(true);
+                      setPreviewMode(true);
+                    }}
+                    disabled={!hasPlayableContent}
+                    title="Prévisualiser"
+                    className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    🖥
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleAddFrame();
+                      triggerCapturePulse();
+                    }}
+                    title="Capture"
+                    className={[
+                      "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] text-slate-200 transition",
+                      capturePulse
+                        ? "border-violet-300/70 bg-violet-500/20 shadow-[0_0_24px_rgba(139,92,246,0.45)]"
+                        : "border-white/10 bg-white/5 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    ＋
+                  </button>
+                  <button
+                    onClick={() => setShowSpeedPanel((prev) => !prev)}
+                    title="Vitesse des images"
+                    className={[
+                      "flex h-7 w-7 items-center justify-center rounded-full border text-[10px] transition",
+                      showSpeedPanel
+                        ? "border-violet-300/40 bg-violet-500/20 text-violet-100"
+                        : "border-white/10 bg-white/5 text-slate-200 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    ⏩
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {!previewMode && showSpeedPanel && animationMode ? (
+          <div
+            className="absolute z-20"
+            style={{
+              left: sideToolbarPosition.x + 48,
+              top: sideToolbarPosition.y,
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <div className="w-44 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-3 text-xs text-slate-200 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
+              {animationMode === "video" ? (
+                <>
+                  <div className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
+                    Actions
+                  </div>
+                  <div className="mt-2 grid gap-2">
+                    {actionSequenceList.length === 0 ? (
+                      <div className="text-[11px] text-slate-500">
+                        Aucune action.
+                      </div>
+                    ) : (
+                      actionSequenceList.map((sequenceIndex) => {
+                        const speed =
+                          actionSpeedMultipliers[sequenceIndex] ?? 1;
+                        return (
+                          <button
+                            key={sequenceIndex}
+                            onClick={() => cycleActionSpeed(sequenceIndex)}
+                            className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] transition hover:bg-white/10"
+                          >
+                            <span>Action {sequenceIndex}</span>
+                            <span className="font-semibold text-white">
+                              ×{speed}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
+                    Images
+                  </div>
+                  <div className="mt-2 grid gap-2">
+                    {frames.length === 0 ? (
+                      <div className="text-[11px] text-slate-500">
+                        Aucune image.
+                      </div>
+                    ) : (
+                      frames.map((frame, index) => {
+                        const speed =
+                          frameSpeedMultipliers[frame.id] ?? 1;
+                        const preview = framePreviews[frame.id];
+                        return (
+                          <button
+                            key={frame.id}
+                            onClick={() => cycleFrameSpeed(frame.id)}
+                            className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] transition hover:bg-white/10"
+                          >
+                            <span>
+                              {preview ? (
+                                <span
+                                  className="mr-2 inline-block h-5 w-7 rounded-md border border-white/10 bg-cover bg-center align-middle"
+                                  style={{ backgroundImage: `url(${preview})` }}
+                                />
+                              ) : null}
+                              Image {index + 1}
+                            </span>
+                            <span className="font-semibold text-white">
+                              ×{speed}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex h-full w-full items-center justify-center">
+          <div
+            ref={containerRef}
+            className="relative h-full w-full"
+            onDragOver={(event) => {
+              if (previewMode) return;
+              event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (previewMode) return;
+              event.preventDefault();
+              const toolKey = event.dataTransfer.getData(
+                "application/x-infinity-tool",
+              ) as ToolKey | "";
+              if (!toolKey || toolKey === "select") return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              const point = {
+                x: event.clientX - rect.left,
+                y: event.clientY - rect.top,
+              };
+              const pitchRect = getCurrentPitchRect();
+              if (
+                point.x < pitchRect.x ||
+                point.x > pitchRect.x + pitchRect.w ||
+                point.y < pitchRect.y ||
+                point.y > pitchRect.y + pitchRect.h
+              ) {
+                return;
+              }
+              const normalized = {
+                x: clamp01((point.x - pitchRect.x) / pitchRect.w),
+                y: clamp01((point.y - pitchRect.y) / pitchRect.h),
+              };
+              addElement(toolKey as ToolKey, normalized);
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="h-full w-full touch-none"
+              onPointerDown={handleCanvasPointerDown}
+              onPointerMove={previewMode ? undefined : handleCanvasPointerMove}
+              onPointerUp={previewMode ? undefined : handlePointerUp}
+            />
+            {!previewMode && animationMode === "image" ? (
+              <div className="absolute left-1/2 top-full z-10 mt-2 w-[92%] -translate-x-1/2">
+                <div className="flex items-center gap-2 overflow-x-auto">
+                  {frames.length === 0 ? (
+                    <div className="text-xs text-slate-400">
+                      Aucune séquence
+                    </div>
+                  ) : (
+                    frames.map((frame, index) => (
+                      <button
+                        key={frame.id}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.currentTarget.setPointerCapture(event.pointerId);
+                          frameDragRef.current = {
+                            id: frame.id,
+                            startX: event.clientX,
+                            lastX: event.clientX,
+                            moved: false,
+                          };
+                        }}
+                        onPointerMove={(event) => {
+                          const ref = frameDragRef.current;
+                          if (!ref || ref.id !== frame.id) return;
+                          event.preventDefault();
+                          const delta = event.clientX - ref.startX;
+                          if (Math.abs(delta) > 6) {
+                            ref.moved = true;
+                          }
+                          if (Math.abs(delta) > 12) {
+                            moveFrame(ref.id, delta > 0 ? 1 : -1);
+                            ref.startX = event.clientX;
+                            ref.lastX = event.clientX;
+                          }
+                        }}
+                        onPointerUp={(event) => {
+                          const ref = frameDragRef.current;
+                          if (!ref || ref.id !== frame.id) return;
+                          event.currentTarget.releasePointerCapture(event.pointerId);
+                          if (!ref.moved) {
+                            setActiveFrameId(frame.id);
+                          }
+                          frameDragRef.current = null;
+                        }}
+                        onPointerCancel={(event) => {
+                          event.currentTarget.releasePointerCapture(event.pointerId);
+                          frameDragRef.current = null;
+                        }}
+                        style={{ touchAction: "none" }}
+                        className={`h-16 w-16 flex-shrink-0 rounded-2xl border transition ${
+                          activeFrameId === frame.id
+                            ? "border-violet-400/50"
+                            : "border-white/10 hover:border-white/30"
+                        }`}
+                        title={`Seq ${index + 1}`}
+                      >
+                        {framePreviews[frame.id] ? (
+                          <img
+                            src={framePreviews[frame.id]}
+                            alt={`Seq ${index + 1}`}
+                            className="h-full w-full rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">
+                            {index + 1}
+                          </div>
+                        )}
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
-              <div className="mt-3 space-y-2 text-xs text-slate-300">
-                {strokes.length === 0 ? (
-                  <p className="text-slate-400">Aucune action enregistrée.</p>
-                ) : (
-                  strokes.map((stroke, index) => {
-                    const getLabel = (id: string) => {
-                      const el = elements.find((item) => item.id === id);
-                      if (!el) return id.slice(0, 4);
-                      if (el.type === "ball") return "Ballon";
-                      return el.label ? `J${el.label}` : id.slice(0, 4);
-                    };
-                    if (stroke.kind === "carry") {
-                      return (
-                        <div key={stroke.id}>
-                          {index + 1}. Dribble {getLabel(stroke.elementId ?? "")}
-                        </div>
-                      );
-                    }
-                    if (stroke.kind === "move") {
-                      return (
-                        <div key={stroke.id}>
-                          {index + 1}. Déplacement {getLabel(stroke.elementId ?? "")}
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={stroke.id}>
-                        {index + 1}. Attente
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowSequenceDebug(true)}
-              className="mt-4 w-full rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-slate-200"
-            >
-              Debug séquence
-            </button>
-          )}
-        </aside>
-        ) : null}
+            ) : null}
+          </div>
         </div>
-      </div>
+      </main>
+
       {previewMode ? (
         <div className="fixed inset-0 z-30">
           <div className="absolute inset-0" />
@@ -3870,33 +6462,39 @@ export default function ExerciseAnimatedEditor() {
             ✕
           </button>
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/50 px-4 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur-xl">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={player.toggle}
-              className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
-            >
-              {player.isPlaying ? "Pause" : "Lecture"}
-            </button>
-            <button
-              onClick={() => {
-                player.reset();
-                player.setIsPlaying(true);
-              }}
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-            >
-              Recommencer
-            </button>
-            <button
-              onClick={() => {
-                player.setIsPlaying(false);
-                player.reset();
-                setPreviewMode(false);
-              }}
-              className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
-            >
-              Quitter
-            </button>
-          </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={player.toggle}
+                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                {player.isPlaying ? "Pause" : "Lecture"}
+              </button>
+              <button
+                onClick={() => {
+                  player.reset();
+                  player.setIsPlaying(true);
+                }}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+              >
+                Recommencer
+              </button>
+              <button
+                onClick={openSaveDialog}
+                className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
+              >
+                Enregistrer
+              </button>
+              <button
+                onClick={() => {
+                  player.setIsPlaying(false);
+                  player.reset();
+                  setPreviewMode(false);
+                }}
+                className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
+              >
+                Quitter
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
