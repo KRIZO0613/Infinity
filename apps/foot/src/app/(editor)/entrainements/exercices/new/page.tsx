@@ -1,4 +1,5 @@
 import ExerciseAnimatedEditor from "@/components/ExerciseAnimatedEditor";
+import ExerciseStaticEditor from "@/components/ExerciseStaticEditor";
 
 type NewExercisePageProps = {
   searchParams?: Promise<{
@@ -13,6 +14,9 @@ export default async function NewExercisePage({
   if (resolved.type === "animated") {
     return <ExerciseAnimatedEditor />;
   }
+  if (resolved.type === "card") {
+    return <ExerciseStaticEditor />;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#070a14] px-6 text-slate-100">
@@ -24,14 +28,22 @@ export default async function NewExercisePage({
           Choisis un type d'exercice
         </h1>
         <p className="mt-2 text-sm text-slate-400">
-          Les modèles animés arrivent ici. Sélectionne “Animé” pour commencer.
+          Sélectionne une animation ou une carte statique pour commencer.
         </p>
-        <a
-          href="/entrainements/exercices/new?type=animated"
-          className="mt-6 inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-500"
-        >
-          Créer un exercice animé
-        </a>
+        <div className="mt-6 flex flex-col gap-3">
+          <a
+            href="/entrainements/exercices/new?type=animated"
+            className="inline-flex items-center justify-center rounded-full bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-500"
+          >
+            Créer une animation
+          </a>
+          <a
+            href="/entrainements/exercices/new?type=card"
+            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+          >
+            Créer une carte statique
+          </a>
+        </div>
       </div>
     </div>
   );

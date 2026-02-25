@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
 import { ExerciseVideoCard } from "@/components/ExerciseVideoCard";
+import ExerciseCardFrame from "@/components/ExerciseCardFrame";
 
 type ExerciseRow = {
   id: string;
@@ -15,7 +16,7 @@ type ExerciseRow = {
   is_global: boolean;
   created_at: string | null;
   updated_at: string | null;
-  animation_data: unknown;
+  animation_data?: unknown | null;
 };
 
 type ToastState = {
@@ -23,7 +24,7 @@ type ToastState = {
   message: string;
 } | null;
 
-type ExerciseKind = "animated" | "video" | "card";
+type ExerciseKind = "animation" | "video" | "card";
 type TypeFilter = "all" | "animation" | "video" | "card";
 type FilterGroup = "categories" | "types" | "objectives" | "levels";
 
@@ -97,6 +98,9 @@ export default function ExercisesLibrary() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [cardRatios, setCardRatios] = useState<Record<string, string>>({});
+  const [expandedCard, setExpandedCard] = useState<ExerciseRow | null>(null);
+  const [infoCardId, setInfoCardId] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     categories: [] as string[],
     types: [] as string[],
@@ -115,6 +119,309 @@ export default function ExercisesLibrary() {
     objectives: false,
     levels: false,
   });
+
+  const showScrollDebug = true; // TODO: disable once widths are validated.
+
+  const getMeta = (item: ExerciseRow) => {
+    const payload = item.animation_data as Record<string, any> | null;
+    return (payload?.metadata ?? payload?.meta ?? {}) as Record<string, any>;
+  };
+
+  const getExerciseKind = (item: ExerciseRow): "animation" | "video" | "card" => {
+    if (item.type === "video") return "video";
+    const meta = getMeta(item);
+    if (meta?.format === "card") return "card";
+    if (item.type === "card") return "card";
+    return "animation";
+  };
+
+  const cardNumberMap = useMemo(() => {
+    const cards = items
+      .filter((item) => getExerciseKind(item) === "card")
+      .slice()
+      .sort((a, b) => {
+        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return aTime - bTime;
+      });
+    const map: Record<string, string> = {};
+    cards.forEach((card, index) => {
+      const num = String(index + 1).padStart(2, "0");
+      map[card.id] = `E${num}`;
+    });
+    return map;
+  }, [items]);
+
+  const getScrollWidthClass = (kind: ExerciseKind) => {
+    if (kind === "animation") {
+      return "w-[420px] max-w-[82vw] min-w-[340px]";
+    }
+    if (kind === "video") {
+      return "w-[640px] max-w-[94vw] min-w-[480px]";
+    }
+    return "w-[240px] max-w-[70vw] min-w-[200px]";
+  };
+
+  const getScrollWidthStyle = (kind: ExerciseKind) => {
+    if (kind === "animation") {
+      return { width: 420, minWidth: 340, maxWidth: "82vw", flex: "0 0 auto" };
+    }
+    if (kind === "video") {
+      return { width: 640, minWidth: 480, maxWidth: "94vw", flex: "0 0 auto" };
+    }
+    return { width: 240, minWidth: 200, maxWidth: "70vw", flex: "0 0 auto" };
+  };
+
+  const renderExerciseItem = (item: ExerciseRow, compact = false) => {
+    const kind = getExerciseKind(item);
+    const isScroll = compact;
+    const wrapperClassName = [
+      "relative",
+      isScroll
+        ? kind === "card"
+          ? "shrink-0 snap-start h-full"
+          : "flex-none snap-start"
+        : "w-full",
+      isScroll ? getScrollWidthClass(kind) : "",
+      isScroll && showScrollDebug ? "outline outline-2 outline-red-500/40" : "",
+      !isScroll && kind === "card" ? "justify-self-center" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const wrapperStyle = isScroll ? getScrollWidthStyle(kind) : undefined;
+
+    if (kind === "card") {
+      const cardMediaRatio = compact ? undefined : cardRatios[item.id];
+      const pitchOrientation = getPitchOrientation(item);
+      const rotateCardMedia =
+        pitchOrientation === "landscape"
+          ? true
+          : pitchOrientation === "portrait"
+            ? false
+            : true;
+      const cardNumber = cardNumberMap[item.id];
+      const cardMeta = getMeta(item);
+      const cardInfoOpen = infoCardId === item.id;
+      return (
+        <div
+          key={item.id}
+          className={wrapperClassName}
+          style={wrapperStyle}
+          data-kind={isScroll ? "card" : undefined}
+        >
+          <ExerciseCardFrame
+            category={item.category || "Non classé"}
+            label={item.title || "Carte exercice"}
+            className="w-full"
+            mediaAspect="portrait"
+            mediaMinHeight={240}
+            mediaRatio={cardMediaRatio}
+            cardScale={1}
+            rotateMedia={rotateCardMedia}
+            footerLabel={cardNumber}
+            mediaOverlayActions={
+              <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/15 bg-black/40 px-1.5 py-0.5 text-[11px] text-white/90 shadow-[0_6px_14px_rgba(0,0,0,0.45)] backdrop-blur">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setExpandedCard(item);
+                    setInfoCardId(null);
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-white/10"
+                  aria-label="Agrandir"
+                >
+                  ⤢
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setInfoCardId((prev) => (prev === item.id ? null : item.id));
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-[10px] font-semibold"
+                  aria-label="Infos"
+                >
+                  i
+                </button>
+              </div>
+            }
+            floatingAction={
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggleFavorite(item.id);
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-black/40 text-[10px] transition"
+                style={
+                  favoriteIds.has(item.id)
+                    ? {
+                        color: "#ffe600",
+                        borderColor: "rgba(255,255,255,0.25)",
+                        backgroundColor: "rgba(0,0,0,0.4)",
+                      }
+                    : { color: "rgba(255,255,255,0.7)" }
+                }
+                aria-label="Favori"
+              >
+                ★
+              </button>
+            }
+          >
+            {getCardCover(item) ? (
+              <img
+                src={getCardCover(item) as string}
+                alt={item.title}
+                className="block h-full w-full object-contain"
+                onLoad={(event) => {
+                  const { naturalWidth, naturalHeight } = event.currentTarget;
+                  if (!naturalWidth || !naturalHeight) return;
+                  const ratio = `${naturalHeight} / ${naturalWidth}`;
+                  setCardRatios((current) =>
+                    current[item.id] === ratio
+                      ? current
+                      : { ...current, [item.id]: ratio },
+                  );
+                }}
+              />
+            ) : (
+              <div className="h-full w-full bg-gradient-to-br from-black/40 via-black/10 to-black/40" />
+            )}
+          </ExerciseCardFrame>
+          {cardInfoOpen ? (
+            <div className="absolute bottom-10 right-2 z-30 w-44 rounded-xl border border-white/10 bg-[#0b1020]/95 p-3 text-[10px] text-slate-200 shadow-[0_16px_30px_rgba(0,0,0,0.55)] backdrop-blur">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.18em] text-slate-400">
+                  Infos
+                  <button
+                    type="button"
+                    onClick={() => setInfoCardId(null)}
+                    className="text-[10px] text-slate-400 hover:text-slate-200"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="text-[11px] font-semibold text-white">
+                  {item.title}
+                </div>
+                <div className="text-[10px] text-slate-300">
+                  {item.category || cardMeta.category || "Non classé"}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {cardMeta.type ?? cardMeta.trainingType ?? "-"}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {Array.isArray(cardMeta.objective)
+                    ? cardMeta.objective.join(", ")
+                    : cardMeta.objective ?? "-"}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (item.is_global || kind !== "animation") {
+      return (
+        <div
+          key={item.id}
+          className={[
+            wrapperClassName,
+            "flex h-full flex-col rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-[0_24px_50px_rgba(0,0,0,0.55)] backdrop-blur",
+          ].join(" ")}
+          style={wrapperStyle}
+          data-kind={isScroll ? kind : undefined}
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleFavorite(item.id);
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            className={[
+              "absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-black/40 text-[10px] transition",
+            ].join(" ")}
+            style={
+              favoriteIds.has(item.id)
+                ? {
+                    color: "#ffe600",
+                    borderColor: "rgba(255,255,255,0.25)",
+                    backgroundColor: "rgba(0,0,0,0.4)",
+                  }
+                : { color: "rgba(255,255,255,0.7)" }
+            }
+            aria-label="Favori"
+          >
+            ★
+          </button>
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-lg font-semibold text-white">{item.title}</h3>
+            {item.is_global ? (
+              <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200">
+                Template
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
+              {item.category}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
+              {item.duration ? `${item.duration} min` : "-"}
+            </span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
+              {getExerciseKind(item) === "video"
+                ? "Vidéo"
+                : getExerciseKind(item) === "card"
+                ? "Carte"
+                : "Animé"}
+            </span>
+          </div>
+          {item.is_global ? (
+            <div className="mt-auto flex flex-wrap gap-2 pt-5">
+              <button
+                type="button"
+                onClick={() => handleDuplicate(item)}
+                disabled={busyId === item.id}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+              >
+                Dupliquer
+              </button>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={item.id}
+        className={wrapperClassName}
+        style={wrapperStyle}
+        data-kind={isScroll ? kind : undefined}
+      >
+        <div className="w-full">
+          <ExerciseVideoCard
+            exercise={item}
+            busy={busyId === item.id}
+            onDelete={(exercise) => setPendingDelete(exercise)}
+            favorite={favoriteIds.has(item.id)}
+            onToggleFavorite={() => toggleFavorite(item.id)}
+          />
+        </div>
+      </div>
+    );
+  };
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const filterPanelRef = useRef<HTMLDivElement | null>(null);
@@ -132,21 +439,48 @@ export default function ExercisesLibrary() {
     const { data, error } = await supabase
       .from("training_exercises")
       .select(
-        "id,title,category,duration,type,is_global,created_at,updated_at,animation_data",
+        "id,title,category,duration,type,is_global,created_at,updated_at",
       )
       .order("created_at", { ascending: false });
     if (error) {
       showToast("error", error.message);
       setItems([]);
     } else {
-      setItems((data as ExerciseRow[]) ?? []);
+      const baseItems = ((data as ExerciseRow[]) ?? []).map((item) => ({
+        ...item,
+        animation_data: null,
+      }));
+      setItems(baseItems);
     }
     setLoading(false);
+  };
+
+  const prefetchAnimationData = async (ids: string[]) => {
+    if (!ids.length) return;
+    const { data, error } = await supabase
+      .from("training_exercises")
+      .select("id,animation_data")
+      .in("id", ids);
+    if (error || !data) return;
+    const map = new Map(
+      (data as Array<{ id: string; animation_data: unknown }>).map((row) => [
+        row.id,
+        row.animation_data,
+      ]),
+    );
+    setItems((prev) =>
+      prev.map((item) =>
+        map.has(item.id)
+          ? { ...item, animation_data: map.get(item.id) }
+          : item,
+      ),
+    );
   };
 
   useEffect(() => {
     fetchExercises();
   }, []);
+
 
   useEffect(() => {
     if (!showCreateMenu) return;
@@ -258,6 +592,7 @@ export default function ExercisesLibrary() {
     setBusyId(null);
   };
 
+
   const handleDelete = async (item: ExerciseRow) => {
     if (item.is_global) return;
     setBusyId(item.id);
@@ -302,9 +637,24 @@ export default function ExercisesLibrary() {
     [filters],
   );
 
-  const getMeta = (item: ExerciseRow) => {
+  const getCardCover = (item: ExerciseRow) => {
     const payload = item.animation_data as Record<string, any> | null;
-    return (payload?.metadata ?? payload?.meta ?? {}) as Record<string, any>;
+    return (
+      payload?.coverImageUrl ??
+      payload?.pitchState?.coverImageUrl ??
+      null
+    );
+  };
+
+  const getPitchOrientation = (item: ExerciseRow) => {
+    const payload = item.animation_data as Record<string, any> | null;
+    return (
+      payload?.pitchOrientation ??
+      payload?.pitchState?.pitchOrientation ??
+      payload?.meta?.pitchOrientation ??
+      payload?.metadata?.pitchOrientation ??
+      null
+    ) as "landscape" | "portrait" | null;
   };
 
   const matchesSearch = (item: ExerciseRow) => {
@@ -341,8 +691,10 @@ export default function ExercisesLibrary() {
     return items
       .filter((item) => {
         if (typeFilter === "all") return true;
-        if (typeFilter === "animation") return item.type === "animated";
-        return item.type === typeFilter;
+        if (typeFilter === "animation") return getExerciseKind(item) === "animation";
+        if (typeFilter === "video") return getExerciseKind(item) === "video";
+        if (typeFilter === "card") return getExerciseKind(item) === "card";
+        return true;
       })
       .filter((item) => (showFavoritesOnly ? favoriteIds.has(item.id) : true))
       .filter((item) => matchesSearch(item))
@@ -408,6 +760,20 @@ export default function ExercisesLibrary() {
     search,
     filters,
   ]);
+
+  const missingAnimationIds = useMemo(() => {
+    if (!items.length) return [];
+    return filteredExercises
+      .filter((item) => !item.animation_data)
+      .slice(0, 12)
+      .map((item) => item.id);
+  }, [filteredExercises, items.length]);
+
+  useEffect(() => {
+    if (!missingAnimationIds.length) return;
+    prefetchAnimationData(missingAnimationIds);
+  }, [missingAnimationIds]);
+
 
   return (
     <div className="mt-8">
@@ -826,16 +1192,21 @@ export default function ExercisesLibrary() {
             </button>
             {showCreateMenu ? (
               <div className="absolute right-0 top-12 z-20 w-56 rounded-2xl border border-white/10 bg-[#0b1020] p-2 text-xs text-slate-200 shadow-[0_20px_40px_rgba(0,0,0,0.45)] backdrop-blur">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateMenu(false);
-                    router.push("/entrainements/exercices/new?type=video");
-                  }}
-                  className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/10"
-                >
-                  Filmer un exercice
-                </button>
+                <label className="block w-full cursor-pointer rounded-xl px-3 py-2 text-left transition hover:bg-white/10">
+                  Ajouter une vidéo
+                  <input
+                    type="file"
+                    accept="video/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      showToast("success", "Vidéo sélectionnée.");
+                      setShowCreateMenu(false);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={() => {
@@ -854,7 +1225,7 @@ export default function ExercisesLibrary() {
                   }}
                   className="mt-1 w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/10"
                 >
-                  Créer une carte exercice
+                  Créer une carte statique
                 </button>
               </div>
             ) : null}
@@ -894,7 +1265,7 @@ export default function ExercisesLibrary() {
 
       <div
         className={[
-          "mt-6 grid grid-cols-1 gap-4 transition-all duration-200 ease-out md:grid-cols-2 xl:grid-cols-3",
+          "mt-6 transition-all duration-200 ease-out",
           animateResults ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0",
         ].join(" ")}
       >
@@ -903,7 +1274,7 @@ export default function ExercisesLibrary() {
             Chargement des exercices...
           </div>
         ) : filteredExercises.length === 0 ? (
-          <div className="col-span-full flex min-h-[180px] items-center justify-center rounded-[28px] border border-white/10 bg-black/35 p-8 text-center text-sm text-slate-300 shadow-[0_26px_60px_rgba(0,0,0,0.6)]">
+          <div className="flex min-h-[180px] items-center justify-center rounded-[28px] border border-white/10 bg-black/35 p-8 text-center text-sm text-slate-300 shadow-[0_26px_60px_rgba(0,0,0,0.6)]">
             <div>
               <p className="text-base font-semibold text-slate-100">
                 Aucun exercice trouvé
@@ -927,87 +1298,63 @@ export default function ExercisesLibrary() {
               </button>
             </div>
           </div>
-        ) : (
-          filteredExercises.map((item) => (
-            item.is_global || item.type !== "animated" ? (
-              <div
-                key={item.id}
-                className="relative flex h-full flex-col rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-[0_24px_50px_rgba(0,0,0,0.55)] backdrop-blur"
-              >
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    toggleFavorite(item.id);
-                  }}
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                  }}
-                  className={[
-                    "absolute right-4 top-4 flex h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-black/40 text-[10px] transition",
-                  ].join(" ")}
-                  style={
-                    favoriteIds.has(item.id)
-                      ? {
-                          color: "#ffe600",
-                          borderColor: "rgba(255,255,255,0.25)",
-                          backgroundColor: "rgba(0,0,0,0.4)",
-                        }
-                      : { color: "rgba(255,255,255,0.7)" }
-                  }
-                  aria-label="Favori"
-                >
-                  ★
-                </button>
-                <div className="flex items-start justify-between gap-3">
-                  <h3 className="text-lg font-semibold text-white">
-                    {item.title}
-                  </h3>
-                  {item.is_global ? (
-                    <span className="rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-200">
-                      Template
-                    </span>
+        ) : typeFilter === "all" ? (
+          <div className="space-y-8">
+            {(() => {
+              const cards = filteredExercises.filter(
+                (item) => getExerciseKind(item) === "card",
+              );
+              const animations = filteredExercises.filter(
+                (item) => getExerciseKind(item) === "animation",
+              );
+              const videos = filteredExercises.filter(
+                (item) => getExerciseKind(item) === "video",
+              );
+
+              return (
+                <>
+                  {cards.length > 0 ? (
+                    <section>
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Cartes
+                      </p>
+                      <div className="flex flex-nowrap items-stretch gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+                        {cards.map((item) => renderExerciseItem(item, true))}
+                      </div>
+                    </section>
                   ) : null}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
-                    {item.category}
-                  </span>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
-                  {item.duration ? `${item.duration} min` : "-"}
-                </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-300">
-                    {item.type === "video"
-                      ? "Vidéo"
-                      : item.type === "card"
-                      ? "Carte"
-                      : "Animé"}
-                  </span>
-                </div>
-                {item.is_global ? (
-                  <div className="mt-auto flex flex-wrap gap-2 pt-5">
-                    <button
-                      type="button"
-                      onClick={() => handleDuplicate(item)}
-                      disabled={busyId === item.id}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
-                    >
-                      Dupliquer
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <ExerciseVideoCard
-                key={item.id}
-                exercise={item}
-                busy={busyId === item.id}
-                onDelete={(exercise) => setPendingDelete(exercise)}
-                favorite={favoriteIds.has(item.id)}
-                onToggleFavorite={() => toggleFavorite(item.id)}
-              />
-            )
-          ))
+                  {animations.length > 0 ? (
+                    <section>
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Animations
+                      </p>
+                      <div className="flex flex-nowrap items-start gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                        {animations.map((item) => renderExerciseItem(item, true))}
+                      </div>
+                    </section>
+                  ) : null}
+                  {videos.length > 0 ? (
+                    <section>
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                        Vidéos
+                      </p>
+                      <div className="flex flex-nowrap items-start gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                        {videos.map((item) => renderExerciseItem(item, true))}
+                      </div>
+                    </section>
+                  ) : null}
+                </>
+              );
+            })()}
+          </div>
+        ) : typeFilter === "animation" ? (
+          <div className="flex flex-nowrap items-start gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+            {filteredExercises.map((item) => renderExerciseItem(item, true))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 items-start md:grid-cols-2 xl:grid-cols-3">
+            {filteredExercises.map((item) => renderExerciseItem(item))}
+          </div>
         )}
       </div>
       {pendingDelete ? (
@@ -1037,6 +1384,61 @@ export default function ExercisesLibrary() {
                 Supprimer
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+      {expandedCard ? (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <button
+            type="button"
+            className="absolute inset-0"
+            onClick={() => setExpandedCard(null)}
+            aria-label="Fermer"
+          />
+          <button
+            type="button"
+            onClick={() => setExpandedCard(null)}
+            className="fixed right-5 top-5 z-[1305] flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-white text-xl font-bold text-black shadow-[0_12px_28px_rgba(0,0,0,0.6)]"
+            aria-label="Fermer"
+          >
+            ✕
+          </button>
+          <div className="relative z-10 w-full max-w-[560px]">
+            {(() => {
+              const expandedOrientation = getPitchOrientation(expandedCard);
+              const expandedRotate =
+                expandedOrientation === "landscape"
+                  ? true
+                  : expandedOrientation === "portrait"
+                    ? false
+                    : true;
+              const expandedTransform = expandedRotate
+                ? "rotate(90deg) scale(0.82)"
+                : "scale(0.82)";
+              return (
+                <ExerciseCardFrame
+                  category={expandedCard.category || "Non classé"}
+                  label={expandedCard.title || "Carte exercice"}
+                  className="w-full"
+                  mediaAspect="portrait"
+                  mediaRatio={cardRatios[expandedCard.id]}
+                  cardScale={1}
+                  rotateMedia={expandedRotate}
+                  mediaTransform={expandedTransform}
+                  footerLabel={cardNumberMap[expandedCard.id]}
+                >
+                  {getCardCover(expandedCard) ? (
+                    <img
+                      src={getCardCover(expandedCard) as string}
+                      alt={expandedCard.title}
+                      className="block h-full w-full object-contain"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-gradient-to-br from-black/40 via-black/10 to-black/40" />
+                  )}
+                </ExerciseCardFrame>
+              );
+            })()}
           </div>
         </div>
       ) : null}

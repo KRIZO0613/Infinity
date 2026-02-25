@@ -58,6 +58,25 @@ const formatFullDate = (date: Date) =>
     year: "numeric",
   }).format(date);
 
+const shouldSilenceLoadError = (error: unknown) => {
+  const message =
+    (error as { message?: string })?.message?.toLowerCase?.() ??
+    String(error).toLowerCase();
+  const name = (error as { name?: string })?.name ?? "";
+  return (
+    name === "AbortError" ||
+    message.includes("aborted") ||
+    message.includes("abort") ||
+    message.includes("load failed") ||
+    message.includes("failed to fetch")
+  );
+};
+
+const logLoadError = (label: string, error: unknown) => {
+  if (shouldSilenceLoadError(error)) return;
+  console.error(label, (error as { message?: string })?.message ?? error);
+};
+
 export default function TeamTrainingsClient({
   teamId,
 }: TeamTrainingsClientProps) {
@@ -134,21 +153,26 @@ export default function TeamTrainingsClient({
 
     async function loadTeam() {
       if (!resolvedTeamId) return;
-      const { data, error } = await supabase
-        .from("teams")
-        .select("name,category,club_id")
-        .eq("id", resolvedTeamId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("teams")
+          .select("name,category,club_id")
+          .eq("id", resolvedTeamId)
+          .maybeSingle();
 
-      if (cancelled) return;
-      if (error) {
-        console.error("Erreur chargement équipe:", error.message ?? error);
-        return;
+        if (cancelled) return;
+        if (error) {
+          logLoadError("Erreur chargement équipe:", error);
+          return;
+        }
+
+        const teamLabel = data?.name ?? data?.category ?? null;
+        setTeamName(teamLabel);
+        setClubId(data?.club_id ?? null);
+      } catch (error) {
+        if (cancelled) return;
+        logLoadError("Erreur chargement équipe:", error);
       }
-
-      const teamLabel = data?.name ?? data?.category ?? null;
-      setTeamName(teamLabel);
-      setClubId(data?.club_id ?? null);
     }
 
     loadTeam();
@@ -168,8 +192,10 @@ export default function TeamTrainingsClient({
         if (!cancelled) setTrainings(data ?? []);
       } catch (err) {
         if (!cancelled) {
-          console.error("Erreur chargement entraînements:", err);
-          setError("Impossible de charger les entraînements.");
+          if (!shouldSilenceLoadError(err)) {
+            console.error("Erreur chargement entraînements:", err);
+            setError("Impossible de charger les entraînements.");
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -459,17 +485,19 @@ export default function TeamTrainingsClient({
   const handleAddExercise = () => {
     if (!exerciseTraining) return;
     if (!exerciseName.trim()) return;
+    const trainingId = exerciseTraining.id;
     const nextExercise: Exercise = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       name: exerciseName.trim(),
       duration: exerciseDuration.trim(),
       notes: exerciseNotes.trim(),
     };
-    setExercisesByEvent((prev) => {
-      const current = prev[exerciseTraining.id] ?? [];
+    setExercisesByEvent((currentState) => {
+      const safeState = currentState ?? {};
+      const current = safeState[trainingId] ?? [];
       return {
-        ...prev,
-        [exerciseTraining.id]: [...current, nextExercise],
+        ...safeState,
+        [trainingId]: [...current, nextExercise],
       };
     });
     closeExercise();

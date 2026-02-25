@@ -2920,7 +2920,16 @@ const useCanvasElements = (
   };
 };
 
-export default function ExerciseAnimatedEditor() {
+type ExerciseEditorMode = "animated" | "static";
+
+type ExerciseAnimatedEditorProps = {
+  mode?: ExerciseEditorMode;
+};
+
+export default function ExerciseAnimatedEditor({
+  mode = "animated",
+}: ExerciseAnimatedEditorProps) {
+  const isStaticEditor = mode === "static";
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -2965,6 +2974,12 @@ export default function ExerciseAnimatedEditor() {
   const [previewMode, setPreviewMode] = useState(false);
   const [immersiveMode] = useState(false);
   const [animationMode, setAnimationMode] = useState<"image" | "video" | null>(null);
+  useEffect(() => {
+    if (!isStaticEditor) return;
+    setAnimationMode(null);
+    setRecordMode(false);
+    setPreviewMode(false);
+  }, [isStaticEditor]);
   const [showToolboxMenu, setShowToolboxMenu] = useState(false);
   const toolboxMenuRef = useRef<HTMLDivElement | null>(null);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
@@ -4697,6 +4712,83 @@ export default function ExerciseAnimatedEditor() {
     };
   };
 
+  const exportStaticExercise = (coverImageUrl: string | null) => {
+    const trimmedName = name.trim();
+    const categoryValue =
+      categoryMain && CATEGORY_VALUE_MAP[categoryMain]
+        ? (CATEGORY_VALUE_MAP[categoryMain] as
+            | "échauffement"
+            | "motricité"
+            | "technique"
+            | "tactique"
+            | "physique"
+            | "jeu_opposition"
+            | "situation_réelle"
+            | "retour_au_calme")
+        : undefined;
+    const typeValue =
+      trainingType && TYPE_VALUE_MAP[trainingType]
+        ? (TYPE_VALUE_MAP[trainingType] as "avec_ballon" | "sans_ballon" | "mixte")
+        : undefined;
+    const objectiveValue = objectives
+      .map((item) => OBJECTIVE_VALUE_MAP[item])
+      .filter(Boolean) as Array<
+      | "passe"
+      | "contrôle"
+      | "conduite"
+      | "tir"
+      | "finition"
+      | "centres"
+      | "défense_individuelle"
+      | "défense_collective"
+      | "pressing"
+      | "appels"
+      | "conservation"
+    >;
+    const metadata = {
+      id: buildId(),
+      name: trimmedName,
+      format: "card" as const,
+      category: categoryValue,
+      type: typeValue,
+      objective: objectiveValue.length ? objectiveValue : undefined,
+      levels: levels.length
+        ? (levels as Array<"U6-U9" | "U10-U11" | "U12-U13" | "U14-U15" | "U16+">)
+        : undefined,
+      notes: notes.trim() ? notes.trim() : undefined,
+      isIncomplete: !typeValue || objectiveValue.length === 0,
+    };
+    const resolvedOrientation =
+      orientationRef.current ??
+      (typeof window !== "undefined" && window.innerWidth > window.innerHeight * 1.1
+        ? "landscape"
+        : "portrait");
+    const pitchState = {
+      pitchPreset,
+      pitchOrientation: resolvedOrientation,
+      elements,
+      paths,
+      ballAttachments,
+    };
+    return {
+      title: trimmedName || "Carte exercice",
+      category: categoryMain || "Non classé",
+      duration: 0,
+      type: "animated",
+      animation_data: {
+        pitchPreset,
+        pitchOrientation: resolvedOrientation,
+        elements,
+        paths,
+        ballAttachments,
+        pitchState,
+        coverImageUrl,
+        metadata,
+        meta: metadata,
+      },
+    };
+  };
+
   const handleSave = async () => {
     if (saving) return;
     const trimmedName = name.trim();
@@ -4710,10 +4802,6 @@ export default function ExerciseAnimatedEditor() {
       showToast("error", "Choisis une catégorie.");
       return;
     }
-    if (animationMode !== "video" || strokes.length === 0) {
-      showToast("error", "Lance un enregistrement REC avant d’enregistrer.");
-      return;
-    }
     setSaving(true);
     try {
       const { data: userData, error: userError } =
@@ -4721,7 +4809,17 @@ export default function ExerciseAnimatedEditor() {
       if (userError || !userData?.user) {
         throw new Error("Utilisateur non connecté.");
       }
-      const payload = exportExercise();
+      if (!isStaticEditor && (animationMode !== "video" || strokes.length === 0)) {
+        showToast("error", "Lance un enregistrement REC avant d’enregistrer.");
+        setSaving(false);
+        return;
+      }
+      const coverImageUrl = isStaticEditor
+        ? canvasRef.current?.toDataURL("image/png") ?? null
+        : null;
+      const payload = isStaticEditor
+        ? exportStaticExercise(coverImageUrl)
+        : exportExercise();
       const { error } = await supabase.from("training_exercises").insert({
         title: payload.title,
         category: payload.category,
@@ -5232,12 +5330,16 @@ export default function ExerciseAnimatedEditor() {
                       saving ||
                       name.trim().length < 3 ||
                       !categoryMain ||
-                      animationMode !== "video" ||
-                      strokes.length === 0
+                      (!isStaticEditor &&
+                        (animationMode !== "video" || strokes.length === 0))
                     }
                     className="rounded-full bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-500 disabled:opacity-60"
                   >
-                    {saving ? "Enregistrement..." : "Enregistrer"}
+                    {saving
+                      ? "Enregistrement..."
+                      : isStaticEditor
+                        ? "Enregistrer la carte"
+                        : "Enregistrer"}
                   </button>
                 </div>
               </>
@@ -5696,7 +5798,7 @@ export default function ExerciseAnimatedEditor() {
                     }}
                     className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-slate-200 transition hover:bg-white/5"
                   >
-                    Enregistrer
+                    {isStaticEditor ? "Enregistrer la carte" : "Enregistrer"}
                   </button>
                   <button
                     onClick={() => {
@@ -5707,39 +5809,43 @@ export default function ExerciseAnimatedEditor() {
                   >
                     Supprimer
                   </button>
-                  <div className="my-2 h-px bg-white/10" />
-                  <button
-                    onClick={() => {
-                      setAnimationMode("video");
-                      setRecordMode(false);
-                      setGroupMode(false);
-                      setShowSettingsMenu(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
-                      animationMode === "video"
-                        ? "bg-white/10 text-white"
-                        : "text-slate-300 hover:bg-white/5"
-                    }`}
-                  >
-                    Animation : Vidéo
-                    {animationMode === "video" ? "✓" : ""}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setAnimationMode("image");
-                      setRecordMode(false);
-                      setGroupMode(false);
-                      setShowSettingsMenu(false);
-                    }}
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
-                      animationMode === "image"
-                        ? "bg-white/10 text-white"
-                        : "text-slate-300 hover:bg-white/5"
-                    }`}
-                  >
-                    Animation : Image
-                    {animationMode === "image" ? "✓" : ""}
-                  </button>
+                  {!isStaticEditor ? (
+                    <>
+                      <div className="my-2 h-px bg-white/10" />
+                      <button
+                        onClick={() => {
+                          setAnimationMode("video");
+                          setRecordMode(false);
+                          setGroupMode(false);
+                          setShowSettingsMenu(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                          animationMode === "video"
+                            ? "bg-white/10 text-white"
+                            : "text-slate-300 hover:bg-white/5"
+                        }`}
+                      >
+                        Animation : Vidéo
+                        {animationMode === "video" ? "✓" : ""}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAnimationMode("image");
+                          setRecordMode(false);
+                          setGroupMode(false);
+                          setShowSettingsMenu(false);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                          animationMode === "image"
+                            ? "bg-white/10 text-white"
+                            : "text-slate-300 hover:bg-white/5"
+                        }`}
+                      >
+                        Animation : Image
+                        {animationMode === "image" ? "✓" : ""}
+                      </button>
+                    </>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -6447,7 +6553,7 @@ export default function ExerciseAnimatedEditor() {
         </div>
       </main>
 
-      {previewMode ? (
+      {!isStaticEditor && previewMode ? (
         <div className="fixed inset-0 z-30">
           <div className="absolute inset-0" />
           <button

@@ -86,6 +86,18 @@ const pad2 = (value: number) => value.toString().padStart(2, "0");
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
+const shouldSilenceLoadError = (error: unknown) => {
+  const message =
+    (error as { message?: string })?.message?.toLowerCase?.() ??
+    String(error).toLowerCase();
+  return message.includes("load failed") || message.includes("failed to fetch");
+};
+
+const logLoadError = (label: string, error: unknown) => {
+  if (shouldSilenceLoadError(error)) return;
+  console.error(label, (error as { message?: string })?.message ?? error);
+};
+
 const formatShortDate = (date: string) => {
   if (!date) return "";
   const parsed = new Date(date);
@@ -370,34 +382,39 @@ export default function CupTab({ teamId }: CupTabProps) {
 
     async function loadTeamInfo() {
       if (!teamId) return;
-      const { data, error } = await supabase
-        .from("teams")
-        .select("name,category,club_id")
-        .eq("id", teamId)
-        .maybeSingle();
-
-      if (cancelled) return;
-      if (error) {
-        console.error("Erreur chargement équipe:", error.message ?? error);
-        return;
-      }
-
-      let clubName: string | null = null;
-      if (data?.club_id) {
-        const { data: clubData } = await supabase
-          .from("clubs")
-          .select("name")
-          .eq("id", data.club_id)
+      try {
+        const { data, error } = await supabase
+          .from("teams")
+          .select("name,category,club_id")
+          .eq("id", teamId)
           .maybeSingle();
-        clubName = clubData?.name ?? null;
-      }
 
-      setTeamInfo({
-        name: data?.name ?? null,
-        category: data?.category ?? null,
-        level: null,
-        clubName,
-      });
+        if (cancelled) return;
+        if (error) {
+          logLoadError("Erreur chargement équipe:", error);
+          return;
+        }
+
+        let clubName: string | null = null;
+        if (data?.club_id) {
+          const { data: clubData } = await supabase
+            .from("clubs")
+            .select("name")
+            .eq("id", data.club_id)
+            .maybeSingle();
+          clubName = clubData?.name ?? null;
+        }
+
+        setTeamInfo({
+          name: data?.name ?? null,
+          category: data?.category ?? null,
+          level: null,
+          clubName,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        logLoadError("Erreur chargement équipe:", error);
+      }
     }
 
     loadTeamInfo();
@@ -412,21 +429,27 @@ export default function CupTab({ teamId }: CupTabProps) {
     async function loadPlayers() {
       if (!teamId) return;
       setPlayersLoading(true);
-      const { data, error } = await supabase
-        .from("players")
-        .select("id,first_name,last_name,photo_url")
-        .eq("team_id", teamId)
-        .order("last_name", { ascending: true });
+      try {
+        const { data, error } = await supabase
+          .from("players")
+          .select("id,first_name,last_name,photo_url")
+          .eq("team_id", teamId)
+          .order("last_name", { ascending: true });
 
-      if (cancelled) return;
-      if (error) {
-        console.error("Erreur chargement joueurs:", error.message ?? error);
+        if (cancelled) return;
+        if (error) {
+          logLoadError("Erreur chargement joueurs:", error);
+          setPlayersLoading(false);
+          return;
+        }
+
+        setPlayers((data ?? []) as PlayerLite[]);
         setPlayersLoading(false);
-        return;
+      } catch (error) {
+        if (cancelled) return;
+        logLoadError("Erreur chargement joueurs:", error);
+        setPlayersLoading(false);
       }
-
-      setPlayers((data ?? []) as PlayerLite[]);
-      setPlayersLoading(false);
     }
 
     loadPlayers();
@@ -440,41 +463,46 @@ export default function CupTab({ teamId }: CupTabProps) {
 
     async function loadCup() {
       if (!teamId) return;
-      const { data, error } = await supabase
-        .from("championships")
-        .select("data")
-        .eq("team_id", teamId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("championships")
+          .select("data")
+          .eq("team_id", teamId)
+          .maybeSingle();
 
-      if (cancelled) return;
-      if (error) {
-        console.error("Erreur chargement coupe:", error.message ?? error);
-        return;
-      }
+        if (cancelled) return;
+        if (error) {
+          logLoadError("Erreur chargement coupe:", error);
+          return;
+        }
 
-      const stored = (data?.data ?? {}) as CupStorageData;
-      const storedCups = Array.isArray(stored?.cups)
-        ? (stored.cups as CupCompetition[])
-        : [];
-      const storedCup = stored?.cup ?? {};
-      const storedRounds = Array.isArray(storedCup?.rounds)
-        ? (storedCup.rounds as CupRound[])
-        : [];
-      setStorageData(stored);
-      if (storedCups.length) {
-        setCups(storedCups);
-        setActiveCupId(storedCups[0]?.id ?? null);
-      } else if (storedCup?.name || storedRounds.length) {
-        const legacyCup: CupCompetition = {
-          id: "legacy-cup",
-          name: storedCup?.name ?? "Coupe",
-          rounds: storedRounds,
-        };
-        setCups([legacyCup]);
-        setActiveCupId(legacyCup.id);
-      } else {
-        setCups([]);
-        setActiveCupId(null);
+        const stored = (data?.data ?? {}) as CupStorageData;
+        const storedCups = Array.isArray(stored?.cups)
+          ? (stored.cups as CupCompetition[])
+          : [];
+        const storedCup = stored?.cup ?? {};
+        const storedRounds = Array.isArray(storedCup?.rounds)
+          ? (storedCup.rounds as CupRound[])
+          : [];
+        setStorageData(stored);
+        if (storedCups.length) {
+          setCups(storedCups);
+          setActiveCupId(storedCups[0]?.id ?? null);
+        } else if (storedCup?.name || storedRounds.length) {
+          const legacyCup: CupCompetition = {
+            id: "legacy-cup",
+            name: storedCup?.name ?? "Coupe",
+            rounds: storedRounds,
+          };
+          setCups([legacyCup]);
+          setActiveCupId(legacyCup.id);
+        } else {
+          setCups([]);
+          setActiveCupId(null);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        logLoadError("Erreur chargement coupe:", error);
       }
     }
 

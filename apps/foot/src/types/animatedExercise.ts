@@ -36,7 +36,7 @@ export type CanvasElementBase = {
   [key: string]: unknown;
 };
 
-type AnimatedObjective =
+type ExerciseObjective =
   | "passe"
   | "contrôle"
   | "conduite"
@@ -49,10 +49,11 @@ type AnimatedObjective =
   | "appels"
   | "conservation";
 
-export type AnimatedExerciseMetadata = {
+export type ExerciseKind = "animation" | "video" | "card";
+
+export type ExerciseMetadataBase = {
   id: string;
   name: string;
-  format: "animation";
   category?:
     | "échauffement"
     | "activation"
@@ -64,13 +65,23 @@ export type AnimatedExerciseMetadata = {
     | "situation_réelle"
     | "retour_au_calme";
   type?: "avec_ballon" | "sans_ballon" | "mixte";
-  objective?: AnimatedObjective | AnimatedObjective[];
+  objective?: ExerciseObjective | ExerciseObjective[];
   levels?: ("U6-U9" | "U10-U11" | "U12-U13" | "U14-U15" | "U16+")[];
   durationMinutes?: number;
   notes?: string;
   equipment?: string;
   isIncomplete: boolean;
 };
+
+export type AnimatedExerciseMetadata = ExerciseMetadataBase & {
+  format: "animation";
+};
+
+export type StaticExerciseMetadata = ExerciseMetadataBase & {
+  format: "card";
+};
+
+export type ExerciseMetadata = AnimatedExerciseMetadata | StaticExerciseMetadata;
 
 export type AnimatedExercisePayload = {
   pitchPreset?: string;
@@ -84,6 +95,24 @@ export type AnimatedExercisePayload = {
   actionSpeedMultipliers?: Record<number, number> | Record<string, number>;
   frameSpeedMultipliers?: Record<string, number>;
   frameDuration?: number;
-  metadata?: AnimatedExerciseMetadata;
-  meta?: Partial<AnimatedExerciseMetadata>;
+  metadata?: ExerciseMetadata;
+  meta?: Partial<ExerciseMetadata>;
+};
+
+export type StaticExercisePayload = {
+  pitchPreset?: string;
+  pitchOrientation?: "landscape" | "portrait";
+  elements?: CanvasElementBase[];
+  paths?: Record<string, PathPoint[]>;
+  ballAttachments?: Record<string, string>;
+  pitchState?: {
+    pitchPreset?: string;
+    pitchOrientation?: "landscape" | "portrait";
+    elements?: CanvasElementBase[];
+    paths?: Record<string, PathPoint[]>;
+    ballAttachments?: Record<string, string>;
+  };
+  coverImageUrl?: string | null;
+  metadata?: ExerciseMetadata;
+  meta?: Partial<ExerciseMetadata>;
 };
