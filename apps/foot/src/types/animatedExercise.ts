@@ -49,7 +49,8 @@ type ExerciseObjective =
   | "appels"
   | "conservation";
 
-export type ExerciseKind = "animation" | "video" | "card";
+export type ExerciseType = "animation" | "video" | "card" | "test";
+export type ExerciseKind = ExerciseType;
 
 export type ExerciseMetadataBase = {
   id: string;

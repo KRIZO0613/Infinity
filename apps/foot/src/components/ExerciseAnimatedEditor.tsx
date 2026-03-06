@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
 import { MiniGoalIcon, PassWallIcon } from "@/components/assets";
@@ -10,6 +10,8 @@ import { useExerciseAnimationPlayer } from "@/components/useExerciseAnimationPla
 const TOOL_OPTIONS = [
   { key: "select", label: "Sélection" },
   { key: "player", label: "Joueur" },
+  { key: "player_runner", label: "Joueur 3D" },
+  { key: "player_runner_noball", label: "Joueur sans ballon" },
   { key: "ball", label: "Ballon" },
   { key: "cone", label: "Plot" },
   { key: "disc", label: "Coupelle" },
@@ -68,6 +70,7 @@ type CanvasElement = {
   y: number;
   color?: string;
   label?: string;
+  playerStyle?: "classic" | "runner" | "runner_noball";
   size?: number;
   orientation?: "up" | "down";
   rotation?: number;
@@ -75,7 +78,7 @@ type CanvasElement = {
   shapePoints?: Array<{ x: number; y: number }>;
 };
 
-const SHAPE_TOOLS: ShapeKind[] = [
+const SHAPE_TOOLS = [
   "line",
   "arrow",
   "line_dashed",
@@ -85,28 +88,37 @@ const SHAPE_TOOLS: ShapeKind[] = [
   "rect_dashed",
   "circle",
   "hexagon",
-];
+] as const satisfies readonly ToolKey[];
 
-const isShapeTool = (tool: ToolKey): tool is ShapeKind =>
-  SHAPE_TOOLS.includes(tool as ShapeKind);
+type ShapeToolKey = (typeof SHAPE_TOOLS)[number];
 
-const ROTATABLE_SHAPES: ShapeKind[] = [
+const isShapeTool = (tool: ToolKey): tool is ShapeToolKey =>
+  SHAPE_TOOLS.includes(tool as ShapeToolKey);
+
+const ROTATABLE_SHAPES = [
   "line",
   "arrow",
   "line_dashed",
   "arrow_dashed",
-];
+] as const;
 
 const isRotatableShape = (kind?: ShapeKind) =>
-  Boolean(kind && ROTATABLE_SHAPES.includes(kind));
+  Boolean(
+    kind && ROTATABLE_SHAPES.includes(kind as (typeof ROTATABLE_SHAPES)[number]),
+  );
 
-const POLYLINE_SHAPES: ShapeKind[] = ["polyline_dashed", "polyarrow_dashed"];
+const POLYLINE_SHAPES = [
+  "polyline_dashed",
+  "polyarrow_dashed",
+] as const satisfies readonly ToolKey[];
 
 const isPolylineShape = (kind?: ShapeKind) =>
-  Boolean(kind && POLYLINE_SHAPES.includes(kind));
+  Boolean(kind && POLYLINE_SHAPES.includes(kind as PolylineToolKey));
 
-const isPolylineTool = (tool: ToolKey): tool is ShapeKind =>
-  POLYLINE_SHAPES.includes(tool as ShapeKind);
+type PolylineToolKey = (typeof POLYLINE_SHAPES)[number];
+
+const isPolylineTool = (tool: ToolKey): tool is PolylineToolKey =>
+  POLYLINE_SHAPES.includes(tool as PolylineToolKey);
 
 type FrameSnapshot = {
   id: string;
@@ -139,7 +151,7 @@ type Stroke = {
   durationMs: number;
 };
 
-type PitchPreset = "standard";
+type PitchPreset = "standard" | "training_dark_green";
 
 type PitchRect = { x: number; y: number; w: number; h: number; isLandscape: boolean };
 
@@ -160,10 +172,24 @@ type ToastState = {
   message: string;
 } | null;
 
+type ExerciseRow = {
+  id: string;
+  title: string;
+  category: string;
+  duration: number;
+  type: string;
+  animation_data: unknown;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type EditorSnapshot = {
   elements: CanvasElement[];
   frames: FrameSnapshot[];
   paths: Record<string, PathPoint[]>;
+  pathElementMap: Record<string, string>;
+  trajectoryOrder: string[];
+  pathColorMap: Record<string, string>;
   strokes: Stroke[];
   strokesBase: BaseSnapshot | null;
   ballAttachments: Record<string, string>;
@@ -178,6 +204,28 @@ const DEFAULT_COLORS = [
   "#FF6F91",
   "#FFFFFF",
 ];
+
+const RUNNER_SPRITE_SRC = "/icons/Joueurcour.png";
+const RUNNER_NO_BALL_SPRITE_SRC = "/icons/JOUEUR2SANSBAL.png";
+const runnerSprites: Record<
+  "runner" | "runner_noball",
+  { src: string; img: HTMLImageElement | null; ready: boolean }
+> = {
+  runner: { src: RUNNER_SPRITE_SRC, img: null, ready: false },
+  runner_noball: { src: RUNNER_NO_BALL_SPRITE_SRC, img: null, ready: false },
+};
+const getRunnerSprite = (variant: "runner" | "runner_noball") => {
+  if (typeof window === "undefined") return null;
+  const entry = runnerSprites[variant];
+  if (!entry.img) {
+    entry.img = new Image();
+    entry.img.src = entry.src;
+    entry.img.onload = () => {
+      entry.ready = true;
+    };
+  }
+  return entry.ready ? entry.img : null;
+};
 
 const CATEGORY_MAIN_OPTIONS = [
   "Échauffement / Activation",
@@ -205,6 +253,64 @@ const OBJECTIVE_OPTIONS = [
   "Appels",
   "Conservation",
 ];
+
+const TRAJECTORY_COLORS = {
+  classic: "rgba(96, 165, 250, 0.85)",
+  runner: "rgba(167, 139, 250, 0.85)",
+  runnerNoBall: "rgba(245, 158, 11, 0.85)",
+  ball: "rgba(255, 255, 255, 0.75)",
+};
+const TRAJECTORY_PALETTE = [
+  "rgba(96, 165, 250, 0.85)",
+  "rgba(167, 139, 250, 0.85)",
+  "rgba(245, 158, 11, 0.85)",
+  "rgba(34, 211, 238, 0.85)",
+  "rgba(248, 113, 113, 0.85)",
+  "rgba(74, 222, 128, 0.85)",
+  "rgba(251, 191, 36, 0.85)",
+  "rgba(244, 114, 182, 0.85)",
+  "rgba(129, 140, 248, 0.85)",
+  "rgba(163, 163, 163, 0.85)",
+];
+
+const desaturateColor = (input: string, amount = 0.45) => {
+  const clamp = (value: number) => Math.max(0, Math.min(255, value));
+  const parse = () => {
+    if (input.startsWith("#")) {
+      const hex = input.replace("#", "");
+      const value =
+        hex.length === 3
+          ? hex
+              .split("")
+              .map((c) => c + c)
+              .join("")
+          : hex;
+      const r = parseInt(value.slice(0, 2), 16);
+      const g = parseInt(value.slice(2, 4), 16);
+      const b = parseInt(value.slice(4, 6), 16);
+      return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
+        ? { r, g, b }
+        : null;
+    }
+    const rgbMatch = input.match(
+      /rgba?\((\d+),\s*(\d+),\s*(\d+)/i,
+    );
+    if (rgbMatch) {
+      return {
+        r: Number(rgbMatch[1]),
+        g: Number(rgbMatch[2]),
+        b: Number(rgbMatch[3]),
+      };
+    }
+    return null;
+  };
+  const rgb = parse();
+  if (!rgb) return input;
+  const gray = 0.3 * rgb.r + 0.59 * rgb.g + 0.11 * rgb.b;
+  const mix = (channel: number) =>
+    clamp(channel * (1 - amount) + gray * amount);
+  return `rgb(${mix(rgb.r)}, ${mix(rgb.g)}, ${mix(rgb.b)})`;
+};
 
 const LEVEL_OPTIONS = ["U6-U9", "U10-U11", "U12-U13", "U14-U15", "U16+"];
 
@@ -237,6 +343,55 @@ const OBJECTIVE_VALUE_MAP: Record<string, string> = {
   "Pressing": "pressing",
   "Appels": "appels",
   "Conservation": "conservation",
+};
+
+const CATEGORY_LABEL_MAP = Object.entries(CATEGORY_VALUE_MAP).reduce(
+  (acc, [label, value]) => {
+    acc[value] = label;
+    return acc;
+  },
+  {} as Record<string, string>,
+);
+
+const TYPE_LABEL_MAP = Object.entries(TYPE_VALUE_MAP).reduce(
+  (acc, [label, value]) => {
+    acc[value] = label;
+    return acc;
+  },
+  {} as Record<string, string>,
+);
+
+const OBJECTIVE_LABEL_MAP = Object.entries(OBJECTIVE_VALUE_MAP).reduce(
+  (acc, [label, value]) => {
+    acc[value] = label;
+    return acc;
+  },
+  {} as Record<string, string>,
+);
+
+const normalizePayload = (value: unknown) => {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value) as Record<string, any>;
+    } catch {
+      return null;
+    }
+  }
+  return value as Record<string, any>;
+};
+
+const normalizePitchState = (payload: Record<string, any> | null) => {
+  const raw = payload?.pitchState ?? null;
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as Record<string, any>;
+    } catch {
+      return null;
+    }
+  }
+  return raw as Record<string, any>;
 };
 
 
@@ -438,25 +593,25 @@ const getPitchRect = (
 };
 
 const getDefaultSize = (type: ElementType) => {
-  if (type === "player") return 0.035;
-  if (type === "ball") return 0.018;
-  if (type === "cone") return 0.03;
-  if (type === "hoop") return 0.03;
-  if (type === "baton") return 0.028;
-  if (type === "slalom_pole") return 0.02;
-  if (type === "hurdle_bar") return 0.02;
-  if (type === "hurdle_pole") return 0.02;
-  if (type === "mini_goal") return 0.025;
-  if (type === "ladder") return 0.025;
-  if (type === "pass_wall") return 0.028;
-  if (type === "shape") return 0.05;
-  return 0.02;
+  if (type === "player") return 0.045;
+  if (type === "ball") return 0.016;
+  if (type === "cone") return 0.034;
+  if (type === "hoop") return 0.034;
+  if (type === "baton") return 0.032;
+  if (type === "slalom_pole") return 0.024;
+  if (type === "hurdle_bar") return 0.024;
+  if (type === "hurdle_pole") return 0.024;
+  if (type === "mini_goal") return 0.028;
+  if (type === "ladder") return 0.028;
+  if (type === "pass_wall") return 0.032;
+  if (type === "shape") return 0.055;
+  return 0.024;
 };
 
 // Global scale to keep elements visually minimal by default.
-const ELEMENT_SIZE_SCALE = 0.75;
-const PLAYER_SIZE_SCALE = 0.95;
-const CONE_SIZE_SCALE = 0.8;
+const ELEMENT_SIZE_SCALE = 0.9;
+const PLAYER_SIZE_SCALE = 1.2;
+const CONE_SIZE_SCALE = 0.9;
 
 const getRenderSize = (type: ElementType, size: number) => {
   const base = size * ELEMENT_SIZE_SCALE;
@@ -465,6 +620,8 @@ const getRenderSize = (type: ElementType, size: number) => {
   if (type === "shape") return base * 1.15;
   return base;
 };
+
+const getPlayerFootOffset = (radius: number) => radius * 0.9;
 
 const rotatePoint = (
   point: { x: number; y: number },
@@ -498,10 +655,12 @@ const getShapeHandlePosition = (
   if (element.type !== "shape") return null;
   const px = pitchRect.x + element.x * pitchRect.w;
   const py = pitchRect.y + element.y * pitchRect.h;
-  const size = getRenderSize(
-    element.type,
-    element.size ?? getDefaultSize(element.type),
-  );
+  const orientationScale = pitchRect.isLandscape ? 1 : 1.2;
+  const size =
+    getRenderSize(
+      element.type,
+      element.size ?? getDefaultSize(element.type),
+    ) * orientationScale;
   const radius = size * pitchRect.w;
   const kind = element.shapeKind ?? "rect";
   if (isPolylineShape(kind)) return null;
@@ -546,10 +705,12 @@ const getElementHandlePosition = (
 ) => {
   const px = pitchRect.x + element.x * pitchRect.w;
   const py = pitchRect.y + element.y * pitchRect.h;
-  const size = getRenderSize(
-    element.type,
-    element.size ?? getDefaultSize(element.type),
-  );
+  const orientationScale = pitchRect.isLandscape ? 1 : 1.2;
+  const size =
+    getRenderSize(
+      element.type,
+      element.size ?? getDefaultSize(element.type),
+    ) * orientationScale;
   const radius = size * pitchRect.w;
   const offset = Math.max(12, radius + 10);
   const handle = { x: px + offset, y: py - offset, px, py };
@@ -570,8 +731,20 @@ const getResizeHandlePosition = (
   pitchRect: PitchRect,
   applyRotation = false,
 ) => {
-  if (element.type !== "shape") return null;
-  return getShapeHandlePosition(element, pitchRect, applyRotation);
+  if (element.type === "shape") {
+    return getShapeHandlePosition(element, pitchRect, applyRotation);
+  }
+  const base = getElementHandlePosition(element, pitchRect, applyRotation);
+  if (!base) return null;
+  const orientationScale = pitchRect.isLandscape ? 1 : 1.2;
+  const size =
+    getRenderSize(
+      element.type,
+      element.size ?? getDefaultSize(element.type),
+    ) * orientationScale;
+  const radius = size * pitchRect.w;
+  const delta = Math.max(10, radius * 0.25);
+  return { ...base, x: base.x + delta, y: base.y + delta * 0.8 };
 };
 
 const drawCupDisc = (
@@ -1332,7 +1505,7 @@ const drawLadder = (
   const railW = Math.max(1.8, width * 0.11);
   const railExt = length * 0.08;
   const rungH = Math.max(1, width * 0.06);
-  const rungCount = 6;
+  const rungCount: number = 6;
 
   ctx.save();
 
@@ -1612,6 +1785,97 @@ const drawPlayerBodyHead = (
   ctx.restore();
 };
 
+const drawPlayerRunnerSprite = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  color: string,
+  number: string | undefined,
+  selected: boolean,
+  isBallCarrier: boolean,
+  isGoalkeeper: boolean,
+  variant: "runner" | "runner_noball",
+) => {
+  ctx.save();
+
+  if (selected) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(167, 139, 250, 0.75)";
+    ctx.shadowColor = "rgba(139, 92, 246, 0.5)";
+    ctx.shadowBlur = r * 0.2;
+    ctx.lineWidth = Math.max(0.7, r * 0.05);
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const sprite = getRunnerSprite(variant);
+  if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+    const ratio =
+      sprite.naturalWidth && sprite.naturalHeight
+        ? sprite.naturalWidth / sprite.naturalHeight
+        : 0.6;
+    const height =
+      r * (variant === "runner_noball" ? 3.0 : 3.6);
+    const width = height * ratio;
+    ctx.drawImage(sprite, x - width / 2, y - height * 0.85, width, height);
+  } else {
+    drawPlayerBodyHead(
+      ctx,
+      x,
+      y,
+      r,
+      color,
+      number,
+      selected,
+      isBallCarrier,
+      isGoalkeeper,
+    );
+    ctx.restore();
+    return;
+  }
+
+  if (number) {
+    ctx.save();
+    ctx.fillStyle = chooseTextColor(color);
+    ctx.shadowColor = "rgba(0,0,0,0.25)";
+    ctx.shadowBlur = 2;
+    ctx.font = `${Math.floor(r * 0.78)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(number, x, y - r * 0.2);
+    ctx.restore();
+  }
+
+  if (isBallCarrier) {
+    ctx.strokeStyle = "rgba(255,255,255,0.65)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(x, y + r * 0.2, r * 1.1, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  if (isGoalkeeper) {
+    const badgeR = r * 0.32;
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.arc(x + r * 0.6, y - r * 0.6, badgeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.font = `${Math.max(8, r * 0.6)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("G", x + r * 0.6, y - r * 0.6);
+    ctx.restore();
+  }
+
+  ctx.restore();
+};
+
 const drawBallPremium = (
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1656,6 +1920,7 @@ export const drawPitch = (
   height: number,
   preset: PitchPreset,
   orientation?: "landscape" | "portrait",
+  theme: "default" | "dark-textured" = "default",
 ) => {
   const { x, y, w, h, isLandscape } = getPitchRect(
     width,
@@ -1665,10 +1930,66 @@ export const drawPitch = (
   ctx.save();
   ctx.clearRect(0, 0, width, height);
   const fieldGradient = ctx.createLinearGradient(x, y, x + w, y + h);
-  fieldGradient.addColorStop(0, "#0A0D16");
-  fieldGradient.addColorStop(1, "#161832");
+  if (theme === "dark-textured") {
+    fieldGradient.addColorStop(0, "#0B1F14");
+    fieldGradient.addColorStop(1, "#102418");
+  } else {
+    fieldGradient.addColorStop(0, "#0A0D16");
+    fieldGradient.addColorStop(1, "#161832");
+  }
   ctx.fillStyle = fieldGradient;
   ctx.fillRect(x, y, w, h);
+
+  if (theme === "dark-textured") {
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.strokeStyle = "rgba(255,255,255,0.05)";
+    ctx.lineWidth = Math.max(0.6, Math.min(width, height) * 0.0008);
+    const stripeGap = Math.max(10, Math.min(w, h) * 0.06);
+    for (let i = -h; i < w + h; i += stripeGap) {
+      ctx.beginPath();
+      ctx.moveTo(x + i, y);
+      ctx.lineTo(x + i + h, y + h);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    const bandHeight = Math.max(8, h * 0.07);
+    for (let j = 0; j < h; j += bandHeight * 2) {
+      ctx.fillStyle = "rgba(255,255,255,0.04)";
+      ctx.fillRect(x, y + j, w, bandHeight);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    const grainStep = Math.max(12, Math.min(w, h) * 0.05);
+    for (let gx = x; gx < x + w; gx += grainStep) {
+      for (let gy = y; gy < y + h; gy += grainStep) {
+        const jitter = (gx + gy) % (grainStep * 2) ? 0.35 : 0.2;
+        ctx.fillStyle = `rgba(255,255,255,${0.03 + jitter * 0.04})`;
+        ctx.fillRect(gx, gy, grainStep * 0.2, grainStep * 0.2);
+      }
+    }
+    ctx.restore();
+
+    ctx.save();
+    const vignette = ctx.createRadialGradient(
+      x + w / 2,
+      y + h / 2,
+      Math.min(w, h) * 0.15,
+      x + w / 2,
+      y + h / 2,
+      Math.max(w, h) * 0.8,
+    );
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.35)");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
 
   ctx.strokeStyle = "rgba(255,255,255,0.18)";
   ctx.lineWidth = Math.max(0.8, Math.min(width, height) * 0.0011);
@@ -1748,7 +2069,7 @@ export const drawPitch = (
   }
 
   ctx.restore();
-  return { x, y, w, h, preset };
+  return { x, y, w, h, isLandscape };
 };
 
 const getStrokeSequenceIndex = (stroke: Stroke) => {
@@ -1777,6 +2098,17 @@ export const drawElements = (
     showRotateHandle?: boolean;
     showResizeHandle?: boolean;
     hoveredHandle?: { id: string; type: "rotate" | "resize" } | null;
+    pathStyleResolver?: (
+      id: string,
+    ) => {
+      color: string;
+      width?: number;
+      dashed?: boolean;
+      number?: number | null;
+    } | null;
+    showPathGhosts?: boolean;
+    pathElementMap?: Record<string, string>;
+    pathUseFootOffset?: boolean;
   },
 ) => {
   const showOverlays = options?.showOverlays ?? true;
@@ -1786,6 +2118,8 @@ export const drawElements = (
   const showResizeHandle = options?.showResizeHandle ?? false;
   const hoveredHandle = options?.hoveredHandle ?? null;
   const ballCarrierIds = new Set(Object.values(ballAttachments ?? {}));
+  const orientationScale = pitchRect.isLandscape ? 1 : 1.2;
+  const pathUseFootOffset = options?.pathUseFootOffset ?? true;
   const drawSmoothPath = (points: PathPoint[]) => {
     if (points.length < 2) return;
     // Quadratic Bézier smoothing: use each point as control and midpoints as end points.
@@ -1831,7 +2165,7 @@ export const drawElements = (
 
   const drawArrow = (from: { x: number; y: number }, to: { x: number; y: number }) => {
     const angle = Math.atan2(to.y - from.y, to.x - from.x);
-    const headLength = 10;
+    const headLength = 12;
     ctx.beginPath();
     ctx.moveTo(to.x, to.y);
     ctx.lineTo(
@@ -1879,6 +2213,93 @@ export const drawElements = (
       drawArrow(from, to);
     }
     ctx.restore();
+  };
+  const isStraightPath = (points: Array<{ x: number; y: number }>) => {
+    if (points.length < 4) return true;
+    const first = points[0];
+    const last = points[points.length - 1];
+    const dx = last.x - first.x;
+    const dy = last.y - first.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-5 || len < 0.07) return true;
+    let maxDist = 0;
+    let totalLen = 0;
+    let totalTurn = 0;
+    let prevAngle: number | null = null;
+    for (let i = 1; i < points.length; i += 1) {
+      const p = points[i];
+      const dist =
+        Math.abs(dy * (p.x - first.x) - dx * (p.y - first.y)) / len;
+      if (dist > maxDist) maxDist = dist;
+      const segDx = p.x - points[i - 1].x;
+      const segDy = p.y - points[i - 1].y;
+      const segLen = Math.hypot(segDx, segDy);
+      if (segLen > 1e-5) {
+        totalLen += segLen;
+        const segAngle = Math.atan2(segDy, segDx);
+        if (prevAngle !== null) {
+          const diff = Math.atan2(
+            Math.sin(segAngle - prevAngle),
+            Math.cos(segAngle - prevAngle),
+          );
+          totalTurn += Math.abs(diff);
+        }
+        prevAngle = segAngle;
+      }
+    }
+    const lengthRatio = totalLen / len;
+    const distThreshold = len < 0.12 ? 0.05 : 0.024;
+    const turnThreshold = len < 0.12 ? 2.8 : 1.5;
+    const ratioThreshold = len < 0.12 ? 1.6 : 1.25;
+    return (
+      maxDist < distThreshold &&
+      totalTurn < turnThreshold &&
+      lengthRatio < ratioThreshold
+    );
+  };
+  const smoothPathPoints = (
+    points: Array<{ x: number; y: number }>,
+    iterations = 2,
+  ) => {
+    if (points.length < 3) return points;
+    let next = points;
+    for (let k = 0; k < iterations; k += 1) {
+      next = next.map((point, index) => {
+        if (index === 0 || index === next.length - 1) return point;
+        const prev = next[index - 1];
+        const curr = point;
+        const nextPoint = next[index + 1];
+        return {
+          x: (prev.x + curr.x + nextPoint.x) / 3,
+          y: (prev.y + curr.y + nextPoint.y) / 3,
+        };
+      });
+    }
+    return next;
+  };
+  const offsetPath = (
+    points: Array<{ x: number; y: number }>,
+    offset: number,
+  ) => {
+    if (points.length < 2 || offset === 0) return points;
+    const start = points[0];
+    const end = points[points.length - 1];
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len;
+    dy /= len;
+    const nx = -dy;
+    const ny = dx;
+    return points.map((point, index) => {
+      const t = points.length > 1 ? index / (points.length - 1) : 0;
+      const ease = Math.sin(Math.PI * t); // 0 at ends, 1 in the middle
+      const shift = offset * ease;
+      return {
+        x: clamp01(point.x + nx * shift),
+        y: clamp01(point.y + ny * shift),
+      };
+    });
   };
   const getPointAlong = (points: Array<{ x: number; y: number }>, t: number) => {
     if (points.length <= 1) return points[0] ?? { x: 0, y: 0 };
@@ -1952,27 +2373,151 @@ export const drawElements = (
 
     Object.entries(paths).forEach(([id, points]) => {
       if (points.length < 2) return;
-      ctx.save();
-      ctx.beginPath();
-      drawSmoothPath(points);
-      ctx.strokeStyle =
-        id === selectedId
+      const resolved = options?.pathStyleResolver?.(id) ?? null;
+      const elementId = options?.pathElementMap?.[id] ?? id;
+      const element = elements.find((el) => el.id === elementId);
+      const basePoints =
+        element?.type === "player" && pathUseFootOffset
+          ? (() => {
+              const ghostSize =
+                getRenderSize(
+                  element.type,
+                  element.size ?? getDefaultSize(element.type),
+                ) * orientationScale;
+              const ghostRadius = ghostSize * pitchRect.w;
+              const offsetNorm = getPlayerFootOffset(ghostRadius) / pitchRect.h;
+              return points.map((point) => ({
+                x: point.x,
+                y: clamp01(point.y - offsetNorm),
+              }));
+            })()
+          : points;
+      const strokeColor =
+        resolved?.color ??
+        (id === selectedId
           ? "rgba(167, 139, 250, 0.7)"
-          : "rgba(148, 163, 184, 0.35)";
-      ctx.lineWidth = id === selectedId ? 2 : 1;
-      ctx.stroke();
-      ctx.restore();
+          : "rgba(148, 163, 184, 0.35)");
+      const strokeWidth =
+        (resolved?.width ?? (id === selectedId ? 2 : 1)) * 0.85;
+      const dashed = resolved?.dashed ?? false;
+      const isStraight = options?.pathStyleResolver && isStraightPath(basePoints);
+      const renderPoints = isStraight
+        ? [basePoints[0], basePoints[basePoints.length - 1]]
+        : smoothPathPoints(basePoints, 1);
+      const offset =
+        resolved?.number && resolved.number > 1 && !isStraight
+          ? (resolved.number - 1) * 0.008
+          : 0;
+      const offsetPoints = offset ? offsetPath(renderPoints, offset) : renderPoints;
+      drawStrokePath(offsetPoints, dashed, strokeWidth, strokeColor, true);
+
+      if (options?.showPathGhosts && resolved) {
+        if (element && (element.type === "player" || element.type === "ball")) {
+          const ghostSteps = 1;
+          for (let i = 1; i <= ghostSteps; i += 1) {
+            const t = i === 1 ? 0.05 : i / (ghostSteps + 1);
+            const ghostPoint = getPointAlong(offsetPoints, t);
+            const gx = pitchRect.x + ghostPoint.x * pitchRect.w;
+            const gy = pitchRect.y + ghostPoint.y * pitchRect.h;
+            const ghostSize = getRenderSize(
+              element.type,
+              element.size ?? getDefaultSize(element.type),
+            );
+            const sizeScale = 0.6 + 0.08 * i;
+            const ghostRadius = ghostSize * pitchRect.w * sizeScale;
+            const ghostOffset =
+              element.type === "player" ? getPlayerFootOffset(ghostRadius) : 0;
+            const ghostY = gy - ghostOffset;
+            const alpha = i === 1 ? 0.8 : i === 2 ? 0.35 : 0.2;
+            const blur =
+              i >= ghostSteps ? "blur(0.6px)" : i === 2 ? "blur(0.4px)" : "none";
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.filter = `saturate(0.45) ${blur}`;
+            if (element.type === "player") {
+              const isRunner =
+                element.playerStyle === "runner" ||
+                element.playerStyle === "runner_noball";
+              if (isRunner) {
+                drawPlayerRunnerSprite(
+                  ctx,
+                  gx,
+                  ghostY,
+                  Math.max(6, ghostRadius),
+                  desaturateColor(element.color ?? "#7B66FF"),
+                  undefined,
+                  false,
+                  false,
+                  false,
+                  element.playerStyle === "runner_noball"
+                    ? "runner_noball"
+                    : "runner",
+                );
+              } else {
+                drawPlayerBodyHead(
+                  ctx,
+                  gx,
+                  ghostY,
+                  Math.max(3, ghostRadius * 0.65),
+                  desaturateColor(element.color ?? "#7B66FF"),
+                  undefined,
+                  false,
+                  false,
+                  false,
+                );
+              }
+            } else {
+              const ballAlpha = alpha * 0.55;
+              ctx.globalAlpha = ballAlpha;
+              drawBallPremium(
+                ctx,
+                gx,
+                gy,
+                Math.max(3, ghostRadius * 0.78),
+                false,
+              );
+            }
+            ctx.filter = "none";
+            ctx.restore();
+          }
+        }
+      }
+
+      if (resolved?.number) {
+        const numberPoint = getPointAlong(offsetPoints, 0.5);
+        const x = pitchRect.x + numberPoint.x * pitchRect.w;
+        const y = pitchRect.y + numberPoint.y * pitchRect.h;
+        ctx.save();
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+        ctx.shadowColor = "rgba(167, 139, 250, 0.6)";
+        ctx.shadowBlur = 6;
+        ctx.arc(x, y, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(167, 139, 250, 0.35)";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "600 10px ui-sans-serif, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(resolved.number), x, y);
+        ctx.restore();
+      }
     });
   }
 
   elements.forEach((element) => {
     const px = pitchRect.x + element.x * pitchRect.w;
     const py = pitchRect.y + element.y * pitchRect.h;
-    const size = getRenderSize(
-      element.type,
-      element.size ?? getDefaultSize(element.type),
-    );
+    const size =
+      getRenderSize(
+        element.type,
+        element.size ?? getDefaultSize(element.type),
+      ) * orientationScale;
     const radius = size * pitchRect.w;
+    const playerOffset = element.type === "player" ? getPlayerFootOffset(radius) : 0;
+    const playerY = py - playerOffset;
     ctx.save();
     if (showOverlays && element.id === selectedId) {
       ctx.shadowColor = "rgba(167, 139, 250, 0.95)";
@@ -1986,18 +2531,37 @@ export const drawElements = (
     }
 
     if (element.type === "player") {
-      drawPlayerBodyHead(
-        ctx,
-        px,
-        py,
-        Math.max(6, radius),
-        element.color ?? "#7B66FF",
-        showLabels ? element.label ?? undefined : undefined,
-        showOverlays && element.id === selectedId,
-        showOverlays && ballCarrierIds.has(element.id),
-        (element.label ?? "").toUpperCase() === "G",
-      );
-
+      const isRunner =
+        element.playerStyle === "runner" ||
+        element.playerStyle === "runner_noball";
+      if (isRunner) {
+        drawPlayerRunnerSprite(
+          ctx,
+          px,
+          playerY,
+          Math.max(6, radius),
+          element.color ?? "#7B66FF",
+          showLabels ? element.label ?? undefined : undefined,
+          showOverlays && element.id === selectedId,
+          showOverlays && ballCarrierIds.has(element.id),
+          (element.label ?? "").toUpperCase() === "G",
+          element.playerStyle === "runner_noball" ? "runner_noball" : "runner",
+        );
+      } else {
+        const staticRadius = Math.max(6, radius * 0.65);
+        drawPlayerBodyHead(
+          ctx,
+          px,
+          playerY,
+          staticRadius,
+          element.color ?? "#7B66FF",
+          showLabels ? element.label ?? undefined : undefined,
+          showOverlays && element.id === selectedId,
+          showOverlays && ballCarrierIds.has(element.id),
+          (element.label ?? "").toUpperCase() === "G",
+        );
+      }
+    } else if (element.type === "ball") {
       if (showOverlays && element.id === snapTargetId) {
         ctx.strokeStyle = "rgba(253, 224, 71, 0.6)";
         ctx.lineWidth = 2;
@@ -2005,7 +2569,6 @@ export const drawElements = (
         ctx.arc(px, py, radius + 4, 0, Math.PI * 2);
         ctx.stroke();
       }
-    } else if (element.type === "ball") {
       drawBallPremium(ctx, px, py, Math.max(4, radius), showOverlays && element.id === selectedId);
     } else if (element.type === "cone") {
       const baseColor = element.color ?? "#F8C12C";
@@ -2259,8 +2822,12 @@ export const drawElements = (
         const isHover =
           hoveredHandle?.id === element.id && hoveredHandle?.type === "resize";
         const baseRadius = 5;
-        const radius = isHover ? baseRadius + 1.4 : baseRadius;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+        const radius = isHover ? baseRadius + 1.6 : baseRadius;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.98)";
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.7)";
+        ctx.lineWidth = 1;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+        ctx.shadowBlur = 6;
         if (isHover) {
           ctx.shadowColor = "rgba(139, 92, 246, 0.9)";
           ctx.shadowBlur = 12;
@@ -2268,6 +2835,24 @@ export const drawElements = (
         ctx.beginPath();
         ctx.arc(handle.x, handle.y, radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.stroke();
+
+        // tiny expand arrow inside the dot
+        const arrowSize = radius * 0.95;
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.8)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(handle.x - arrowSize * 0.25, handle.y + arrowSize * 0.25);
+        ctx.lineTo(handle.x + arrowSize * 0.35, handle.y - arrowSize * 0.35);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(handle.x + arrowSize * 0.35, handle.y - arrowSize * 0.35);
+        ctx.lineTo(handle.x + arrowSize * 0.05, handle.y - arrowSize * 0.35);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(handle.x + arrowSize * 0.35, handle.y - arrowSize * 0.35);
+        ctx.lineTo(handle.x + arrowSize * 0.35, handle.y - arrowSize * 0.05);
+        ctx.stroke();
         ctx.restore();
       }
     }
@@ -2285,10 +2870,12 @@ const hitTest = (
     const element = elements[i];
     const px = pitchRect.x + element.x * pitchRect.w;
     const py = pitchRect.y + element.y * pitchRect.h;
-    const size = getRenderSize(
-      element.type,
-      element.size ?? getDefaultSize(element.type),
-    );
+    const orientationScale = pitchRect.isLandscape ? 1 : 1.2;
+    const size =
+      getRenderSize(
+        element.type,
+        element.size ?? getDefaultSize(element.type),
+      ) * orientationScale;
     const radius = size * pitchRect.w;
     const rotation = element.rotation ?? 0;
     const rotatedPoint =
@@ -2423,9 +3010,31 @@ const hitTest = (
       continue;
     }
 
+    if (
+      element.type === "player" &&
+      (element.playerStyle === "runner" || element.playerStyle === "runner_noball")
+    ) {
+      const isNoBall = element.playerStyle === "runner_noball";
+      const boxW = radius * (isNoBall ? 1.55 : 1.85);
+      const boxH = radius * (isNoBall ? 3.0 : 3.6);
+      const boxX = px - boxW / 2;
+      const boxY = py - getPlayerFootOffset(radius) - boxH * 0.85;
+      if (
+        point.x >= boxX - 6 &&
+        point.x <= boxX + boxW + 6 &&
+        point.y >= boxY - 6 &&
+        point.y <= boxY + boxH + 6
+      ) {
+        return element.id;
+      }
+      continue;
+    }
+
     const scaleY = element.type === "disc" ? 0.45 : 1;
+    const centerY =
+      element.type === "player" ? py - getPlayerFootOffset(radius) : py;
     const dx = (point.x - px) / radius;
-    const dy = (point.y - py) / (radius * scaleY);
+    const dy = (point.y - centerY) / (radius * scaleY);
     if (dx * dx + dy * dy <= 1.15) return element.id;
   }
   return null;
@@ -2449,6 +3058,10 @@ const useCanvasElements = (
   const [tool, setTool] = useState<ToolKey>("select");
   const [playerColor, setPlayerColor] = useState(DEFAULT_COLORS[0]);
   const [activeShapePathId, setActiveShapePathId] = useState<string | null>(null);
+  const selectedElement = useMemo(
+    () => elements.find((el) => el.id === selectedId) ?? null,
+    [elements, selectedId],
+  );
   const allowRotateHandle = options?.showRotateHandle ?? true;
   const allowResizeHandle = options?.showResizeHandle ?? true;
   const draggingRef = useRef<{
@@ -2475,7 +3088,13 @@ const useCanvasElements = (
     rotate: boolean;
     scale: boolean;
   } | null>(null);
-  const pitchRef = useRef<PitchRect>({ x: 0, y: 0, w: 1, h: 1 });
+  const pitchRef = useRef<PitchRect>({
+    x: 0,
+    y: 0,
+    w: 1,
+    h: 1,
+    isLandscape: true,
+  });
   const clampElementSize = (value: number) =>
     Math.min(Math.max(value, 0.012), 0.32);
 
@@ -2489,24 +3108,47 @@ const useCanvasElements = (
     pitchRef.current = rect;
   };
 
+  const lastSizeByTypeRef = useRef<Partial<Record<ElementType, number>>>({});
+
   const addElement = (toolKey: ToolKey, position: { x: number; y: number }) => {
     const isShape = isShapeTool(toolKey);
     const isPolyline = isPolylineTool(toolKey);
-    const type: ElementType = isShape ? "shape" : (toolKey as ElementType);
+    const isRunnerTool = toolKey === "player_runner";
+    const isRunnerNoBallTool = toolKey === "player_runner_noball";
+    const type: ElementType = isShape
+      ? "shape"
+      : isRunnerTool || isRunnerNoBallTool
+        ? "player"
+        : (toolKey as ElementType);
     const baseColor =
       type === "ball"
         ? "#ffffff"
         : type === "mini_goal"
         ? "#F5F5FA"
         : playerColor;
+    const pitchRect = pitchRef.current;
+    const initialSize =
+      lastSizeByTypeRef.current[type] ?? getDefaultSize(type);
+    const baseSize = getRenderSize(type, initialSize);
+    const radius = baseSize * pitchRect.w;
+    const placementOffset =
+      type === "player" ? getPlayerFootOffset(radius) / pitchRect.h : 0;
     const newElement: CanvasElement = {
       id: buildId(),
       type,
       x: clamp01(position.x),
-      y: clamp01(position.y),
+      y: clamp01(position.y + placementOffset),
       color: baseColor,
       label: type === "player" ? "" : undefined,
-      size: getDefaultSize(type),
+      playerStyle:
+        type === "player"
+          ? isRunnerTool
+            ? "runner"
+            : isRunnerNoBallTool
+              ? "runner_noball"
+              : undefined
+          : undefined,
+      size: initialSize,
       orientation: type === "mini_goal" ? "down" : undefined,
       rotation: 0,
       shapeKind: isShape ? toolKey : undefined,
@@ -2519,7 +3161,13 @@ const useCanvasElements = (
 
   const updateElement = (id: string, patch: Partial<CanvasElement>) => {
     setElements((prev) =>
-      prev.map((el) => (el.id === id ? { ...el, ...patch } : el)),
+      prev.map((el) => {
+        if (el.id !== id) return el;
+        if (patch.size !== undefined) {
+          lastSizeByTypeRef.current[el.type] = patch.size;
+        }
+        return { ...el, ...patch };
+      }),
     );
   };
 
@@ -2533,7 +3181,7 @@ const useCanvasElements = (
     const nextX = clamp01(selectedElement.x + dx);
     const nextY = clamp01(selectedElement.y + dy);
     if (selectedElement.type === "shape" && selectedElement.shapePoints?.length) {
-      const nextPoints = selectedElement.shapePoints.map((p) => ({
+      const nextPoints = selectedElement.shapePoints.map((p: { x: number; y: number }) => ({
         x: clamp01(p.x + dx),
         y: clamp01(p.y + dy),
       }));
@@ -2562,14 +3210,14 @@ const useCanvasElements = (
     }
 
     if (isPolylineTool(tool)) {
-      const sameKindSelected =
-        selectedId &&
-        elements.find(
-          (el) =>
-            el.id === selectedId &&
-            el.type === "shape" &&
-            el.shapeKind === tool,
-        );
+      const sameKindSelected = selectedId
+        ? elements.find(
+            (el) =>
+              el.id === selectedId &&
+              el.type === "shape" &&
+              el.shapeKind === tool,
+          ) ?? null
+        : null;
       const activeId = activeShapePathId ?? sameKindSelected?.id ?? null;
       if (activeId) {
         const target = elements.find((el) => el.id === activeId);
@@ -2603,7 +3251,8 @@ const useCanvasElements = (
     const selectedElement = selectedId
       ? elements.find((el) => el.id === selectedId) ?? null
       : null;
-    const handleHitRadius = 30;
+    const rotateHitRadius = 18;
+    const resizeHitRadius = 12;
     const tryStartRotateFromHandle = (element: CanvasElement) => {
       if (!allowRotateHandle) return false;
       const shapeKind = element.shapeKind ?? "rect";
@@ -2613,7 +3262,7 @@ const useCanvasElements = (
       const handle = getElementHandlePosition(element, pitchRect, true);
       if (!handle) return false;
       const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
-      if (dist >= handleHitRadius) return false;
+      if (dist >= rotateHitRadius) return false;
       resizeRef.current = {
         id: element.id,
         startDistance: Math.max(
@@ -2632,11 +3281,10 @@ const useCanvasElements = (
     };
     const tryStartScaleFromHandle = (element: CanvasElement) => {
       if (!allowResizeHandle) return false;
-      if (element.type !== "shape") return false;
       const handle = getResizeHandlePosition(element, pitchRect, true);
       if (!handle) return false;
       const handleDistance = Math.hypot(point.x - handle.x, point.y - handle.y);
-      if (handleDistance >= handleHitRadius) return false;
+      if (handleDistance >= resizeHitRadius) return false;
       resizeRef.current = {
         id: element.id,
         startDistance: Math.max(
@@ -2655,16 +3303,16 @@ const useCanvasElements = (
     };
 
     if (selectedElement) {
-      if (tryStartScaleFromHandle(selectedElement)) return;
       if (tryStartRotateFromHandle(selectedElement)) return;
+      if (tryStartScaleFromHandle(selectedElement)) return;
     }
     if (isShapeTool(tool)) {
       const candidates = elements.filter(
         (el) => el.type === "shape" && el.shapeKind === tool,
       );
       for (let i = candidates.length - 1; i >= 0; i -= 1) {
-        if (tryStartScaleFromHandle(candidates[i])) return;
         if (tryStartRotateFromHandle(candidates[i])) return;
+        if (tryStartScaleFromHandle(candidates[i])) return;
       }
     }
 
@@ -2842,7 +3490,7 @@ const useCanvasElements = (
     if (active?.type === "shape" && active.shapePoints?.length) {
       const deltaX = nextX - active.x;
       const deltaY = nextY - active.y;
-      const nextPoints = active.shapePoints.map((p) => ({
+      const nextPoints = active.shapePoints.map((p: { x: number; y: number }) => ({
         x: clamp01(p.x + deltaX),
         y: clamp01(p.y + deltaY),
       }));
@@ -2935,6 +3583,8 @@ export default function ExerciseAnimatedEditor({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editExerciseId = (searchParams?.get("edit") ?? "").trim();
   const [canvasSize, setCanvasSize] = useState({ w: 1200, h: 720 });
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState<string | null>(null);
@@ -2951,11 +3601,15 @@ export default function ExerciseAnimatedEditor({
   >(null);
   const [frames, setFrames] = useState<FrameSnapshot[]>([]);
   const [activeFrameId, setActiveFrameId] = useState<string | null>(null);
-  const [pitchPreset] = useState<PitchPreset>("standard");
+  const [pitchPreset] = useState<PitchPreset>("training_dark_green");
   const [saving, setSaving] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [recordPathMode, setRecordPathMode] = useState(false);
+  const [trajectoryOrder, setTrajectoryOrder] = useState<string[]>([]);
+  const [pathColorMap, setPathColorMap] = useState<Record<string, string>>({});
   const [currentRecordingElementId, setCurrentRecordingElementId] = useState<
     string | null
   >(null);
@@ -2980,6 +3634,174 @@ export default function ExerciseAnimatedEditor({
     setRecordMode(false);
     setPreviewMode(false);
   }, [isStaticEditor]);
+  useEffect(() => {
+    if (!isStaticEditor) {
+      setRecordPathMode(false);
+      setTrajectoryOrder([]);
+      setPathElementMap({});
+      setPathColorMap({});
+      setTrajectoryPreviews({});
+      pathCounterRef.current = 0;
+    }
+  }, [isStaticEditor]);
+
+  useEffect(() => {
+    if (!editExerciseId) return;
+    if (editLoadedRef.current === editExerciseId) return;
+    let mounted = true;
+    const fetchExercise = async () => {
+      setLoadingEdit(true);
+      setEditError(null);
+      const { data, error } = await supabase
+        .from("training_exercises")
+        .select(
+          "id,title,category,duration,type,animation_data,created_at,updated_at",
+        )
+        .eq("id", editExerciseId)
+        .single();
+      if (!mounted) return;
+      if (error || !data) {
+        setEditError(error?.message ?? "Impossible de charger l’exercice.");
+        setLoadingEdit(false);
+        return;
+      }
+      const row = data as ExerciseRow;
+      const payload = normalizePayload(row.animation_data);
+      const pitchState = normalizePitchState(payload) ?? {};
+      const storedOrientation =
+        pitchState.pitchOrientation ?? payload?.pitchOrientation ?? null;
+      const meta = (payload?.metadata ?? payload?.meta ?? {}) as Record<
+        string,
+        any
+      >;
+
+      const loadedElements = (pitchState.elements ??
+        payload?.elements ??
+        []) as CanvasElement[];
+      const loadedPaths = (pitchState.paths ??
+        payload?.paths ??
+        {}) as Record<string, PathPoint[]>;
+      const loadedAttachments = (pitchState.ballAttachments ??
+        payload?.ballAttachments ??
+        {}) as Record<string, string>;
+      const storedPathElementMap =
+        (pitchState.pathElementMap ?? payload?.pathElementMap ?? {}) as Record<
+          string,
+          string
+        >;
+      const storedTrajectoryOrder =
+        (pitchState.trajectoryOrder ??
+          payload?.trajectoryOrder ??
+          []) as string[];
+      const storedPathColorMap =
+        (pitchState.pathColorMap ?? payload?.pathColorMap ?? {}) as Record<
+          string,
+          string
+        >;
+
+      setElements(loadedElements);
+      setPaths(loadedPaths);
+      setBallAttachments(loadedAttachments);
+      setFrames([]);
+      setFramePreviews({});
+      setStrokes([]);
+      strokesRef.current = [];
+      setStrokesBase(null);
+      strokesBaseRef.current = null;
+      setSelectedId(null);
+      setActiveFrameId(null);
+      setTrajectoryPreviews({});
+
+      const elementIds = loadedElements.map((el) => el.id);
+      const nextPathElementMap: Record<string, string> = {
+        ...storedPathElementMap,
+      };
+      const inferredOrder = Object.keys(loadedPaths);
+      const order =
+        storedTrajectoryOrder.length > 0 ? storedTrajectoryOrder : inferredOrder;
+      inferredOrder.forEach((pathId) => {
+        if (nextPathElementMap[pathId]) return;
+        const match =
+          elementIds.find(
+            (elementId) =>
+              pathId === elementId || pathId.startsWith(`${elementId}-`),
+          ) ?? pathId;
+        nextPathElementMap[pathId] = match;
+      });
+      setPathElementMap(nextPathElementMap);
+      setTrajectoryOrder(order);
+      pathCounterRef.current = order.length;
+
+      const nextColorMap: Record<string, string> = {
+        ...storedPathColorMap,
+      };
+      let colorIndex = 0;
+      order.forEach((pathId) => {
+        const elementId = nextPathElementMap[pathId];
+        if (!elementId || nextColorMap[elementId]) return;
+        nextColorMap[elementId] =
+          TRAJECTORY_PALETTE[colorIndex % TRAJECTORY_PALETTE.length];
+        colorIndex += 1;
+      });
+      setPathColorMap(nextColorMap);
+
+      const rawCategory =
+        meta.category ?? meta.categoryMain ?? row.category ?? "";
+      const categoryLabel =
+        CATEGORY_LABEL_MAP[rawCategory] ??
+        (CATEGORY_MAIN_OPTIONS.includes(rawCategory) ? rawCategory : "");
+      setCategoryMain(categoryLabel);
+
+      const rawType = meta.type ?? meta.trainingType ?? "";
+      const typeLabel =
+        TYPE_LABEL_MAP[rawType] ??
+        (TRAINING_TYPE_OPTIONS.includes(rawType) ? rawType : "");
+      setTrainingType(typeLabel);
+
+      const rawObjective = meta.objective ?? meta.objectives ?? [];
+      const objectiveList = Array.isArray(rawObjective)
+        ? rawObjective
+        : rawObjective
+        ? [rawObjective]
+        : [];
+      const nextObjectives = objectiveList
+        .map(
+          (value) =>
+            OBJECTIVE_LABEL_MAP[value] ??
+            (OBJECTIVE_OPTIONS.includes(value) ? value : null),
+        )
+        .filter(Boolean) as string[];
+      setObjectives(nextObjectives);
+
+      const nextLevels = Array.isArray(meta.levels) ? meta.levels : [];
+      setLevels(nextLevels);
+      const nextNotes = typeof meta.notes === "string" ? meta.notes : "";
+      setNotes(nextNotes);
+      setShowNotesField(Boolean(nextNotes));
+
+      const fallbackName =
+        meta.name ?? row.title ?? payload?.title ?? "Exercice";
+      setName(String(fallbackName));
+      setNameError(null);
+      setCategoryError(null);
+      if (storedOrientation === "portrait" || storedOrientation === "landscape") {
+        orientationRef.current = storedOrientation;
+        lockOrientationRef.current = true;
+      }
+      editLoadedRef.current = editExerciseId;
+      setLoadingEdit(false);
+    };
+    fetchExercise();
+    return () => {
+      mounted = false;
+    };
+  }, [editExerciseId]);
+
+  useEffect(() => {
+    if (!editExerciseId) {
+      lockOrientationRef.current = false;
+    }
+  }, [editExerciseId]);
   const [showToolboxMenu, setShowToolboxMenu] = useState(false);
   const toolboxMenuRef = useRef<HTMLDivElement | null>(null);
   const [showShapeMenu, setShowShapeMenu] = useState(false);
@@ -3003,10 +3825,14 @@ export default function ExerciseAnimatedEditor({
   const [frameSpeedMultipliers, setFrameSpeedMultipliers] = useState<Record<string, number>>({});
   const [capturePulse, setCapturePulse] = useState(false);
   const captureTimerRef = useRef<number | null>(null);
+  const editLoadedRef = useRef<string | null>(null);
+  const lockOrientationRef = useRef(false);
   const [ballAttachments, setBallAttachments] = useState<Record<string, string>>({});
   const lastBallAttachmentsRef = useRef<Record<string, string>>({});
   const prevRecordModeRef = useRef(recordMode);
   const [framePreviews, setFramePreviews] = useState<Record<string, string>>({});
+  const [trajectoryPreviews, setTrajectoryPreviews] = useState<Record<string, string>>({});
+  const [activeTrajectoryPreviewId, setActiveTrajectoryPreviewId] = useState<string | null>(null);
   const [showSequenceDebug, setShowSequenceDebug] = useState(false);
   const [snapTargetId, setSnapTargetId] = useState<string | null>(null);
   const historyRef = useRef<EditorSnapshot[]>([]);
@@ -3029,6 +3855,7 @@ export default function ExerciseAnimatedEditor({
     string | null
   >(null);
   const [paths, setPaths] = useState<Record<string, PathPoint[]>>({});
+  const [pathElementMap, setPathElementMap] = useState<Record<string, string>>({});
   const plotIconRef = useRef<HTMLCanvasElement | null>(null);
   const playerIconRef = useRef<HTMLCanvasElement | null>(null);
   const slalomPoleIconRef = useRef<HTMLCanvasElement | null>(null);
@@ -3047,11 +3874,13 @@ export default function ExerciseAnimatedEditor({
   const toolboxPoleIconRef = useRef<HTMLCanvasElement | null>(null);
   const pathRecordRef = useRef<{
     id: string;
+    pathId: string;
     startTime: number;
     lastTime: number;
     lastX: number;
     lastY: number;
   } | null>(null);
+  const pathCounterRef = useRef(0);
   const sequenceDragRef = useRef<{
     id: string;
     startTime: number;
@@ -3107,38 +3936,53 @@ export default function ExerciseAnimatedEditor({
         const isRecordable =
           element?.type === "player" || element?.type === "ball";
 
-      if (element?.type === "ball") {
-        setBallAttachments((prev) => {
-          if (!prev[element.id]) return prev;
-          const next = { ...prev };
-          delete next[element.id];
-          return next;
-        });
-      }
+        let activePathId = id;
+        if (recordPathMode && isStaticEditor && isRecordable) {
+          setPathColorMap((prev) => {
+            if (prev[id]) return prev;
+            const nextIndex = Object.keys(prev).length;
+            const color =
+              TRAJECTORY_PALETTE[nextIndex % TRAJECTORY_PALETTE.length];
+            return { ...prev, [id]: color };
+          });
+          activePathId = `${id}-${pathCounterRef.current++}`;
+          setTrajectoryOrder((prev) => [...prev, activePathId]);
+          setPathElementMap((prev) => ({ ...prev, [activePathId]: id }));
+        }
 
-      if (recordMode && element && isRecordable) {
-        const now = performance.now();
-        sequenceDragRef.current = {
-          id,
-          startTime: now,
-          lastTime: now,
-          lastX: x,
-          lastY: y,
-          points: [
-            {
-              x,
-              y,
-              t: 0,
-            },
-          ],
-        };
-      }
+        if (element?.type === "ball") {
+          setBallAttachments((prev) => {
+            if (!prev[element.id]) return prev;
+            const next = { ...prev };
+            delete next[element.id];
+            return next;
+          });
+        }
+
+        if (recordMode && element && isRecordable) {
+          const now = performance.now();
+          sequenceDragRef.current = {
+            id,
+            startTime: now,
+            lastTime: now,
+            lastX: x,
+            lastY: y,
+            points: [
+              {
+                x,
+                y,
+                t: 0,
+              },
+            ],
+          };
+        }
 
       if (!recordPathMode) return;
       setCurrentRecordingElementId(id);
       const now = performance.now();
       setPaths((prev) => {
-        const existing = prev[id] ?? [];
+        const key = recordPathMode && isStaticEditor ? activePathId : id;
+        const existing = prev[key] ?? [];
         const baseT = existing.length ? existing[existing.length - 1].t : 0;
         let next = existing.length ? [...existing] : [{ x, y, t: 0 }];
         if (existing.length) {
@@ -3150,12 +3994,13 @@ export default function ExerciseAnimatedEditor({
         }
         pathRecordRef.current = {
           id,
+          pathId: key,
           startTime: now - baseT,
           lastTime: now,
           lastX: x,
           lastY: y,
         };
-        return { ...prev, [id]: next };
+        return { ...prev, [key]: next };
       });
     },
     onDragMove: (id, x, y) => {
@@ -3197,8 +4042,9 @@ export default function ExerciseAnimatedEditor({
       ref.lastX = x;
       ref.lastY = y;
       setPaths((prev) => {
-        const existing = prev[id] ?? [];
-        return { ...prev, [id]: [...existing, { x, y, t }] };
+        const key = recordPathMode && isStaticEditor ? ref.pathId : id;
+        const existing = prev[key] ?? [];
+        return { ...prev, [key]: [...existing, { x, y, t }] };
       });
     },
     onDragEnd: (id) => {
@@ -3240,12 +4086,22 @@ export default function ExerciseAnimatedEditor({
         sequenceDragRef.current = null;
       }
 
-      if (!recordPathMode) {
+      if (recordPathMode) {
+        const pathId = pathRecordRef.current?.pathId;
+        pathRecordRef.current = null;
+        if (isStaticEditor && pathId && (paths[pathId]?.length ?? 0) >= 2) {
+          const preview = renderTrajectoryPreview(pathId);
+          if (preview) {
+            setTrajectoryPreviews((prev) => ({ ...prev, [pathId]: preview }));
+          }
+        }
+      } else {
         pathRecordRef.current = null;
       }
     },
       onElementClick: () => {
         setShowSelectionToolbar(true);
+        setShowRotateHandle(true);
       },
     },
     { showRotateHandle, showResizeHandle: !previewMode && !recordMode },
@@ -3261,6 +4117,31 @@ export default function ExerciseAnimatedEditor({
     actionSpeedMultipliers,
     frameSpeedMultipliers,
   );
+  const [runnerSpriteReady, setRunnerSpriteReady] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let mounted = true;
+    const preload = (variant: "runner" | "runner_noball") => {
+      const entry = runnerSprites[variant];
+      if (!entry.img) {
+        entry.img = new Image();
+        entry.img.src = entry.src;
+      }
+      if (entry.ready) return () => {};
+      const handleLoad = () => {
+        entry.ready = true;
+        if (mounted) setRunnerSpriteReady((value) => value + 1);
+      };
+      entry.img.addEventListener("load", handleLoad);
+      return () => entry.img?.removeEventListener("load", handleLoad);
+    };
+    const cleanups = [preload("runner"), preload("runner_noball")];
+    return () => {
+      mounted = false;
+      cleanups.forEach((cleanup) => cleanup?.());
+    };
+  }, []);
 
   const getCurrentPitchRect = () =>
     getPitchRect(
@@ -3278,6 +4159,95 @@ export default function ExerciseAnimatedEditor({
     () => elements.find((el) => el.id === selectedId) ?? null,
     [elements, selectedId],
   );
+  const trajectoryIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    trajectoryOrder.forEach((id, index) => {
+      map.set(id, index + 1);
+    });
+    return map;
+  }, [trajectoryOrder]);
+  const trajectoryStyleResolver = useCallback(
+    (id: string) => {
+      const elementId = pathElementMap[id] ?? id;
+      const element = elements.find((el) => el.id === elementId);
+      if (!element) return null;
+      if (element.type === "ball") {
+        return {
+          color: pathColorMap[elementId] ?? TRAJECTORY_COLORS.ball,
+          width: 1.4,
+          dashed: true,
+          number: trajectoryIndexMap.get(id) ?? null,
+        };
+      }
+      if (element.type === "player") {
+        const fallbackColor =
+          element.playerStyle === "runner"
+            ? TRAJECTORY_COLORS.runner
+            : element.playerStyle === "runner_noball"
+              ? TRAJECTORY_COLORS.runnerNoBall
+              : TRAJECTORY_COLORS.classic;
+        const color = pathColorMap[elementId] ?? fallbackColor;
+        return {
+          color,
+          width: 1.6,
+          dashed: false,
+          number: trajectoryIndexMap.get(id) ?? null,
+        };
+      }
+      return {
+        color: pathColorMap[elementId] ?? "rgba(148, 163, 184, 0.55)",
+        width: 1.2,
+        dashed: false,
+        number: trajectoryIndexMap.get(id) ?? null,
+      };
+    },
+    [elements, pathColorMap, pathElementMap, trajectoryIndexMap],
+  );
+
+  useEffect(() => {
+    if (!isStaticEditor) return;
+    setTrajectoryPreviews((prev) => {
+      const allowed = new Set(trajectoryOrder);
+      let changed = false;
+      const next: Record<string, string> = {};
+      Object.entries(prev).forEach(([id, value]) => {
+        if (!allowed.has(id)) {
+          changed = true;
+          return;
+        }
+        next[id] = value;
+      });
+      return changed ? next : prev;
+    });
+  }, [isStaticEditor, trajectoryOrder]);
+
+  useEffect(() => {
+    if (!isStaticEditor) return;
+    if (pathRecordRef.current) return;
+    const missing = trajectoryOrder.filter(
+      (id) => !trajectoryPreviews[id] && (paths[id]?.length ?? 0) >= 2,
+    );
+    if (missing.length === 0) return;
+    const updates: Record<string, string> = {};
+    missing.forEach((id) => {
+      const preview = renderTrajectoryPreview(id);
+      if (preview) {
+        updates[id] = preview;
+      }
+    });
+    if (Object.keys(updates).length > 0) {
+      setTrajectoryPreviews((prev) => ({ ...prev, ...updates }));
+    }
+  }, [
+    isStaticEditor,
+    trajectoryOrder,
+    paths,
+    elements,
+    pathElementMap,
+    pathColorMap,
+    trajectoryPreviews,
+  ]);
+
   const pencilPosition = useMemo(() => {
     if (!selectedElement) return null;
     const pitchRect = pitchRectForUI;
@@ -3302,7 +4272,7 @@ export default function ExerciseAnimatedEditor({
     if (!selectedElement) return null;
     const pitchRect = pitchRectForUI;
     const x = pitchRect.x + pitchRect.w / 2;
-    const y = pitchRect.y + pitchRect.h - 40;
+    const y = pitchRect.y + pitchRect.h - 128;
     const minX = pitchRect.x + 24;
     const maxX = pitchRect.x + pitchRect.w - 24;
     const minY = pitchRect.y + 24;
@@ -3335,6 +4305,11 @@ export default function ExerciseAnimatedEditor({
   useEffect(() => {
     if (!selectedId) {
       setShowSelectionToolbar(false);
+    }
+  }, [selectedId]);
+  useEffect(() => {
+    if (selectedId) {
+      setShowRotateHandle(true);
     }
   }, [selectedId]);
   const playerElements = useMemo(
@@ -3450,11 +4425,19 @@ export default function ExerciseAnimatedEditor({
     }, 3200);
   };
 
+  useEffect(() => {
+    if (!editError) return;
+    showToast("error", editError);
+  }, [editError]);
+
   const buildSnapshot = (): EditorSnapshot =>
     cloneData({
       elements,
       frames,
       paths,
+      pathElementMap,
+      trajectoryOrder,
+      pathColorMap,
       strokes,
       strokesBase,
       ballAttachments,
@@ -3477,6 +4460,10 @@ export default function ExerciseAnimatedEditor({
     setElements(snapshot.elements);
     setFrames(snapshot.frames);
     setPaths(snapshot.paths);
+    setPathElementMap(snapshot.pathElementMap ?? {});
+    setTrajectoryOrder(snapshot.trajectoryOrder ?? []);
+    setPathColorMap(snapshot.pathColorMap ?? {});
+    pathCounterRef.current = (snapshot.trajectoryOrder ?? []).length;
     setStrokes(snapshot.strokes);
     strokesRef.current = snapshot.strokes;
     setStrokesBase(snapshot.strokesBase);
@@ -3720,6 +4707,7 @@ export default function ExerciseAnimatedEditor({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (isStaticEditor && lockOrientationRef.current) return;
     const viewportW = window.innerWidth;
     const viewportH = window.innerHeight;
     const isLandscape = viewportW > viewportH * 1.1;
@@ -3879,7 +4867,8 @@ export default function ExerciseAnimatedEditor({
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const pitchRect = getCurrentPitchRect();
     const hitId = hitTest(elements, point, pitchRect);
-    const handleHitRadius = 30;
+    const rotateHitRadius = 18;
+    const resizeHitRadius = 12;
     let hitHandle: "rotate" | "resize" | null = null;
     if (selectedElement) {
       if (showRotateHandle) {
@@ -3893,7 +4882,7 @@ export default function ExerciseAnimatedEditor({
             point.x - handle.x,
             point.y - handle.y,
           );
-          if (handleDistance < handleHitRadius) {
+          if (handleDistance < rotateHitRadius) {
             hitHandle = "rotate";
           }
         }
@@ -3909,7 +4898,7 @@ export default function ExerciseAnimatedEditor({
             point.x - resizeHandle.x,
             point.y - resizeHandle.y,
           );
-          if (handleDistance < handleHitRadius) {
+          if (handleDistance < resizeHitRadius) {
             hitHandle = "resize";
           }
         }
@@ -3953,7 +4942,8 @@ export default function ExerciseAnimatedEditor({
     const rect = event.currentTarget.getBoundingClientRect();
     const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
     const pitchRect = getCurrentPitchRect();
-    const handleHitRadius = 30;
+    const rotateHitRadius = 18;
+    const resizeHitRadius = 12;
     let nextHover: { id: string; type: "rotate" | "resize" } | null = null;
     if (selectedElement) {
       if (showRotateHandle) {
@@ -3964,7 +4954,7 @@ export default function ExerciseAnimatedEditor({
         );
         if (handle) {
           const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
-          if (dist < handleHitRadius) {
+          if (dist < rotateHitRadius) {
             nextHover = { id: selectedElement.id, type: "rotate" };
           }
         }
@@ -3977,7 +4967,7 @@ export default function ExerciseAnimatedEditor({
         );
         if (handle) {
           const dist = Math.hypot(point.x - handle.x, point.y - handle.y);
-          if (dist < handleHitRadius) {
+          if (dist < resizeHitRadius) {
             nextHover = { id: selectedElement.id, type: "resize" };
           }
         }
@@ -4009,6 +4999,7 @@ export default function ExerciseAnimatedEditor({
       canvasSize.h,
       pitchPreset,
       orientationRef.current ?? undefined,
+      isStaticEditor ? "dark-textured" : "default",
     );
     drawElements(
       ctx,
@@ -4026,6 +5017,10 @@ export default function ExerciseAnimatedEditor({
         showRotateHandle: showRotateHandle,
         showResizeHandle: !previewMode && !recordMode,
         hoveredHandle,
+        pathStyleResolver: isStaticEditor ? trajectoryStyleResolver : undefined,
+        showPathGhosts: isStaticEditor && Object.keys(paths).length > 0,
+        pathUseFootOffset: !isStaticEditor,
+        pathElementMap: isStaticEditor ? pathElementMap : undefined,
       },
     );
   }, [
@@ -4044,11 +5039,24 @@ export default function ExerciseAnimatedEditor({
     showRotateHandle,
     recordMode,
     hoveredHandle,
+    runnerSpriteReady,
+    trajectoryStyleResolver,
+    pathElementMap,
   ]);
 
   useEffect(() => {
-    renderToolIcon(playerIconRef.current, 28, (ctx, s) => {
-      drawPlayerBodyHead(ctx, s / 2, s / 2, s * 0.32, playerColor ?? "#7B66FF", "10", false, false, false);
+    renderToolIcon(playerIconRef.current, 40, (ctx, s) => {
+      drawPlayerBodyHead(
+        ctx,
+        s / 2,
+        s / 2,
+        s * 0.4,
+        playerColor ?? "#7B66FF",
+        "10",
+        false,
+        false,
+        false,
+      );
     });
 
     renderToolIcon(discIconRef.current, 28, (ctx, s) => {
@@ -4328,7 +5336,7 @@ export default function ExerciseAnimatedEditor({
     return [...left.slice(0, -1), ...right];
   };
 
-  const simplifyStrokePoints = (
+  const simplifyStrokePointsForSmoothing = (
     points: Array<{ x: number; y: number }>,
     maxPoints = 24,
   ) => {
@@ -4358,7 +5366,7 @@ export default function ExerciseAnimatedEditor({
         if (predicate && !predicate(stroke)) return stroke;
         if (stroke.points.length < 3) return stroke;
         beforeTotal += stroke.points.length;
-        const nextPoints = simplifyStrokePoints(stroke.points, 12);
+        const nextPoints = simplifyStrokePointsForSmoothing(stroke.points, 12);
         afterTotal += nextPoints.length;
         changed += 1;
         return { ...stroke, points: nextPoints };
@@ -4402,6 +5410,46 @@ export default function ExerciseAnimatedEditor({
       showRotateHandle: false,
       showResizeHandle: false,
     });
+    return canvas.toDataURL("image/png");
+  };
+
+  const renderTrajectoryPreview = (pathId: string) => {
+    if (typeof document === "undefined") return null;
+    const points = paths[pathId];
+    if (!points || points.length < 2) return null;
+    const canvas = document.createElement("canvas");
+    const width = 220;
+    const height = 130;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const pitchRect = drawPitch(
+      ctx,
+      width,
+      height,
+      pitchPreset,
+      orientationRef.current ?? undefined,
+    );
+    drawElements(
+      ctx,
+      elements,
+      null,
+      pitchRect,
+      { [pathId]: points },
+      [],
+      ballAttachments,
+      null,
+      {
+        showOverlays: true,
+        showLabels: false,
+        showRotateHandle: false,
+        showResizeHandle: false,
+        pathStyleResolver: trajectoryStyleResolver,
+        showPathGhosts: false,
+        pathElementMap,
+      },
+    );
     return canvas.toDataURL("image/png");
   };
 
@@ -4712,6 +5760,86 @@ export default function ExerciseAnimatedEditor({
     };
   };
 
+  const buildCardCoverImage = () => {
+    if (typeof document === "undefined") return null;
+    const canvas = document.createElement("canvas");
+    const sourceOrientation =
+      orientationRef.current ??
+      (typeof window !== "undefined" && window.innerWidth > window.innerHeight * 1.1
+        ? "landscape"
+        : "portrait");
+    const width = 540;
+    const height = 810;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const rotatePoint =
+      sourceOrientation === "landscape"
+        ? (point: { x: number; y: number }) => ({
+            x: clamp01(point.y),
+            y: clamp01(1 - point.x),
+          })
+        : (point: { x: number; y: number }) => point;
+    const rotatedElements = elements.map((el) => {
+      const next = rotatePoint({ x: el.x, y: el.y });
+      const baseSize =
+        typeof el.size === "number" ? el.size : getDefaultSize(el.type);
+      return {
+        ...el,
+        x: next.x,
+        y: next.y,
+        size: baseSize,
+      };
+    });
+    const rotatedPaths = Object.entries(paths).reduce<
+      Record<string, PathPoint[]>
+    >((acc, [id, points]) => {
+      acc[id] = points.map((pt) => {
+        const next = rotatePoint({ x: pt.x, y: pt.y });
+        return { ...pt, x: next.x, y: next.y };
+      });
+      return acc;
+    }, {});
+    const rotatedStrokes = strokes.map((stroke) => ({
+      ...stroke,
+      points: (stroke.points ?? []).map((pt) => {
+        const next = rotatePoint({ x: pt.x, y: pt.y });
+        return { ...pt, x: next.x, y: next.y };
+      }),
+    }));
+    const pitchRect = drawPitch(
+      ctx,
+      width,
+      height,
+      pitchPreset,
+      "portrait",
+      "dark-textured",
+    );
+    drawElements(
+      ctx,
+      rotatedElements,
+      null,
+      pitchRect,
+      rotatedPaths,
+      rotatedStrokes,
+      ballAttachments,
+      null,
+      {
+        showOverlays: true,
+        showLabels: false,
+        showSequenceNumbers: true,
+        showRotateHandle: false,
+        showResizeHandle: false,
+        pathStyleResolver: isStaticEditor ? trajectoryStyleResolver : undefined,
+        showPathGhosts: true,
+        pathUseFootOffset: false,
+        pathElementMap,
+      },
+    );
+    return canvas.toDataURL("image/jpeg", 0.86);
+  };
+
   const exportStaticExercise = (coverImageUrl: string | null) => {
     const trimmedName = name.trim();
     const categoryValue =
@@ -4769,6 +5897,11 @@ export default function ExerciseAnimatedEditor({
       elements,
       paths,
       ballAttachments,
+      pathElementMap,
+      trajectoryOrder,
+      pathColorMap,
+      coverImageUrl: coverImageUrl ?? undefined,
+      coverOrientation: "portrait" as const,
     };
     return {
       title: trimmedName || "Carte exercice",
@@ -4781,6 +5914,10 @@ export default function ExerciseAnimatedEditor({
         elements,
         paths,
         ballAttachments,
+        pathElementMap,
+        trajectoryOrder,
+        pathColorMap,
+        coverOrientation: "portrait" as const,
         pitchState,
         coverImageUrl,
         metadata,
@@ -4790,7 +5927,7 @@ export default function ExerciseAnimatedEditor({
   };
 
   const handleSave = async () => {
-    if (saving) return;
+    if (saving || loadingEdit) return;
     const trimmedName = name.trim();
     if (!trimmedName || trimmedName.length < 3) {
       setNameError("Donne un nom à ton exercice.");
@@ -4815,23 +5952,41 @@ export default function ExerciseAnimatedEditor({
         return;
       }
       const coverImageUrl = isStaticEditor
-        ? canvasRef.current?.toDataURL("image/png") ?? null
+        ? buildCardCoverImage() ??
+          canvasRef.current?.toDataURL("image/png") ??
+          null
         : null;
       const payload = isStaticEditor
         ? exportStaticExercise(coverImageUrl)
         : exportExercise();
-      const { error } = await supabase.from("training_exercises").insert({
-        title: payload.title,
-        category: payload.category,
-        duration: payload.duration,
-        type: payload.type,
-        animation_data: payload.animation_data,
-        created_by: userData.user.id,
-      });
+      const isEditMode = Boolean(editExerciseId);
+      const query = isEditMode
+        ? supabase
+            .from("training_exercises")
+            .update({
+              title: payload.title,
+              category: payload.category,
+              duration: payload.duration,
+              type: payload.type,
+              animation_data: payload.animation_data,
+            })
+            .eq("id", editExerciseId)
+        : supabase.from("training_exercises").insert({
+            title: payload.title,
+            category: payload.category,
+            duration: payload.duration,
+            type: payload.type,
+            animation_data: payload.animation_data,
+            created_by: userData.user.id,
+          });
+      const { error } = await query;
       if (error) {
         throw new Error(error.message);
       }
-      showToast("success", "Exercice enregistré.");
+      showToast(
+        "success",
+        isEditMode ? "Exercice mis à jour." : "Exercice enregistré.",
+      );
       setSaveStep("success");
     } catch (err) {
       const message =
@@ -4853,6 +6008,11 @@ export default function ExerciseAnimatedEditor({
     setRecordPathMode(false);
     setCurrentRecordingElementId(null);
     pathRecordRef.current = null;
+    setTrajectoryOrder([]);
+    setPathElementMap({});
+    setPathColorMap({});
+    pathCounterRef.current = 0;
+    setTrajectoryPreviews({});
     setRecordMode(false);
     setStrokes([]);
     strokesRef.current = [];
@@ -4878,6 +6038,7 @@ export default function ExerciseAnimatedEditor({
     setOpenSaveSelect(null);
     sequenceDragRef.current = null;
     setSnapTargetId(null);
+    lockOrientationRef.current = false;
     clearDrag();
     showToast("success", "Éditeur réinitialisé.");
   };
@@ -5328,6 +6489,7 @@ export default function ExerciseAnimatedEditor({
                     onClick={handleSave}
                     disabled={
                       saving ||
+                      loadingEdit ||
                       name.trim().length < 3 ||
                       !categoryMain ||
                       (!isStaticEditor &&
@@ -5385,17 +6547,80 @@ export default function ExerciseAnimatedEditor({
                   <path d="M6 5L19 12L12 14L10 20L6 5Z" />
                 </svg>
               </button>
+              {isStaticEditor ? (
+                <button
+                  onClick={() => {
+                    setRecordPathMode((prev) => !prev);
+                    setTool("select");
+                  }}
+                  title="Trajectoire"
+                  className={[
+                    "flex h-7 w-7 items-center justify-center rounded-full border transition",
+                    recordPathMode
+                      ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                      : "border-white/10 text-slate-200 hover:border-white/30",
+                  ].join(" ")}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 16c4-6 8-6 12-1" />
+                    <polyline points="16,13 19,15 16,17" />
+                  </svg>
+                </button>
+              ) : null}
               <button
                 onClick={() => toggleTool("player")}
                 title="Joueur"
                 className={[
-                  "flex h-7 w-7 items-center justify-center rounded-full border transition",
+                  "flex h-9 w-9 items-center justify-center rounded-full border transition",
                   tool === "player"
                     ? "border-violet-400/70 bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
                     : "border-white/10 text-slate-200 hover:border-white/30",
                 ].join(" ")}
               >
-                <canvas ref={playerIconRef} className="h-4 w-4" />
+                <canvas ref={playerIconRef} className="h-8 w-8" />
+              </button>
+              <button
+                onClick={() => toggleTool("player_runner")}
+                title="Joueur 3D"
+                className={[
+                  "flex h-9 w-9 items-center justify-center overflow-hidden rounded-md transition",
+                  tool === "player_runner"
+                    ? "bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                    : "text-slate-200 hover:bg-white/5",
+                ].join(" ")}
+              >
+                <img
+                  src="/icons/Joueurcour.png"
+                  alt="Joueur 3D"
+                  className="h-full w-full object-cover"
+                  style={{ transform: "scale(1.6)", transformOrigin: "50% 25%" }}
+                />
+              </button>
+              <button
+                onClick={() => toggleTool("player_runner_noball")}
+                title="Joueur sans ballon"
+                className={[
+                  "flex h-9 w-9 items-center justify-center overflow-hidden rounded-md transition",
+                  tool === "player_runner_noball"
+                    ? "bg-violet-500/20 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
+                    : "text-slate-200 hover:bg-white/5",
+                ].join(" ")}
+              >
+                <img
+                  src="/icons/JOUEUR2SANSBAL.png"
+                  alt="Joueur sans ballon"
+                  className="h-full w-full object-cover"
+                  style={{ transform: "scale(1.6)", transformOrigin: "50% 25%" }}
+                />
               </button>
               <button
                 onClick={() => toggleTool("ball")}
@@ -5666,17 +6891,6 @@ export default function ExerciseAnimatedEditor({
                               <line x1="12" y1="8" x2="17" y2="14" />
                               <polyline points="16,12.8 17,14 15.4,13.8" />
                             </svg>
-                          ) : shape === "rect" ? (
-                            <svg
-                              viewBox="0 0 24 24"
-                              className="h-5 w-5"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1"
-                              strokeLinecap="square"
-                            >
-                              <rect x="4" y="4" width="16" height="16" rx="0" />
-                            </svg>
                           ) : shape === "rect_dashed" ? (
                             <svg
                               viewBox="0 0 24 24"
@@ -5866,7 +7080,7 @@ export default function ExerciseAnimatedEditor({
             }}
             className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
           >
-            <div className="flex items-center gap-2 rounded-full border border-white/5 bg-gradient-to-r from-violet-600/95 via-violet-500/95 to-fuchsia-500/95 px-2.5 py-1.5 text-[11px] text-white shadow-[0_0_34px_rgba(139,92,246,0.7)] ring-1 ring-white/10 backdrop-blur-md">
+            <div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/45 px-2.5 py-1.5 text-[11px] text-white/90 shadow-[0_12px_26px_rgba(0,0,0,0.45)] ring-1 ring-white/10 backdrop-blur-md">
               <button
                 onClick={() => setShowSidePanel((prev) => !prev)}
                 title="Propriétés"
@@ -5907,10 +7121,10 @@ export default function ExerciseAnimatedEditor({
         {!previewMode && showSidePanel && selectedElement ? (
           <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2">
             <div className="flex items-center justify-center bg-transparent">
-              <div className="flex origin-center scale-50 items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1 py-0.5 text-[9px]">
+              <div className="flex origin-center scale-90 items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px]">
                     <button
                       onClick={() => setShowSidePanel(false)}
-                      className="flex h-3.5 w-3.5 items-center justify-center rounded-sm border border-white/10 bg-white/5 text-[7px] text-slate-200 transition hover:bg-white/10"
+                      className="flex h-5 w-5 items-center justify-center rounded-sm border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10"
                       aria-label="Fermer"
                     >
                       ✕
@@ -5921,11 +7135,11 @@ export default function ExerciseAnimatedEditor({
                           onClick={() =>
                             setShowElementColorMenu((prev) => !prev)
                           }
-                          className="flex h-4 w-4 items-center justify-center rounded-full border border-white/10 bg-white/5"
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/5"
                           title="Couleur"
                         >
                           <span
-                            className="h-2.5 w-2.5 rounded-full"
+                            className="h-4 w-4 rounded-full"
                             style={{
                               background: selectedElement.color ?? "#7B66FF",
                             }}
@@ -5955,8 +7169,8 @@ export default function ExerciseAnimatedEditor({
                     ) : null}
 
                     {selectedElement.type === "player" ? (
-                      <div className="flex items-center gap-0.5 px-1">
-                        <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                      <div className="flex items-center gap-1 px-1.5">
+                        <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                           #
                         </span>
                         <input
@@ -5966,14 +7180,14 @@ export default function ExerciseAnimatedEditor({
                               label: event.target.value,
                             })
                           }
-                          className="w-6 bg-transparent text-[9px] text-slate-100 outline-none placeholder:text-slate-500"
+                          className="w-10 bg-transparent text-[11px] text-slate-100 outline-none placeholder:text-slate-500"
                           placeholder="10"
                         />
                       </div>
                     ) : null}
 
-                    <div className="flex items-center gap-1 px-1">
-                      <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                    <div className="flex items-center gap-2 px-1.5">
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                         Taille
                       </span>
                       <input
@@ -5990,12 +7204,12 @@ export default function ExerciseAnimatedEditor({
                             size: Number(event.target.value),
                           })
                         }
-                        className="w-12"
+                        className="w-20"
                       />
                     </div>
 
-                    <div className="flex items-center gap-1 px-1">
-                      <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                    <div className="flex items-center gap-2 px-1.5">
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                         Angle
                       </span>
                       <input
@@ -6009,16 +7223,16 @@ export default function ExerciseAnimatedEditor({
                             rotation: Number(event.target.value),
                           })
                         }
-                        className="w-12"
+                        className="w-20"
                       />
-                      <span className="text-[9px] text-slate-300">
+                      <span className="text-[10px] text-slate-300">
                         {Math.round(selectedElement.rotation ?? 0)}°
                       </span>
                     </div>
 
                     {animationMode === "video" && selectedStroke ? (
-                      <div className="flex items-center gap-1 px-1">
-                        <span className="text-[9px] uppercase tracking-[0.2em] text-slate-400">
+                      <div className="flex items-center gap-2 px-1.5">
+                        <span className="text-[10px] uppercase tracking-[0.18em] text-slate-400">
                           Action
                         </span>
                         <input
@@ -6031,7 +7245,7 @@ export default function ExerciseAnimatedEditor({
                               Number(event.target.value),
                             )
                           }
-                          className="w-10 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] text-slate-100 outline-none"
+                          className="w-12 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-slate-100 outline-none"
                         />
                       </div>
                     ) : null}
@@ -6050,7 +7264,7 @@ export default function ExerciseAnimatedEditor({
                                 onChange={(event) =>
                                   setAssociationTargetBallId(event.target.value)
                                 }
-                                className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-100"
+                              className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-100"
                               >
                                 {ballElements.map((ball, index) => (
                                   <option key={ball.id} value={ball.id}>
@@ -6066,7 +7280,7 @@ export default function ExerciseAnimatedEditor({
                                   associationTargetBallId,
                                 )
                               }
-                              className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                              className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-200 transition hover:bg-white/10"
                             >
                               ⚽ Associer
                             </button>
@@ -6083,7 +7297,7 @@ export default function ExerciseAnimatedEditor({
                                 return (
                                   <button
                                     onClick={() => detachBall(targetBallId)}
-                                    className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                                    className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-200 transition hover:bg-white/10"
                                   >
                                     Détacher
                                   </button>
@@ -6107,7 +7321,7 @@ export default function ExerciseAnimatedEditor({
                             onChange={(event) =>
                               setAssociationTargetPlayerId(event.target.value)
                             }
-                            className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-100"
+                            className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-100"
                           >
                             {playerElements.map((player, index) => (
                               <option key={player.id} value={player.id}>
@@ -6124,14 +7338,14 @@ export default function ExerciseAnimatedEditor({
                                 );
                               }
                             }}
-                            className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                            className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-200 transition hover:bg-white/10"
                           >
                             ⚽ Associer
                           </button>
                           {ballAttachments[selectedElement.id] ? (
                             <button
                               onClick={() => detachBall(selectedElement.id)}
-                              className="h-6 rounded-full border border-white/10 bg-white/5 px-2 text-[10px] text-slate-200 transition hover:bg-white/10"
+                              className="h-7 rounded-full border border-white/10 bg-white/5 px-3 text-[11px] text-slate-200 transition hover:bg-white/10"
                             >
                               Détacher
                             </button>
@@ -6143,7 +7357,7 @@ export default function ExerciseAnimatedEditor({
 
                     <button
                       onClick={() => setSelectedId(null)}
-                      className="h-6 w-6 rounded-full border border-white/10 bg-white/5 text-[10px] text-slate-200 transition hover:bg-white/10"
+                      className="h-7 w-7 rounded-full border border-white/10 bg-white/5 text-[11px] text-slate-200 transition hover:bg-white/10"
                       aria-label="Désélectionner"
                       title="Désélectionner"
                     >
@@ -6549,6 +7763,46 @@ export default function ExerciseAnimatedEditor({
                 </div>
               </div>
             ) : null}
+            {!previewMode && isStaticEditor ? (
+              <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 w-[92%] -translate-x-1/2">
+                <div className="pointer-events-auto rounded-2xl border border-white/10 bg-[#0b1020]/75 px-2 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                  <div className="flex items-center gap-2 overflow-x-auto">
+                    {trajectoryOrder.length === 0 ? (
+                      <div className="text-xs text-slate-400">
+                        Aucune action
+                      </div>
+                    ) : (
+                      trajectoryOrder.map((pathId, index) => {
+                        const preview = trajectoryPreviews[pathId];
+                        return (
+                        <button
+                          key={pathId}
+                          type="button"
+                          onClick={() => setActiveTrajectoryPreviewId(pathId)}
+                          className="relative h-16 w-24 flex-shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 transition hover:border-violet-300/60"
+                        >
+                          {preview ? (
+                            <img
+                              src={preview}
+                              alt={`Action ${index + 1}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] text-slate-300">
+                              {index + 1}
+                            </div>
+                          )}
+                          <span className="absolute bottom-1 right-1 rounded-full border border-white/10 bg-black/60 px-1.5 py-0.5 text-[9px] text-white/80">
+                            {index + 1}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </main>
@@ -6600,6 +7854,38 @@ export default function ExerciseAnimatedEditor({
               >
                 Quitter
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isStaticEditor && activeTrajectoryPreviewId ? (
+        <div className="fixed inset-0 z-40">
+          <button
+            type="button"
+            onClick={() => setActiveTrajectoryPreviewId(null)}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            aria-label="Fermer l’aperçu"
+          />
+          <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-[720px] -translate-x-1/2 -translate-y-1/2">
+            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0b1020]/90 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+              <button
+                type="button"
+                onClick={() => setActiveTrajectoryPreviewId(null)}
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/60 text-sm text-white/80 transition hover:bg-white/10"
+                aria-label="Fermer"
+              >
+                ✕
+              </button>
+              <div className="aspect-video w-full bg-black/40">
+                {trajectoryPreviews[activeTrajectoryPreviewId] ? (
+                  <img
+                    src={trajectoryPreviews[activeTrajectoryPreviewId]}
+                    alt="Aperçu de l’action"
+                    className="h-full w-full object-cover"
+                  />
+                ) : null}
+              </div>
             </div>
           </div>
         </div>
