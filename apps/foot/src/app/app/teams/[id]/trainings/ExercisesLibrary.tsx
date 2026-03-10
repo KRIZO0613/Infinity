@@ -3846,31 +3846,33 @@ export default function ExercisesLibrary() {
                     </div>
                   </div>
                   <div className="absolute bottom-2 right-2 z-20 flex items-center gap-2">
-                    {testUndoLabel ? (
-                      <button
-                        type="button"
-                        onClick={handleTestUndo}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[12px] text-white/90 transition hover:bg-white/10"
-                        aria-label="Annuler"
-                        title="Annuler"
+                    <button
+                      type="button"
+                      onClick={handleTestUndo}
+                      disabled={!testUndoLabel}
+                      className={[
+                        "inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[12px] transition",
+                        testUndoLabel
+                          ? "text-white/90 hover:bg-white/10"
+                          : "cursor-not-allowed text-white/35",
+                      ].join(" ")}
+                      aria-label="Annuler"
+                      title="Annuler"
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                        ↺
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTestResetMenuOpen((prev) => !prev);
-                          setTestResetConfirm(null);
-                        }}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[12px] text-white/80 transition hover:bg-white/10"
-                        aria-label="Réglages"
-                        title="Réglages"
-                        ref={testResetButtonRef}
-                      >
-                        ⋯
-                      </button>
-                    )}
+                        <path d="M9 14L4 9l5-5" />
+                        <path d="M4 9h8a7 7 0 1 1 0 14h-2" />
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setShowTestRanking((prev) => !prev)}
