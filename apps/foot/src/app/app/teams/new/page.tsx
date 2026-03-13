@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/app/_components/DashboardLayout";
 import InfoCard from "@/app/_components/InfoCard";
+import { TEAM_PLAYERS_PER_SIDE_VALUES } from "@/lib/teamProfile";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function TeamsNewPage() {
@@ -12,6 +13,8 @@ export default function TeamsNewPage() {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
   const [level, setLevel] = useState("");
+  const [squadNumber, setSquadNumber] = useState("1");
+  const [playersPerSide, setPlayersPerSide] = useState("11");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
@@ -73,6 +76,8 @@ export default function TeamsNewPage() {
       name: name.trim(),
       category: category.trim() || null,
       level: level.trim(),
+      squad_number: squadNumber.trim() ? Number(squadNumber) : null,
+      players_per_side: playersPerSide.trim() ? Number(playersPerSide) : null,
       photo_url: photoUrl,
       players_count: 0,
     });
@@ -94,12 +99,12 @@ export default function TeamsNewPage() {
     <DashboardLayout
       eyebrow="Équipes"
       title="Créer une équipe"
-      subtitle="Ajoute le nom, la catégorie et une photo."
+      subtitle="Ajoute l’identité de l’équipe et sa structure sportive."
     >
       <div className="mt-6 max-w-3xl">
         <InfoCard
           title="Nouvelle équipe"
-          description="Renseigne le nom et la catégorie. La photo est optionnelle."
+          description="Renseigne le nom, la catégorie, le niveau et le format de jeu. La photo est optionnelle."
         >
           <form onSubmit={handleSubmit} className="space-y-5">
             <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -161,6 +166,39 @@ export default function TeamsNewPage() {
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
               />
             </label>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Équipe
+                <input
+                  type="number"
+                  min="1"
+                  value={squadNumber}
+                  onChange={(event) => setSquadNumber(event.target.value)}
+                  placeholder="Ex: 1"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
+                />
+              </label>
+
+              <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Nb joueurs
+                <select
+                  value={playersPerSide}
+                  onChange={(event) => setPlayersPerSide(event.target.value)}
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-slate-100 outline-none transition focus:border-[#8b5cf6]/60 focus:ring-1 focus:ring-[#8b5cf6]/40"
+                >
+                  {TEAM_PLAYERS_PER_SIDE_VALUES.map((value) => (
+                    <option
+                      key={value}
+                      value={value}
+                      className="bg-slate-950"
+                    >
+                      {value}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             {error ? <p className="text-xs text-rose-300">{error}</p> : null}
 

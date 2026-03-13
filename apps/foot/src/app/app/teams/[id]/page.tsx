@@ -7,13 +7,16 @@ import GameCardShell from "@/app/_components/cards/GameCardShell";
 import TeamInfoPanel, {
   type CustomField,
 } from "@/app/_components/cards/TeamInfoPanel";
+import { formatTeamDisplayName } from "@/lib/teamProfile";
 import { supabase } from "@/lib/supabaseClient";
 
 type Team = {
   id: string;
+  club_id: string | null;
   name: string;
   category: string | null;
   level: string | null;
+  squad_number: number | null;
   photo_url: string | null;
   players_count: number;
   custom_fields: CustomField[] | null;
@@ -64,6 +67,7 @@ export default function TeamDetailPage() {
   }, [teamId]);
 
   const [team, setTeam] = useState<Team | null>(null);
+  const [clubName, setClubName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +98,9 @@ export default function TeamDetailPage() {
 
       const { data, error } = await supabase
         .from("teams")
-        .select("id,name,category,level,photo_url,players_count,custom_fields")
+        .select(
+          "id,club_id,name,category,level,squad_number,photo_url,players_count,custom_fields",
+        )
         .eq("id", teamId)
         .maybeSingle();
 
@@ -104,8 +110,23 @@ export default function TeamDetailPage() {
         console.error("Erreur chargement équipe:", error.message ?? error);
         setError("Impossible de charger l’équipe.");
         setTeam(null);
+        setClubName(null);
       } else {
         setTeam(data ?? null);
+
+        if (data?.club_id) {
+          const clubResponse = await supabase
+            .from("clubs")
+            .select("name")
+            .eq("id", data.club_id)
+            .maybeSingle();
+
+          if (!mounted) return;
+
+          setClubName(clubResponse.data?.name ?? null);
+        } else {
+          setClubName(null);
+        }
       }
       setLoading(false);
     }
@@ -117,7 +138,13 @@ export default function TeamDetailPage() {
     };
   }, [teamId]);
 
-  const title = team?.name ?? (loading ? "Chargement…" : "Équipe");
+  const teamDisplayName = formatTeamDisplayName({
+    clubName,
+    name: team?.name,
+    squadNumber: team?.squad_number ?? null,
+    fallback: loading ? "Chargement…" : "Équipe",
+  });
+  const title = team?.id ? teamDisplayName : loading ? "Chargement…" : "Équipe";
   const subtitle = team?.category ?? "Catégorie non renseignée";
 
   return (
@@ -154,7 +181,7 @@ export default function TeamDetailPage() {
                   const autoStats = getAutoStatsConfig(team.custom_fields);
                   return (
                     <TeamInfoPanel
-                      name={team.name}
+                      name={teamDisplayName}
                       category={team.category}
                       playersCount={team.players_count}
                       customFields={team.custom_fields ?? []}

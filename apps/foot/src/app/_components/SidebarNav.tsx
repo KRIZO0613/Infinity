@@ -7,6 +7,7 @@ import {
   Shield,
   Users,
   CircleDot,
+  ClipboardList,
   Dumbbell,
   Calendar,
   BarChart3,
@@ -72,6 +73,13 @@ const items: Item[] = [
     match: (pathname) =>
       pathname.startsWith("/app/teams/") && pathname.includes("/matches"),
     icon: <CircleDot size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
+  },
+  {
+    label: "Feuille de match",
+    href: (pathname) => buildTeamHref(pathname, "match-sheet"),
+    match: (pathname) =>
+      pathname.startsWith("/app/teams/") && pathname.includes("/match-sheet"),
+    icon: <ClipboardList size={ICON_SIZE} strokeWidth={ICON_STROKE} />,
   },
   {
     label: "Agenda",

@@ -13,6 +13,7 @@ import PlayerSelect from "@/app/app/teams/_components/PlayerSelect";
 import PlayerModal from "@/app/app/teams/_components/PlayerModal";
 import type { Player } from "@/app/app/teams/_types/player";
 import { getActiveClubId, setActiveClubId } from "@/lib/activeClub";
+import { formatTeamDisplayName } from "@/lib/teamProfile";
 import { TEAM_FIELD_LIBRARY } from "@/app/app/teams/_config/teamFieldLibrary";
 
 type Team = {
@@ -21,6 +22,7 @@ type Team = {
   name: string;
   category: string | null;
   level: string | null;
+  squad_number: number | null;
   photo_url: string | null;
   players_count: number;
   custom_fields: CustomField[] | null;
@@ -107,6 +109,15 @@ export default function TeamsPage() {
     [teams, activeTeamId],
   );
 
+  const activeTeamDisplayName = useMemo(() => {
+    return formatTeamDisplayName({
+      clubName,
+      name: activeTeam?.name,
+      squadNumber: activeTeam?.squad_number ?? null,
+      fallback: "Équipes",
+    });
+  }, [activeTeam?.name, activeTeam?.squad_number, clubName]);
+
   useEffect(() => {
     if (playersView !== "list") {
       setListCardIndex(null);
@@ -188,7 +199,7 @@ export default function TeamsPage() {
       const { data, error } = await supabase
         .from("teams")
         .select(
-          "id,club_id,name,category,level,photo_url,players_count,custom_fields",
+          "id,club_id,name,category,level,squad_number,photo_url,players_count,custom_fields",
         )
         .order("created_at", { ascending: true });
 
@@ -623,7 +634,7 @@ export default function TeamsPage() {
   return (
     <DashboardLayout
       eyebrow=""
-      title={activeTeam?.name ?? clubName ?? "Équipes"}
+      title={activeTeam ? activeTeamDisplayName : clubName ?? "Équipes"}
       subtitle=""
       headerRight={
         <div className="flex flex-wrap items-center gap-2">
@@ -800,7 +811,7 @@ export default function TeamsPage() {
                 onOpenCard={(index) => {
                   setListCardIndex((prev) => (prev === index ? null : index));
                 }}
-                teamName={activeTeam?.name}
+                teamName={activeTeam ? activeTeamDisplayName : undefined}
               />
               {listCardIndex !== null ? (
                 <div
@@ -921,9 +932,9 @@ export default function TeamsPage() {
                     const autoStats = getAutoStatsConfig(
                       activeTeam.custom_fields,
                     );
-                    return (
+                  return (
                   <TeamInfoPanel
-                    name={activeTeam.name}
+                    name={activeTeamDisplayName}
                     category={activeTeam.category}
                     playersCount={activeTeam.players_count}
                     customFields={normalizeCustomFields(

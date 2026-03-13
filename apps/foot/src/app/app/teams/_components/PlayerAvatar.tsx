@@ -4,17 +4,19 @@ type PlayerAvatarProps = {
   firstName?: string | null;
   lastName?: string | null;
   photoUrl?: string | null;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   className?: string;
 };
 
 const sizeClasses: Record<NonNullable<PlayerAvatarProps["size"]>, string> = {
+  xs: "h-8 w-8 text-[10px]",
   sm: "h-10 w-10 text-xs",
   md: "h-14 w-14 text-sm",
   lg: "h-20 w-20 text-base",
 };
 
 const sizeWidths: Record<NonNullable<PlayerAvatarProps["size"]>, number> = {
+  xs: 64,
   sm: 80,
   md: 120,
   lg: 240,

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supabase } from "@/lib/supabaseClient";
 import {
+  buildTeamNameAliases,
+  formatTeamDisplayName,
+} from "@/lib/teamProfile";
+import {
   searchExternalClubs,
   type ExternalClub,
 } from "@/lib/api/externalClubs";
@@ -43,6 +47,7 @@ type TeamInfo = {
   category: string | null;
   level: string | null;
   clubName: string | null;
+  squadNumber: number | null;
 };
 
 type PlayerLite = {
@@ -281,6 +286,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
     category: null,
     level: null,
     clubName: null,
+    squadNumber: null,
   });
   const [players, setPlayers] = useState<PlayerLite[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -323,15 +329,29 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
   const sectionMenuRef = useRef<HTMLDivElement | null>(null);
 
   const teamDisplayName = useMemo(() => {
-    return (
-      teamInfo.clubName ?? teamInfo.name ?? teamInfo.category ?? "Mon équipe"
-    );
+    return formatTeamDisplayName({
+      clubName: teamInfo.clubName,
+      name: teamInfo.name ?? teamInfo.category,
+      category: teamInfo.category,
+      squadNumber: teamInfo.squadNumber,
+      fallback: "Mon équipe",
+    });
+  }, [teamInfo]);
+
+  const localTeamAliases = useMemo(() => {
+    return buildTeamNameAliases({
+      clubName: teamInfo.clubName,
+      name: teamInfo.name,
+      category: teamInfo.category,
+      squadNumber: teamInfo.squadNumber,
+      fallback: "Mon équipe",
+    }).map((value) => value.toLowerCase());
   }, [teamInfo]);
 
   const isLocalTeamName = (name: string) => {
     const normalized = name.trim().toLowerCase();
     if (!normalized) return false;
-    return normalized === teamDisplayName.trim().toLowerCase();
+    return localTeamAliases.includes(normalized);
   };
 
   const parseScore = useCallback((score?: string) => {
@@ -463,7 +483,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
       if (!teamId) return;
       const { data, error } = await supabase
         .from("teams")
-        .select("name,category,club_id")
+        .select("name,category,club_id,squad_number")
         .eq("id", teamId)
         .maybeSingle();
 
@@ -488,6 +508,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
         category: data?.category ?? null,
         level: null,
         clubName,
+        squadNumber: data?.squad_number ?? null,
       });
     }
 

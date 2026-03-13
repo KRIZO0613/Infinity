@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import ProfileForm from "@/app/_components/ProfileForm";
+import TeamProfileForm from "@/app/_components/TeamProfileForm";
 import InfoCard from "@/app/_components/InfoCard";
 import InfoField from "@/app/_components/InfoField";
 import { getSession, signOut } from "@/lib/auth";
@@ -195,11 +196,18 @@ export default function AccountPage() {
         </div>
       </InfoCard>
 
+      <InfoCard
+        title="Mon équipe"
+        description="Renseigne ici les informations sportives de référence de ton équipe."
+      >
+        <TeamProfileForm />
+      </InfoCard>
+
       <InfoCard title="Zone sensible">
         <div className="flex flex-col gap-4 text-sm text-slate-300">
           <p>
             Supprime ton compte Supabase pour repartir de zero et refaire
-            l'onboarding.
+            l&apos;onboarding.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <button

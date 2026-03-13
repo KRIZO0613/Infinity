@@ -3,10 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supabase } from "@/lib/supabaseClient";
+import { mapChampionshipMatchesToTeamEvents } from "@/lib/championshipMatches";
+import {
+  buildTeamNameAliases,
+  formatTeamDisplayName,
+} from "@/lib/teamProfile";
 import {
   searchExternalClubs,
   type ExternalClub,
 } from "@/lib/api/externalClubs";
+import { syncChampionshipMatchesToTeamEvents } from "@/lib/api/teamEvents";
 
 type ChampionshipMatch = {
   id: string;
@@ -51,6 +57,7 @@ type TeamInfo = {
   category: string | null;
   level: string | null;
   clubName: string | null;
+  squadNumber: number | null;
 };
 
 type PlayerLite = {
@@ -113,6 +120,10 @@ type NextCalendarMatch = {
   matchDate: Date;
 };
 
+type PickerInput = HTMLInputElement & {
+  showPicker?: () => void;
+};
+
 const kindLabels: Record<ChampionshipUI["kind"], string> = {
   championship: "Championnat",
   cup: "Coupe",
@@ -138,6 +149,37 @@ const buildId = () =>
 const normalizeLevelValue = (value: string | null) => {
   if (!value) return null;
   return value.replace(/^\s*(niv(?:eau)?\.?)\s*/i, "").trim() || null;
+};
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const candidate = error as {
+      message?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      code?: unknown;
+    };
+
+    const parts = [
+      typeof candidate.message === "string" ? candidate.message : null,
+      typeof candidate.details === "string" ? candidate.details : null,
+      typeof candidate.hint === "string" ? `hint: ${candidate.hint}` : null,
+      typeof candidate.code === "string" ? `code: ${candidate.code}` : null,
+    ].filter((part): part is string => Boolean(part));
+
+    if (parts.length > 0) {
+      return parts.join(" | ");
+    }
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return "Erreur inconnue";
+    }
+  }
+  return "Erreur inconnue";
 };
 
 const formatDayCompact = (date: Date) => {
@@ -562,6 +604,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     category: null,
     level: null,
     clubName: null,
+    squadNumber: null,
   });
   const [players, setPlayers] = useState<PlayerLite[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -638,62 +681,185 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   const prevDayStepRef = useRef<DayWizardStep>(dayWizardStep);
   const dayInputRef = useRef<HTMLInputElement | null>(null);
 
+  const teamDisplayName = useMemo(() => {
+    const baseName = formatTeamDisplayName({
+      clubName: teamInfo.clubName,
+      name: teamInfo.name ?? teamInfo.category,
+      category: teamInfo.category,
+      squadNumber: teamInfo.squadNumber,
+      fallback: "Mon équipe",
+    });
+    const levelValue = normalizeLevelValue(teamInfo.level);
+    const levelSuffix = levelValue ? ` Niv ${levelValue}` : "";
+    return `${baseName}${levelSuffix}`.trim();
+  }, [teamInfo]);
+
+  const teamBaseLabel = useMemo(() => {
+    return teamInfo.clubName?.trim() || teamInfo.name?.trim() || "Mon équipe";
+  }, [teamInfo]);
+
+  const teamLabel = useMemo(() => {
+    return formatTeamDisplayName({
+      clubName: teamInfo.clubName,
+      name: teamInfo.name,
+      category: teamInfo.category,
+      squadNumber: teamInfo.squadNumber,
+      fallback: "Mon équipe",
+    });
+  }, [teamInfo]);
+
+  const localTeamAliases = useMemo(() => {
+    const aliases = buildTeamNameAliases({
+      clubName: teamInfo.clubName,
+      name: teamInfo.name,
+      category: teamInfo.category,
+      squadNumber: teamInfo.squadNumber,
+      fallback: "Mon équipe",
+    });
+    aliases.push(teamBaseLabel);
+
+    if (teamInfo.level) {
+      const levelValue = normalizeLevelValue(teamInfo.level);
+      if (levelValue) {
+        aliases.push(
+          `${formatTeamDisplayName({
+            clubName: teamInfo.clubName,
+            name: teamInfo.name ?? teamInfo.category,
+            category: teamInfo.category,
+            squadNumber: teamInfo.squadNumber,
+            fallback: "Mon équipe",
+          })} Niv ${levelValue}`.trim(),
+        );
+      }
+    }
+
+    return Array.from(new Set(aliases.map((value) => value.toLowerCase())));
+  }, [teamBaseLabel, teamInfo]);
+
+  const syncChampionshipEvents = useCallback(
+    async (nextDays: ChampionshipDay[]) => {
+      if (!teamId || !teamLabel || teamLabel === "Mon équipe") return;
+
+      const matches = mapChampionshipMatchesToTeamEvents(
+        nextDays.flatMap((day) =>
+          day.matches.map((match) => ({
+            dayId: day.id,
+            matchId: match.id,
+            dayDate: day.date || match.date,
+            time: match.time,
+            opponentName: match.opponent,
+            homeAway: match.homeAway,
+            homeTeam:
+              match.homeTeam ??
+              (match.homeAway === "home" ? teamLabel : match.opponent),
+            awayTeam:
+              match.awayTeam ??
+              (match.homeAway === "home" ? match.opponent : teamLabel),
+            score: match.score ?? null,
+            status: match.status ?? null,
+          })),
+        ),
+      );
+
+      await syncChampionshipMatchesToTeamEvents(teamId, matches);
+    },
+    [teamId, teamLabel],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
     async function loadTeamInfo() {
       if (!teamId) return;
-      const { data, error } = await supabase
-        .from("teams")
-        .select("name,category,level,club_id,custom_fields")
-        .eq("id", teamId)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      if (error) {
-        console.error("Erreur chargement équipe:", error.message ?? error);
-        return;
-      }
-
-      let clubName: string | null = null;
-
-      if (data?.club_id) {
-        const { data: clubData } = await supabase
-          .from("clubs")
-          .select("name")
-          .eq("id", data.club_id)
+      try {
+        const { data, error } = await supabase
+          .from("teams")
+          .select("name,category,level,club_id,squad_number,custom_fields")
+          .eq("id", teamId)
           .maybeSingle();
-        clubName = clubData?.name ?? null;
+
+        if (cancelled) return;
+
+        if (error) {
+          console.error("Erreur chargement équipe:", error.message ?? error);
+          setTeamInfo({
+            name: null,
+            category: null,
+            level: null,
+            clubName: null,
+            squadNumber: null,
+          });
+          return;
+        }
+
+        let clubName: string | null = null;
+
+        if (data?.club_id) {
+          const { data: clubData, error: clubError } = await supabase
+            .from("clubs")
+            .select("name")
+            .eq("id", data.club_id)
+            .maybeSingle();
+
+          if (cancelled) return;
+
+          if (clubError) {
+            console.error("Erreur chargement club:", clubError.message ?? clubError);
+          } else {
+            clubName = clubData?.name ?? null;
+          }
+        }
+
+        const customFields = Array.isArray(data?.custom_fields)
+          ? (data?.custom_fields as Array<{
+              key?: string | null;
+              label?: string;
+              value?: string;
+            }>)
+          : [];
+        const customLevel =
+          customFields.find((field) => field.key === "level")?.value ??
+          customFields.find((field) => field.label?.toLowerCase() === "niveau")
+            ?.value ??
+          null;
+
+        setTeamInfo({
+          name: data?.name ?? null,
+          category: data?.category ?? null,
+          level: data?.level ?? customLevel ?? null,
+          clubName,
+          squadNumber: data?.squad_number ?? null,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Erreur chargement équipe:", getErrorMessage(error));
+        setTeamInfo({
+          name: null,
+          category: null,
+          level: null,
+          clubName: null,
+          squadNumber: null,
+        });
       }
-
-      const customFields = Array.isArray(data?.custom_fields)
-        ? (data?.custom_fields as Array<{
-            key?: string | null;
-            label?: string;
-            value?: string;
-          }>)
-        : [];
-      const customLevel =
-        customFields.find((field) => field.key === "level")?.value ??
-        customFields.find((field) => field.label?.toLowerCase() === "niveau")
-          ?.value ??
-        null;
-
-      setTeamInfo({
-        name: data?.name ?? null,
-        category: data?.category ?? null,
-        level: data?.level ?? customLevel ?? null,
-        clubName,
-      });
     }
 
-    loadTeamInfo();
+    void loadTeamInfo();
 
     return () => {
       cancelled = true;
     };
   }, [teamId]);
+
+  useEffect(() => {
+    if (!days.length || !teamLabel || teamLabel === "Mon équipe") return;
+
+    void syncChampionshipEvents(days).catch((syncError) => {
+      console.error(
+        "Erreur resynchronisation championnat -> team_events:",
+        getErrorMessage(syncError),
+      );
+    });
+  }, [days, syncChampionshipEvents, teamLabel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,34 +868,44 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
       if (!teamId) return;
       setPlayersLoading(true);
       setPlayersError(null);
-      const { data, error } = await supabase
-        .from("players")
-        .select("id,first_name,last_name,photo_url,team_id")
-        .eq("team_id", teamId)
-        .order("created_at", { ascending: true });
 
-      if (cancelled) return;
+      try {
+        const { data, error } = await supabase
+          .from("players")
+          .select("id,first_name,last_name,photo_url,team_id")
+          .eq("team_id", teamId)
+          .order("created_at", { ascending: true });
 
-      if (error) {
-        console.error("Erreur chargement joueurs:", error.message ?? error);
+        if (cancelled) return;
+
+        if (error) {
+          console.error("Erreur chargement joueurs:", error.message ?? error);
+          setPlayers([]);
+          setPlayersError("Impossible de charger les joueurs.");
+          return;
+        }
+
+        setPlayers(
+          (data ?? []).map((player) => ({
+            id: player.id,
+            first_name: player.first_name ?? "",
+            last_name: player.last_name ?? "",
+            photo_url: player.photo_url ?? null,
+          })),
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Erreur chargement joueurs:", getErrorMessage(error));
         setPlayers([]);
         setPlayersError("Impossible de charger les joueurs.");
-        setPlayersLoading(false);
-        return;
+      } finally {
+        if (!cancelled) {
+          setPlayersLoading(false);
+        }
       }
-
-      setPlayers(
-        (data ?? []).map((player) => ({
-          id: player.id,
-          first_name: player.first_name ?? "",
-          last_name: player.last_name ?? "",
-          photo_url: player.photo_url ?? null,
-        })),
-      );
-      setPlayersLoading(false);
     }
 
-    loadPlayers();
+    void loadPlayers();
 
     return () => {
       cancelled = true;
@@ -741,45 +917,60 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
 
     async function loadChampionship() {
       if (!teamId) return;
-      const { data, error } = await supabase
-        .from("championships")
-        .select("data")
-        .eq("team_id", teamId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("championships")
+          .select("data")
+          .eq("team_id", teamId)
+          .maybeSingle();
 
-      if (cancelled) return;
+        if (cancelled) return;
 
-      if (error) {
-        console.error(
-          "Erreur chargement championnat:",
-          error.message ?? error,
-        );
-        return;
-      }
-
-      if (!data?.data) return;
-
-      const stored = data.data as ChampionshipStorageData;
-      const storedChampionship = stored?.championship ?? null;
-      const storedDays = Array.isArray(stored?.days)
-        ? (stored?.days as ChampionshipDay[])
-        : [];
-
-      if (storedChampionship) {
-        setChampionship(storedChampionship);
-        setDays(storedDays);
-        if (stored?.dayPhase) {
-          setDayPhase(stored.dayPhase);
+        if (error) {
+          console.error(
+            "Erreur chargement championnat:",
+            error.message ?? error,
+          );
+          return;
         }
+
+        if (!data?.data) return;
+
+        const stored = data.data as ChampionshipStorageData;
+        const storedChampionship = stored?.championship ?? null;
+        const storedDays = Array.isArray(stored?.days)
+          ? (stored?.days as ChampionshipDay[])
+          : [];
+
+        if (storedChampionship) {
+          setChampionship(storedChampionship);
+          setDays(storedDays);
+          if (stored?.dayPhase) {
+            setDayPhase(stored.dayPhase);
+          }
+          try {
+            await syncChampionshipEvents(storedDays);
+          } catch (syncError) {
+            if (!cancelled) {
+              console.error(
+                "Erreur synchronisation championnat -> team_events:",
+                getErrorMessage(syncError),
+              );
+            }
+          }
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Erreur chargement championnat:", getErrorMessage(error));
       }
     }
 
-    loadChampionship();
+    void loadChampionship();
 
     return () => {
       cancelled = true;
     };
-  }, [teamId]);
+  }, [syncChampionshipEvents, teamId]);
 
   useEffect(() => {
     prevStepRef.current = wizardStep;
@@ -878,18 +1069,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   const dayStepDirection: StepDirection =
     dayWizardStep >= prevDayStepRef.current ? "forward" : "backward";
 
-  const teamDisplayName = useMemo(() => {
-    const baseName =
-      teamInfo.clubName ?? teamInfo.name ?? teamInfo.category ?? "Mon équipe";
-    const levelValue = normalizeLevelValue(teamInfo.level);
-    const levelSuffix = levelValue ? ` Niv ${levelValue}` : "";
-    return `${baseName}${levelSuffix}`.trim();
-  }, [teamInfo]);
-
-  const teamLabel = useMemo(() => {
-    return teamInfo.clubName ?? teamInfo.name ?? "Mon équipe";
-  }, [teamInfo]);
-
   const displayChampionshipName = useMemo(() => {
     if (championship?.name?.trim()) return championship.name.trim();
     const category = teamInfo.category ?? teamInfo.name ?? "Championnat";
@@ -900,10 +1079,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   const isLocalTeamName = (name: string) => {
     const normalized = name.trim().toLowerCase();
     if (!normalized) return false;
-    return (
-      normalized === teamDisplayName.trim().toLowerCase() ||
-      normalized === teamLabel.trim().toLowerCase()
-    );
+    return localTeamAliases.includes(normalized);
   };
 
   const parseScore = useCallback((score?: string) => {
@@ -2056,6 +2232,14 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
 
       setChampionship(storedChampionship);
       setDays(storedDays);
+      try {
+        await syncChampionshipEvents(storedDays);
+      } catch (syncError) {
+        console.error(
+          "Erreur synchronisation championnat -> team_events:",
+          getErrorMessage(syncError),
+        );
+      }
       return true;
     } catch (error) {
       const err = error as Error;
@@ -2304,8 +2488,7 @@ const handlePickDay = () => {
   const input = dayInputRef.current as HTMLInputElement | null;
   if (!input) return;
 
-  // showPicker n'est pas encore bien typé partout → on le cast en any
-  const maybePicker = (input as any).showPicker as (() => void) | undefined;
+  const maybePicker = (input as PickerInput).showPicker;
 
   if (typeof maybePicker === "function") {
     maybePicker();

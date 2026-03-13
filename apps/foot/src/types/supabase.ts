@@ -77,6 +77,8 @@ export type Database = {
           name: string;
           category: string | null;
           level: string | null;
+          squad_number: number | null;
+          players_per_side: number | null;
           photo_url: string | null;
           players_count: number;
           custom_fields: Json | null;
@@ -89,6 +91,8 @@ export type Database = {
           name: string;
           category?: string | null;
           level?: string | null;
+          squad_number?: number | null;
+          players_per_side?: number | null;
           photo_url?: string | null;
           players_count?: number;
           custom_fields?: Json | null;
@@ -101,6 +105,8 @@ export type Database = {
           name?: string;
           category?: string | null;
           level?: string | null;
+          squad_number?: number | null;
+          players_per_side?: number | null;
           photo_url?: string | null;
           players_count?: number;
           custom_fields?: Json | null;
@@ -154,6 +160,7 @@ export type Database = {
           end_at: string | null;
           status: string | null;
           title: string | null;
+          championship_match_id: string | null;
           created_by: string;
           created_at: string | null;
         };
@@ -166,6 +173,7 @@ export type Database = {
           end_at?: string | null;
           status?: string | null;
           title?: string | null;
+          championship_match_id?: string | null;
           created_by: string;
           created_at?: string | null;
         };
@@ -178,6 +186,7 @@ export type Database = {
           end_at?: string | null;
           status?: string | null;
           title?: string | null;
+          championship_match_id?: string | null;
           created_by?: string;
           created_at?: string | null;
         };
@@ -187,16 +196,40 @@ export type Database = {
         Row: {
           id: string;
           event_id: string;
+          opponent_name: string;
+          scheduled_at: string | null;
+          competition: string | null;
+          location: string | null;
+          home_away: string | null;
+          goals_for: number | null;
+          goals_against: number | null;
+          result: string | null;
           created_at: string | null;
         };
         Insert: {
           id?: string;
           event_id: string;
+          opponent_name: string;
+          scheduled_at?: string | null;
+          competition?: string | null;
+          location?: string | null;
+          home_away?: string | null;
+          goals_for?: number | null;
+          goals_against?: number | null;
+          result?: string | null;
           created_at?: string | null;
         };
         Update: {
           id?: string;
           event_id?: string;
+          opponent_name?: string;
+          scheduled_at?: string | null;
+          competition?: string | null;
+          location?: string | null;
+          home_away?: string | null;
+          goals_for?: number | null;
+          goals_against?: number | null;
+          result?: string | null;
           created_at?: string | null;
         };
         Relationships: [];
