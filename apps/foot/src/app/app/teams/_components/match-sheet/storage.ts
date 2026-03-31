@@ -1,5 +1,6 @@
 import {
   createDefaultMatchSheetDraft,
+  createDefaultMatchSheetLineupDraft,
   createEmptyStarters,
   createDefaultSlotPositions,
   DEFAULT_MATCH_SHEET_FORMATION,
@@ -13,6 +14,9 @@ import type {
   MatchSheetDraft,
   MatchSheetFormation,
   MatchSheetFormat,
+  MatchSheetLineupDraft,
+  PlateauOfficialDraft,
+  PlateauResultDraft,
   MatchSheetPlayer,
   MatchSheetPlayerSource,
 } from "./types";
@@ -49,7 +53,7 @@ function sanitizeManualPlayers(value: unknown): MatchSheetPlayer[] {
       return {
         id: raw.id,
         club_id: typeof raw.club_id === "string" ? raw.club_id : "manual",
-        team_id: null,
+        team_id: typeof raw.team_id === "string" ? raw.team_id : null,
         first_name: typeof raw.first_name === "string" ? raw.first_name : "",
         last_name: typeof raw.last_name === "string" ? raw.last_name : "",
         license_number:
@@ -59,9 +63,164 @@ function sanitizeManualPlayers(value: unknown): MatchSheetPlayer[] {
         created_at:
           typeof raw.created_at === "string" ? raw.created_at : undefined,
         source: sanitizePlayerSource(raw.source),
+        jerseyNumber:
+          typeof raw.jerseyNumber === "string" ? raw.jerseyNumber : undefined,
       };
     })
-    .filter((player): player is MatchSheetPlayer => Boolean(player));
+    .filter(Boolean) as MatchSheetPlayer[];
+}
+
+function sanitizeLineupDraft(
+  value: unknown,
+  validPlayerIds: string[],
+  fallbackFormat: MatchSheetFormat,
+): MatchSheetLineupDraft {
+  if (!value || typeof value !== "object") {
+    return createDefaultMatchSheetLineupDraft(fallbackFormat);
+  }
+
+  const rawLineup = value as Partial<MatchSheetLineupDraft>;
+  const formation =
+    isMatchSheetFormation(rawLineup.formation) &&
+    isFormationCompatibleWithFormat(rawLineup.formation, fallbackFormat)
+      ? rawLineup.formation
+      : getDefaultFormationForFormat(fallbackFormat) || DEFAULT_MATCH_SHEET_FORMATION;
+
+  const startersBySlot = createEmptyStarters(formation);
+  const manualPlayers = sanitizeManualPlayers(rawLineup.manualPlayers);
+  const validIds = new Set([
+    ...validPlayerIds,
+    ...manualPlayers.map((player) => player.id),
+  ]);
+  const usedIds = new Set<string>();
+
+  if (rawLineup.startersBySlot && typeof rawLineup.startersBySlot === "object") {
+    MATCH_SHEET_FORMATIONS[formation].forEach((slot) => {
+      const candidate = rawLineup.startersBySlot?.[slot.id];
+      if (
+        typeof candidate === "string" &&
+        validIds.has(candidate) &&
+        !usedIds.has(candidate)
+      ) {
+        startersBySlot[slot.id] = candidate;
+        usedIds.add(candidate);
+      }
+    });
+  }
+
+  const substitutes =
+    Array.isArray(rawLineup.substitutes)
+      ? rawLineup.substitutes.filter(
+          (candidate): candidate is string =>
+            typeof candidate === "string" &&
+            validIds.has(candidate) &&
+            !usedIds.has(candidate),
+        )
+      : [];
+
+  substitutes.forEach((playerId) => {
+    usedIds.add(playerId);
+  });
+
+  const staffAssignments =
+    Array.isArray(rawLineup.staffAssignments)
+      ? rawLineup.staffAssignments.filter(
+          (candidate): candidate is string =>
+            typeof candidate === "string" &&
+            validIds.has(candidate) &&
+            !usedIds.has(candidate),
+        )
+      : [];
+
+  const slotPositionsByFormation: MatchSheetLineupDraft["slotPositionsByFormation"] =
+    {};
+
+  if (
+    rawLineup.slotPositionsByFormation &&
+    typeof rawLineup.slotPositionsByFormation === "object"
+  ) {
+    Object.keys(rawLineup.slotPositionsByFormation).forEach((formationKey) => {
+      if (!isMatchSheetFormation(formationKey)) return;
+      slotPositionsByFormation[formationKey] = sanitizeSlotPositions(
+        formationKey,
+        rawLineup.slotPositionsByFormation?.[formationKey],
+      );
+    });
+  }
+
+  slotPositionsByFormation[formation] =
+    slotPositionsByFormation[formation] ??
+    createDefaultSlotPositions(formation);
+
+  return {
+    formation,
+    startersBySlot,
+    slotPositionsByFormation,
+    manualPlayers,
+    playerNumbersById:
+      rawLineup.playerNumbersById && typeof rawLineup.playerNumbersById === "object"
+        ? Object.entries(rawLineup.playerNumbersById).reduce<Record<string, string>>(
+            (accumulator, [playerId, value]) => {
+              if (typeof value !== "string" || !validIds.has(playerId)) {
+                return accumulator;
+              }
+
+              accumulator[playerId] = value;
+              return accumulator;
+            },
+            {},
+          )
+        : {},
+    selectedSquadIds:
+      Array.isArray(rawLineup.selectedSquadIds)
+        ? rawLineup.selectedSquadIds.filter(
+            (candidate): candidate is string =>
+              typeof candidate === "string" && validIds.has(candidate),
+          )
+        : Array.from(usedIds),
+    substitutes,
+    staffAssignments,
+    validated: Boolean(rawLineup.validated),
+  };
+}
+
+function sanitizePlateauOfficialDraft(value: unknown): PlateauOfficialDraft {
+  if (!value || typeof value !== "object") {
+    return {
+      firstName: "",
+      lastName: "",
+      licenseNumber: "",
+      role: "",
+      club: "",
+    };
+  }
+
+  const raw = value as Partial<PlateauOfficialDraft>;
+
+  return {
+    firstName: typeof raw.firstName === "string" ? raw.firstName : "",
+    lastName: typeof raw.lastName === "string" ? raw.lastName : "",
+    licenseNumber:
+      typeof raw.licenseNumber === "string" ? raw.licenseNumber : "",
+    role: typeof raw.role === "string" ? raw.role : "",
+    club: typeof raw.club === "string" ? raw.club : "",
+  };
+}
+
+function sanitizePlateauResultDraft(value: unknown): PlateauResultDraft {
+  if (!value || typeof value !== "object") {
+    return {
+      homeScore: "",
+      awayScore: "",
+    };
+  }
+
+  const raw = value as Partial<PlateauResultDraft>;
+
+  return {
+    homeScore: typeof raw.homeScore === "string" ? raw.homeScore : "",
+    awayScore: typeof raw.awayScore === "string" ? raw.awayScore : "",
+  };
 }
 
 function sanitizeDraft(
@@ -238,6 +397,53 @@ function sanitizeDraft(
         )
       : Array.from(opponentUsedIds);
 
+  const plateauLineups =
+    rawDraft.plateauLineups &&
+    typeof rawDraft.plateauLineups === "object" &&
+    !Array.isArray(rawDraft.plateauLineups)
+      ? Object.fromEntries(
+          Object.entries(rawDraft.plateauLineups)
+            .filter(([lineupKey]) => typeof lineupKey === "string" && lineupKey.length > 0)
+            .map(([lineupKey, lineupValue]) => [
+              lineupKey,
+              sanitizeLineupDraft(lineupValue, validPlayerIds, detectedFormat),
+            ]),
+        )
+      : {};
+  const plateauOfficial = sanitizePlateauOfficialDraft(rawDraft.plateauOfficial);
+  const plateauOfficialSignature =
+    typeof rawDraft.plateauOfficialSignature === "string"
+      ? rawDraft.plateauOfficialSignature
+      : "";
+  const plateauSignatures =
+    rawDraft.plateauSignatures &&
+    typeof rawDraft.plateauSignatures === "object" &&
+    !Array.isArray(rawDraft.plateauSignatures)
+      ? Object.fromEntries(
+          Object.entries(rawDraft.plateauSignatures)
+            .filter(
+              ([teamKey, signatureValue]) =>
+                typeof teamKey === "string" &&
+                teamKey.length > 0 &&
+                typeof signatureValue === "string",
+            )
+            .map(([teamKey, signatureValue]) => [teamKey, signatureValue]),
+        )
+      : {};
+  const plateauResults =
+    rawDraft.plateauResults &&
+    typeof rawDraft.plateauResults === "object" &&
+    !Array.isArray(rawDraft.plateauResults)
+      ? Object.fromEntries(
+          Object.entries(rawDraft.plateauResults)
+            .filter(([matchId]) => typeof matchId === "string" && matchId.length > 0)
+            .map(([matchId, resultValue]) => [
+              matchId,
+              sanitizePlateauResultDraft(resultValue),
+            ]),
+        )
+      : {};
+
   return {
     format: detectedFormat,
     formation,
@@ -260,6 +466,13 @@ function sanitizeDraft(
         : "",
     coachNotes:
       typeof rawDraft.coachNotes === "string" ? rawDraft.coachNotes : "",
+    plateauLineups,
+    plateauOfficial,
+    plateauOfficialSignature,
+    plateauSignatures,
+    plateauResults,
+    plateauSheetValidated: Boolean(rawDraft.plateauSheetValidated),
+    plateauResultsValidated: Boolean(rawDraft.plateauResultsValidated),
     updatedAt:
       typeof rawDraft.updatedAt === "string"
         ? rawDraft.updatedAt

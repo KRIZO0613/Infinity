@@ -7,12 +7,14 @@ import ChampionshipTab from "./_components/ChampionshipTab";
 import CupTab from "./_components/CupTab";
 import FriendlyTab from "./_components/FriendlyTab";
 import PlateauTab from "./_components/PlateauTab";
+import TournamentTab from "./_components/TournamentTab";
 
 type MatchKind =
   | "championship"
   | "cup"
   | "friendly"
-  | "plateau";
+  | "plateau"
+  | "tournament";
 
 type MatchTab = {
   key: MatchKind;
@@ -24,6 +26,7 @@ const tabs: MatchTab[] = [
   { key: "cup", label: "Coupe" },
   { key: "friendly", label: "Matchs amicaux" },
   { key: "plateau", label: "Plateau" },
+  { key: "tournament", label: "Tournois" },
 ];
 
 export default function TeamMatchesPage() {
@@ -84,6 +87,10 @@ export default function TeamMatchesPage() {
         ) : activeTab === "plateau" ? (
           <div className="mt-8">
             <PlateauTab teamId={teamId} />
+          </div>
+        ) : activeTab === "tournament" ? (
+          <div className="mt-8">
+            <TournamentTab teamId={teamId} />
           </div>
         ) : (
           <div className="mt-8">

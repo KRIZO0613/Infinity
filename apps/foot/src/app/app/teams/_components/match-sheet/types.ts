@@ -38,6 +38,43 @@ export type MatchSheetSlotPosition = {
   y: number;
 };
 
+export type MatchSheetLineupDraft = {
+  formation: MatchSheetFormation;
+  startersBySlot: Record<string, string | null>;
+  slotPositionsByFormation: Partial<
+    Record<MatchSheetFormation, Record<string, MatchSheetSlotPosition>>
+  >;
+  manualPlayers: MatchSheetPlayer[];
+  playerNumbersById: Record<string, string>;
+  selectedSquadIds: string[];
+  substitutes: string[];
+  staffAssignments: string[];
+  validated: boolean;
+};
+
+export type PlateauOfficialDraft = {
+  firstName: string;
+  lastName: string;
+  licenseNumber: string;
+  role: string;
+  club: string;
+};
+
+export type PlateauResultDraft = {
+  homeScore: string;
+  awayScore: string;
+};
+
+export type MatchSheetPlateauMatch = {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  date?: string;
+  time?: string;
+  status?: "draft" | "in_progress" | "finished";
+  score?: string;
+};
+
 export type MatchSheetDraft = {
   format: MatchSheetFormat;
   formation: MatchSheetFormation;
@@ -60,10 +97,17 @@ export type MatchSheetDraft = {
   opponentStaffAssignments: string[];
   opponentTeamCode: string;
   coachNotes: string;
+  plateauLineups?: Record<string, MatchSheetLineupDraft>;
+  plateauOfficial?: PlateauOfficialDraft;
+  plateauOfficialSignature?: string;
+  plateauSignatures?: Record<string, string>;
+  plateauResults?: Record<string, PlateauResultDraft>;
+  plateauSheetValidated?: boolean;
+  plateauResultsValidated?: boolean;
   updatedAt: string;
 };
 
-export type MatchSheetSource = "team-event";
+export type MatchSheetSource = "team-event" | "plateau-day";
 
 export type MatchSheetMatch = {
   id: string;
@@ -72,10 +116,13 @@ export type MatchSheetMatch = {
   location: string | null;
   status: TeamEvent["status"] | null;
   source: MatchSheetSource;
+  teams?: string[];
+  plateauMatches?: MatchSheetPlateauMatch[];
 };
 
 export type MatchSheetPlayerSource = "team" | "club" | "staff" | "manual";
 
 export type MatchSheetPlayer = Player & {
   source?: MatchSheetPlayerSource;
+  jerseyNumber?: string;
 };

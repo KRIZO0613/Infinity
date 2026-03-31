@@ -182,6 +182,33 @@ const getErrorMessage = (error: unknown) => {
   return "Erreur inconnue";
 };
 
+const isAbortLikeError = (error: unknown) => {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+
+  if (error instanceof Error) {
+    return (
+      error.name === "AbortError" ||
+      error.message.toLowerCase().includes("aborted") ||
+      error.message.toLowerCase().includes("operation was aborted")
+    );
+  }
+
+  if (error && typeof error === "object") {
+    const candidate = error as { name?: unknown; message?: unknown };
+    const name = typeof candidate.name === "string" ? candidate.name : "";
+    const message = typeof candidate.message === "string" ? candidate.message : "";
+    return (
+      name === "AbortError" ||
+      message.toLowerCase().includes("aborted") ||
+      message.toLowerCase().includes("operation was aborted")
+    );
+  }
+
+  return false;
+};
+
 const formatDayCompact = (date: Date) => {
   return new Intl.DateTimeFormat("fr-FR", {
     day: "2-digit",
@@ -781,6 +808,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         if (cancelled) return;
 
         if (error) {
+          if (isAbortLikeError(error)) {
+            return;
+          }
           console.error("Erreur chargement équipe:", error.message ?? error);
           setTeamInfo({
             name: null,
@@ -832,6 +862,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         });
       } catch (error) {
         if (cancelled) return;
+        if (isAbortLikeError(error)) {
+          return;
+        }
         console.error("Erreur chargement équipe:", getErrorMessage(error));
         setTeamInfo({
           name: null,
@@ -948,16 +981,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
           if (stored?.dayPhase) {
             setDayPhase(stored.dayPhase);
           }
-          try {
-            await syncChampionshipEvents(storedDays);
-          } catch (syncError) {
-            if (!cancelled) {
-              console.error(
-                "Erreur synchronisation championnat -> team_events:",
-                getErrorMessage(syncError),
-              );
-            }
-          }
         }
       } catch (error) {
         if (cancelled) return;
@@ -970,7 +993,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [syncChampionshipEvents, teamId]);
+  }, [teamId]);
 
   useEffect(() => {
     prevStepRef.current = wizardStep;
@@ -2232,14 +2255,6 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
 
       setChampionship(storedChampionship);
       setDays(storedDays);
-      try {
-        await syncChampionshipEvents(storedDays);
-      } catch (syncError) {
-        console.error(
-          "Erreur synchronisation championnat -> team_events:",
-          getErrorMessage(syncError),
-        );
-      }
       return true;
     } catch (error) {
       const err = error as Error;

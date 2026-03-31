@@ -18,6 +18,7 @@ type MatchSheetFieldProps = {
   startersBySlot: Record<string, string | null>;
   playersById: Map<string, MatchSheetPlayer>;
   selectedPlayerId: string | null;
+  locked?: boolean;
   onSlotClick: (slotId: string) => void;
   onClearSlot: (slotId: string) => void;
   onSlotPositionChange: (
@@ -77,6 +78,12 @@ function FieldSlot({
       }}
     >
       <div className="relative">
+        {player?.jerseyNumber ? (
+          <span className="pointer-events-none absolute -left-1 -top-1 z-10 inline-flex min-w-[1.35rem] items-center justify-center rounded-full border border-sky-200/80 bg-sky-100 px-1 py-0.5 text-[9px] font-bold text-sky-950 shadow-[0_8px_18px_rgba(125,211,252,0.32)]">
+            {player.jerseyNumber}
+          </span>
+        ) : null}
+
         <button
           type="button"
           onClick={onClick}
@@ -134,6 +141,7 @@ export default function MatchSheetField({
   startersBySlot,
   playersById,
   selectedPlayerId,
+  locked = false,
   onSlotClick,
   onClearSlot,
   onSlotPositionChange,
@@ -268,6 +276,7 @@ export default function MatchSheetField({
 
   return (
     <div className="relative h-full overflow-hidden rounded-[22px] border border-emerald-200/20 bg-[linear-gradient(180deg,#14532d_0%,#166534_38%,#14532d_100%)] shadow-[0_30px_80px_rgba(0,0,0,0.42)]">
+      {locked ? <div className="absolute inset-0 z-20" /> : null}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.08),transparent_30%),repeating-linear-gradient(180deg,rgba(255,255,255,0.02)_0px,rgba(255,255,255,0.02)_30px,transparent_30px,transparent_60px)]" />
       <div className="pointer-events-none absolute inset-x-[7%] top-[2%] h-[81.2%] border-[1.5px] border-white/50 border-t-0" />
       <div className="pointer-events-none absolute left-[7%] right-[7%] top-[2%] h-[1.5px] bg-white/45" />

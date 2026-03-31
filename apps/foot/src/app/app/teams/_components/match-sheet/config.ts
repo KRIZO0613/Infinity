@@ -2,6 +2,7 @@ import type {
   MatchSheetDraft,
   MatchSheetFormation,
   MatchSheetFormat,
+  MatchSheetLineupDraft,
   MatchSheetPlayer,
   MatchSheetSlot,
   MatchSheetSlotPosition,
@@ -365,25 +366,21 @@ export function createDefaultMatchSheetDraft(
   format: MatchSheetFormat = DEFAULT_MATCH_SHEET_FORMAT,
   formation: MatchSheetFormation = getDefaultFormationForFormat(format),
 ): MatchSheetDraft {
-  const safeFormation = isFormationCompatibleWithFormat(formation, format)
-    ? formation
-    : getDefaultFormationForFormat(format);
+  const defaultLineup = createDefaultMatchSheetLineupDraft(format, formation);
 
   return {
     format,
-    formation: safeFormation,
-    startersBySlot: createEmptyStarters(safeFormation),
-    slotPositionsByFormation: {
-      [safeFormation]: createDefaultSlotPositions(safeFormation),
-    },
-    manualPlayers: [],
-    selectedSquadIds: [],
-    substitutes: [],
-    staffAssignments: [],
-    opponentFormation: safeFormation,
-    opponentStartersBySlot: createEmptyStarters(safeFormation),
+    formation: defaultLineup.formation,
+    startersBySlot: defaultLineup.startersBySlot,
+    slotPositionsByFormation: defaultLineup.slotPositionsByFormation,
+    manualPlayers: defaultLineup.manualPlayers,
+    selectedSquadIds: defaultLineup.selectedSquadIds,
+    substitutes: defaultLineup.substitutes,
+    staffAssignments: defaultLineup.staffAssignments,
+    opponentFormation: defaultLineup.formation,
+    opponentStartersBySlot: createEmptyStarters(defaultLineup.formation),
     opponentSlotPositionsByFormation: {
-      [safeFormation]: createDefaultSlotPositions(safeFormation),
+      [defaultLineup.formation]: createDefaultSlotPositions(defaultLineup.formation),
     },
     opponentManualPlayers: [],
     opponentSelectedSquadIds: [],
@@ -391,7 +388,43 @@ export function createDefaultMatchSheetDraft(
     opponentStaffAssignments: [],
     opponentTeamCode: "",
     coachNotes: "",
+    plateauLineups: {},
+    plateauOfficial: {
+      firstName: "",
+      lastName: "",
+      licenseNumber: "",
+      role: "",
+      club: "",
+    },
+    plateauOfficialSignature: "",
+    plateauSignatures: {},
+    plateauResults: {},
+    plateauSheetValidated: false,
+    plateauResultsValidated: false,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+export function createDefaultMatchSheetLineupDraft(
+  format: MatchSheetFormat = DEFAULT_MATCH_SHEET_FORMAT,
+  formation: MatchSheetFormation = getDefaultFormationForFormat(format),
+): MatchSheetLineupDraft {
+  const safeFormation = isFormationCompatibleWithFormat(formation, format)
+    ? formation
+    : getDefaultFormationForFormat(format);
+
+  return {
+    formation: safeFormation,
+    startersBySlot: createEmptyStarters(safeFormation),
+    slotPositionsByFormation: {
+      [safeFormation]: createDefaultSlotPositions(safeFormation),
+    },
+    manualPlayers: [],
+    playerNumbersById: {},
+    selectedSquadIds: [],
+    substitutes: [],
+    staffAssignments: [],
+    validated: false,
   };
 }
 

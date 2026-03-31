@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { supabase } from "@/lib/supabaseClient";
+import { syncPlateauMatchesToTeamEvents } from "@/lib/api/teamEvents";
+import { mapPlateauMatchesToTeamEvents } from "@/lib/plateauMatches";
 import {
   buildTeamNameAliases,
   formatTeamDisplayName,
@@ -125,6 +127,9 @@ const formatShortDate = (date: string) => {
     year: "numeric",
   }).format(parsed);
 };
+
+const formatPlateauDayLabel = (index: number) =>
+  `${index + 1}${index === 0 ? "ere" : "eme"} journée`;
 
 const buildMatchDateTime = (dayDate: string, matchTime?: string | null) => {
   if (!dayDate) return null;
@@ -354,6 +359,24 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
     return localTeamAliases.includes(normalized);
   };
 
+  const syncPlateauEvents = useCallback(
+    async (nextDays: PlateauDay[]) => {
+      if (
+        !teamId ||
+        (!teamInfo.name && !teamInfo.category && !teamInfo.clubName)
+      ) {
+        return;
+      }
+
+      const matches = mapPlateauMatchesToTeamEvents(nextDays, {
+        teamAliases: localTeamAliases,
+      });
+
+      await syncPlateauMatchesToTeamEvents(teamId, matches);
+    },
+    [localTeamAliases, teamId, teamInfo.category, teamInfo.clubName, teamInfo.name],
+  );
+
   const parseScore = useCallback((score?: string) => {
     if (!score) return null;
     const match = score.match(/(\d+)\s*-\s*(\d+)/);
@@ -517,6 +540,15 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
       cancelled = true;
     };
   }, [teamId]);
+
+  useEffect(() => {
+    void syncPlateauEvents(plateauDays).catch((syncError) => {
+      console.error(
+        "Erreur synchronisation plateau -> team_events:",
+        syncError instanceof Error ? syncError.message : syncError,
+      );
+    });
+  }, [plateauDays, syncPlateauEvents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1066,7 +1098,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
     const dayDate = `${draft.date}T00:00:00`;
     const nextDay: PlateauDay = {
       id: dayId,
-      name: `Plateau ${plateauDays.length + 1}`,
+      name: formatPlateauDayLabel(plateauDays.length),
       date: dayDate,
       time: timeValue,
       teams: draft.teams.map((team) => team.name),
@@ -1194,6 +1226,15 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
     if (!upcomingDays.length && !pastDays.length) return plateauDays;
     return visibleDays;
   }, [visibleDays, upcomingDays.length, pastDays.length, plateauDays]);
+
+  const plateauDayLabels = useMemo(() => {
+    return new Map(
+      plateauDays.map((day, index) => [
+        day.id,
+        day.name?.trim() || formatPlateauDayLabel(index),
+      ]),
+    );
+  }, [plateauDays]);
 
   const isPastDetailsMatch = useMemo(() => {
     if (!details) return false;
@@ -1394,7 +1435,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
                       {formatShortDate(heroDay.date)}
                     </span>
                     <span className="friendly-hero__meta-pill">
-                      {heroDay.name}
+                      {plateauDayLabels.get(heroDay.id) ?? heroDay.name}
                     </span>
                     <span className="friendly-hero__meta-pill">
                       {heroDay.time || "--:--"}
@@ -1473,7 +1514,7 @@ export default function PlateauTab({ teamId }: PlateauTabProps) {
                         </span>
                       </div>
                       <span className="text-[11px] uppercase tracking-[0.25em] text-white/60">
-                        {day.name}
+                        {plateauDayLabels.get(day.id) ?? day.name}
                       </span>
                     </div>
 

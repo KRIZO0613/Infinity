@@ -350,9 +350,13 @@ async function syncMatchRows(
   }
 }
 
-export async function syncChampionshipMatchesToTeamEvents(
+async function syncLinkedMatchesToTeamEvents(
   teamId: string,
   matches: ChampionshipMatchSyncInput[],
+  options: {
+    contextLabel: string;
+    linkPrefix: string;
+  },
 ) {
   if (!teamId) return;
 
@@ -361,7 +365,7 @@ export async function syncChampionshipMatchesToTeamEvents(
 
   const userId = userData.user?.id;
   if (!userId) {
-    throw new Error("sync championship matches failed: missing user");
+    throw new Error(`sync ${options.contextLabel} failed: missing user`);
   }
 
   const { data: teamData, error: teamError } = await supabase
@@ -372,7 +376,7 @@ export async function syncChampionshipMatchesToTeamEvents(
 
   if (teamError) throw teamError;
   if (!teamData?.club_id) {
-    throw new Error("sync championship matches failed: missing team club");
+    throw new Error(`sync ${options.contextLabel} failed: missing team club`);
   }
 
   const { data: existingEvents, error: existingError } = await supabase
@@ -384,14 +388,15 @@ export async function syncChampionshipMatchesToTeamEvents(
 
   if (existingError) throw existingError;
 
+  const managedExistingEvents = (existingEvents ?? []).filter(
+    (event): event is { id: string; championship_match_id: string } =>
+      typeof event.id === "string" &&
+      typeof event.championship_match_id === "string" &&
+      event.championship_match_id.startsWith(options.linkPrefix),
+  );
+
   const existingByLinkId = new Map(
-    (existingEvents ?? [])
-      .filter(
-        (event): event is { id: string; championship_match_id: string } =>
-          typeof event.id === "string" &&
-          typeof event.championship_match_id === "string",
-      )
-      .map((event) => [event.championship_match_id, event.id]),
+    managedExistingEvents.map((event) => [event.championship_match_id, event.id]),
   );
 
   const syncedEvents: Array<{
@@ -440,21 +445,21 @@ export async function syncChampionshipMatchesToTeamEvents(
       continue;
     }
 
-    const { data: insertedEvent, error: insertError } = await supabase
+    const { data: upsertedEvent, error: upsertError } = await supabase
       .from("team_events")
-      .insert({
+      .upsert({
         ...payload,
         created_by: userId,
-      })
+      }, { onConflict: "championship_match_id" })
       .select("id")
       .single();
 
-    if (insertError || !insertedEvent?.id) {
-      throw insertError ?? new Error("Unable to create championship team event.");
+    if (upsertError || !upsertedEvent?.id) {
+      throw upsertError ?? new Error("Unable to create championship team event.");
     }
 
     syncedEvents.push({
-      eventId: insertedEvent.id,
+      eventId: upsertedEvent.id,
       opponentName: match.opponentName,
       scheduledAt: match.startAt,
       competition: match.competition,
@@ -469,11 +474,9 @@ export async function syncChampionshipMatchesToTeamEvents(
   await syncMatchRows(syncedEvents);
 
   const desiredLinkIds = new Set(matches.map((match) => match.championshipMatchId));
-  const staleEventIds = (existingEvents ?? [])
+  const staleEventIds = managedExistingEvents
     .filter(
       (event) =>
-        typeof event.id === "string" &&
-        typeof event.championship_match_id === "string" &&
         !desiredLinkIds.has(event.championship_match_id),
     )
     .map((event) => event.id);
@@ -503,4 +506,24 @@ export async function syncChampionshipMatchesToTeamEvents(
 
     if (cancelError) throw cancelError;
   }
+}
+
+export async function syncChampionshipMatchesToTeamEvents(
+  teamId: string,
+  matches: ChampionshipMatchSyncInput[],
+) {
+  await syncLinkedMatchesToTeamEvents(teamId, matches, {
+    contextLabel: "championship matches",
+    linkPrefix: "championship:",
+  });
+}
+
+export async function syncPlateauMatchesToTeamEvents(
+  teamId: string,
+  matches: ChampionshipMatchSyncInput[],
+) {
+  await syncLinkedMatchesToTeamEvents(teamId, matches, {
+    contextLabel: "plateau matches",
+    linkPrefix: "plateau:",
+  });
 }
