@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import ChampionshipTab from "./_components/ChampionshipTab";
 import CupTab from "./_components/CupTab";
@@ -31,13 +31,28 @@ const tabs: MatchTab[] = [
 
 export default function TeamMatchesPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const teamId =
     typeof params?.id === "string"
       ? params.id
       : Array.isArray(params?.id)
       ? params.id[0]
       : "";
-  const [activeTab, setActiveTab] = useState<MatchKind>("championship");
+  const queryTab = searchParams.get("tab");
+  const isValidQueryTab = tabs.some((tab) => tab.key === queryTab);
+  const [activeTabState, setActiveTabState] = useState<{
+    queryTab: string | null;
+    tab: MatchKind;
+  }>(() => ({
+    queryTab,
+    tab: isValidQueryTab ? (queryTab as MatchKind) : "championship",
+  }));
+  const activeTab =
+    activeTabState.queryTab === queryTab
+      ? activeTabState.tab
+      : isValidQueryTab
+        ? (queryTab as MatchKind)
+        : activeTabState.tab;
 
   return (
     <div className="min-h-screen bg-[#070a14] text-slate-100">
@@ -55,7 +70,7 @@ export default function TeamMatchesPage() {
                     <button
                       key={tab.key}
                       type="button"
-                      onClick={() => setActiveTab(tab.key)}
+                      onClick={() => setActiveTabState({ queryTab, tab: tab.key })}
                       className={[
                         "rounded-full px-3 py-1.5 text-[11px] font-semibold transition",
                         isActive

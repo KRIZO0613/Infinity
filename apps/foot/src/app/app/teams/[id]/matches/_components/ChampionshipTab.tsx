@@ -884,7 +884,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   }, [teamId]);
 
   useEffect(() => {
-    if (!days.length || !teamLabel || teamLabel === "Mon équipe") return;
+    if (!championship || !teamLabel || teamLabel === "Mon équipe") return;
 
     void syncChampionshipEvents(days).catch((syncError) => {
       console.error(
@@ -892,7 +892,7 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         getErrorMessage(syncError),
       );
     });
-  }, [days, syncChampionshipEvents, teamLabel]);
+  }, [championship, days, syncChampionshipEvents, teamLabel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -912,6 +912,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         if (cancelled) return;
 
         if (error) {
+          if (isAbortLikeError(error)) {
+            return;
+          }
           console.error("Erreur chargement joueurs:", error.message ?? error);
           setPlayers([]);
           setPlayersError("Impossible de charger les joueurs.");
@@ -928,6 +931,9 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
         );
       } catch (error) {
         if (cancelled) return;
+        if (isAbortLikeError(error)) {
+          return;
+        }
         console.error("Erreur chargement joueurs:", getErrorMessage(error));
         setPlayers([]);
         setPlayersError("Impossible de charger les joueurs.");
@@ -2376,6 +2382,8 @@ export default function ChampionshipTab({ teamId }: ChampionshipTabProps) {
   const handleDeleteChampionship = async () => {
     if (!teamId) return;
     try {
+      await syncChampionshipMatchesToTeamEvents(teamId, []);
+
       const { error } = await supabase
         .from("championships")
         .delete()

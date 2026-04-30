@@ -1,18 +1,32 @@
 "use client";
 
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   searchExternalClubs,
   type ExternalClub,
 } from "@/lib/api/externalClubs";
+import { TournamentPreview as ManualTournamentPreview } from "@/components/tournament-preview/TournamentPreview";
+import type { TournamentPreviewData } from "@/components/tournament-preview/types";
+import {
+  deleteTournament as deleteTournamentFromSupabase,
+  loadTournament as loadTournamentFromSupabase,
+  listTournaments as listSupabaseTournaments,
+  saveTournament as saveTournamentToSupabase,
+} from "@/lib/tournamentService";
 import { TournamentCard } from "./tournament-product/TournamentCard";
 import { TournamentWorkspace } from "./tournament-product/TournamentWorkspace";
+import type {
+  TournamentProductMealItem,
+  TournamentProductShareSettings,
+} from "./tournament-product/types";
 
 type TournamentTabProps = {
   teamId: string;
 };
+
+const TOURNAMENT_WORKSPACE_RENDER_VERSION = "share-sync-v2";
 
 type TournamentView = "create" | "search" | "chat";
 type TournamentMode = "assistant" | "auto" | "manual";
@@ -107,6 +121,20 @@ type SavedTournament = {
   date: string;
   categories: string[];
   levels: string[];
+  groups?: Array<{
+    label: string;
+    teams: string[];
+  }>;
+  manualPreviewDataByDivision?: Array<{
+    id: string;
+    name: string;
+    data: TournamentPreviewData;
+  }>;
+  manualBuilderSnapshot?: {
+    manualTournamentState: Record<string, unknown>;
+    divisionStates: Record<string, unknown>;
+    activeDivisionId?: string | null;
+  } | null;
   mode: TournamentMode;
   teamCount: number;
   autoFormat: TournamentAutoFormat;
@@ -115,6 +143,10 @@ type SavedTournament = {
   startTime?: string;
   endTime?: string;
   teams: TournamentTeam[];
+  maxPlayersPerTeam?: number;
+  mealsPerTeam?: number;
+  mealItems?: TournamentProductMealItem[];
+  shareSettings?: TournamentProductShareSettings;
   schedule: TournamentScheduleMatch[];
   fieldCount: number;
   matchDuration: number;
@@ -305,6 +337,35 @@ const buildTournamentStandingTable = (
 };
 
 const STORAGE_PREFIX = "infinity:tournaments:";
+
+const readLocalSavedTournaments = (storageKey: string) => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = window.localStorage.getItem(storageKey);
+    return stored ? sanitizeSavedTournaments(JSON.parse(stored)) : [];
+  } catch {
+    return [];
+  }
+};
+
+const mergeSavedTournamentLists = (localEntries: SavedTournament[], remoteEntries: SavedTournament[]) => {
+  const merged = new Map<string, SavedTournament>();
+
+  [...remoteEntries, ...localEntries].forEach((entry) => {
+    const existing = merged.get(entry.id);
+    if (!existing) {
+      merged.set(entry.id, entry);
+      return;
+    }
+
+    const existingUpdatedAt = new Date(existing.updatedAt ?? existing.createdAt ?? 0).getTime();
+    const nextUpdatedAt = new Date(entry.updatedAt ?? entry.createdAt ?? 0).getTime();
+    merged.set(entry.id, nextUpdatedAt >= existingUpdatedAt ? entry : existing);
+  });
+
+  return [...merged.values()];
+};
 const TOURNAMENT_CATEGORIES = ["U7", "U8", "U9", "U10", "U11", "U12", "U13"];
 const TOURNAMENT_LEVELS = ["1", "2", "3", "4"];
 
@@ -577,6 +638,14 @@ const sanitizeSavedTournaments = (value: unknown): SavedTournament[] => {
         date: typeof candidate.date === "string" ? candidate.date : "",
         categories: Array.isArray(candidate.categories) ? candidate.categories : [],
         levels: Array.isArray(candidate.levels) ? candidate.levels : [],
+        groups: Array.isArray(candidate.groups) ? candidate.groups : [],
+        manualPreviewDataByDivision: Array.isArray(candidate.manualPreviewDataByDivision)
+          ? candidate.manualPreviewDataByDivision
+          : [],
+        manualBuilderSnapshot:
+          candidate.manualBuilderSnapshot && typeof candidate.manualBuilderSnapshot === "object"
+            ? candidate.manualBuilderSnapshot
+            : null,
         mode:
           candidate.mode === "assistant" ||
           candidate.mode === "auto" ||
@@ -593,6 +662,22 @@ const sanitizeSavedTournaments = (value: unknown): SavedTournament[] => {
         groupCount: toSafeNonNegativeInteger(candidate.groupCount, 0),
         teamsPerGroup: toSafeNonNegativeInteger(candidate.teamsPerGroup, 0),
         teams: Array.isArray(candidate.teams) ? candidate.teams : [],
+        maxPlayersPerTeam: toSafeNonNegativeInteger(candidate.maxPlayersPerTeam, 10),
+        mealsPerTeam: toSafeNonNegativeInteger(candidate.mealsPerTeam, 12),
+        mealItems: Array.isArray(candidate.mealItems) ? candidate.mealItems : [],
+        shareSettings:
+          candidate.shareSettings && typeof candidate.shareSettings === "object"
+            ? candidate.shareSettings
+            : {
+                tournamentPublished: false,
+                coachAccessEnabled: false,
+                parentAccessEnabled: false,
+                coachToken: buildId(),
+                parentToken: buildId(),
+                votesEnabled: false,
+                coachTeamSubmissions: {},
+                coachMealSubmissions: {},
+              },
         schedule: Array.isArray(candidate.schedule) ? candidate.schedule : [],
         fieldCount: toSafeNonNegativeInteger(candidate.fieldCount, 1),
         matchDuration: toSafeNonNegativeInteger(candidate.matchDuration, 12),
@@ -10308,6 +10393,8 @@ function TournamentCreationMode({
 
 export default function TournamentTab({ teamId }: TournamentTabProps) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const storageKey = `${STORAGE_PREFIX}${teamId}`;
   const tournamentDateInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<TournamentView>("create");
@@ -10319,15 +10406,8 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
   const wizardContentRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<TournamentMode>("assistant");
   const [config, setConfig] = useState<TournamentConfig>({ ...DEFAULT_CONFIG });
-  const [savedTournaments, setSavedTournaments] = useState<SavedTournament[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = window.localStorage.getItem(`${STORAGE_PREFIX}${teamId}`);
-      return stored ? sanitizeSavedTournaments(JSON.parse(stored)) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [savedTournaments, setSavedTournaments] = useState<SavedTournament[]>([]);
+  const [tournamentsLoading, setTournamentsLoading] = useState(true);
   const [manualTeamName, setManualTeamName] = useState("");
   const [autoSuggestionsOpen, setAutoSuggestionsOpen] = useState(false);
   const [assistantKnowsTeamCount, setAssistantKnowsTeamCount] = useState<boolean | null>(null);
@@ -10346,8 +10426,105 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
   const [previewShowRetour, setPreviewShowRetour] = useState(true);
 
   useEffect(() => {
+    if (tournamentsLoading) return;
     window.localStorage.setItem(storageKey, JSON.stringify(savedTournaments));
-  }, [savedTournaments, storageKey]);
+  }, [savedTournaments, storageKey, tournamentsLoading]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== storageKey) return;
+      setSavedTournaments(readLocalSavedTournaments(storageKey));
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [storageKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncTournaments = async () => {
+      const localEntries = readLocalSavedTournaments(storageKey);
+
+      try {
+        const remoteEntries = sanitizeSavedTournaments(await listSupabaseTournaments(teamId));
+        if (cancelled) return;
+
+        const mergedEntries = mergeSavedTournamentLists(localEntries, remoteEntries);
+        setSavedTournaments(mergedEntries);
+
+        const remoteIds = new Set(remoteEntries.map((entry) => entry.id));
+        const localEntriesToMigrate = localEntries.filter((entry) => !remoteIds.has(entry.id));
+
+        if (localEntriesToMigrate.length > 0) {
+          await Promise.allSettled(
+            localEntriesToMigrate.map((entry) =>
+              saveTournamentToSupabase({
+                ...entry,
+                teamId,
+              }),
+            ),
+          );
+        }
+      } catch (error) {
+        console.error("Erreur sync tournois Supabase:", error);
+        if (!cancelled) {
+          setSavedTournaments(localEntries);
+        }
+      } finally {
+        if (!cancelled) {
+          setTournamentsLoading(false);
+        }
+      }
+    };
+
+    void syncTournaments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storageKey, teamId]);
+
+  useEffect(() => {
+    if (!selectedTournamentId) return;
+    let cancelled = false;
+
+    const refreshSelectedTournament = async () => {
+      try {
+        const remoteTournament = await loadTournamentFromSupabase<SavedTournament>(selectedTournamentId);
+        if (cancelled || !remoteTournament) return;
+
+        setSavedTournaments((current) => {
+          const existing = current.find((entry) => entry.id === remoteTournament.id);
+          if (existing && JSON.stringify(existing) === JSON.stringify(remoteTournament)) {
+            return current;
+          }
+          return current.some((entry) => entry.id === remoteTournament.id)
+            ? current.map((entry) => (entry.id === remoteTournament.id ? remoteTournament : entry))
+            : [remoteTournament, ...current];
+        });
+      } catch (error) {
+        console.error("Erreur rafraichissement tournoi Supabase:", error);
+      }
+    };
+
+    void refreshSelectedTournament();
+    const intervalId = window.setInterval(refreshSelectedTournament, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [selectedTournamentId]);
+
+  useEffect(() => {
+    const queryTournamentId = searchParams.get("tournamentId");
+    if (!queryTournamentId) return;
+    if (!savedTournaments.some((entry) => entry.id === queryTournamentId)) return;
+    setSelectedTournamentId((current) =>
+      current === queryTournamentId ? current : queryTournamentId,
+    );
+  }, [savedTournaments, searchParams]);
 
   const preview = useMemo(() => {
     return mode === "manual" ? buildManualSchedule(config) : buildAutoSchedule(config);
@@ -10576,11 +10753,16 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
   );
   const selectedTournamentGroups = useMemo(
     () =>
-      selectedTournamentStructure?.groups.map((group) => ({
-        label: group.label,
-        teams: group.teams,
-      })) ?? [],
-    [selectedTournamentStructure],
+      selectedTournament?.groups?.length
+        ? selectedTournament.groups.map((group) => ({
+            label: group.label,
+            teams: group.teams,
+          }))
+        : selectedTournamentStructure?.groups.map((group) => ({
+            label: group.label,
+            teams: group.teams,
+          })) ?? [],
+    [selectedTournament, selectedTournamentStructure],
   );
   const selectedTournamentResolvedStructure = useMemo(() => {
     if (!selectedTournamentStructure || !selectedTournament) {
@@ -10838,7 +11020,37 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
       classement: selectedTournamentStructure.classement.map(resolveGeneratedMatch),
     };
   }, [selectedTournament, selectedTournamentStructure]);
+  const selectedTournamentStructurePreviewByDivision = useMemo(
+    () =>
+      selectedTournament?.manualPreviewDataByDivision?.map((division) => ({
+        id: division.id,
+        label: division.name,
+        content: <ManualTournamentPreview data={division.data} layout="split" showHeader={false} />,
+      })) ?? [],
+    [selectedTournament],
+  );
   const selectedTournamentStructurePreview = useMemo(() => {
+    if (selectedTournament?.mode === "manual") {
+      if (selectedTournamentStructurePreviewByDivision.length === 0) {
+        return null;
+      }
+
+      return (
+        <div className="space-y-6">
+          {selectedTournamentStructurePreviewByDivision.map((division) => (
+            <section key={division.id} className="space-y-3">
+              {selectedTournamentStructurePreviewByDivision.length > 1 ? (
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  {division.label}
+                </div>
+              ) : null}
+              {division.content}
+            </section>
+          ))}
+        </div>
+      );
+    }
+
     if (!selectedTournamentResolvedStructure || !selectedTournament || !selectedTournamentVariant) {
       return null;
     }
@@ -10861,6 +11073,7 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
     selectedTournament,
     selectedTournamentRoundRobinMode,
     selectedTournamentResolvedStructure,
+    selectedTournamentStructurePreviewByDivision,
     selectedTournamentVariant,
   ]);
 
@@ -11190,27 +11403,26 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
   const deleteSavedTournament = (tournamentId: string) => {
     setSavedTournaments((current) => current.filter((entry) => entry.id !== tournamentId));
     setSelectedTournamentId((current) => (current === tournamentId ? null : current));
+    void deleteTournamentFromSupabase(tournamentId).catch((error) => {
+      console.error("Erreur suppression tournoi Supabase:", error);
+    });
   };
 
-  const updateSavedTournament = (nextTournament: SavedTournament) => {
-    setSavedTournaments((current) =>
-      current.map((entry) => (entry.id === nextTournament.id ? nextTournament : entry)),
-    );
-  };
+  const updateSavedTournament = async (nextTournament: SavedTournament) => {
+    console.log("SAVING TOURNAMENT ID", nextTournament.id);
 
-  const togglePublishedTournament = (tournamentId: string) => {
-    setSavedTournaments((current) =>
-      current.map((entry) => {
-        if (entry.id !== tournamentId) return entry;
-        const nextStatus = entry.status === "published" ? "draft" : "published";
+    const tournamentToSave = {
+      ...nextTournament,
+      teamId,
+    };
 
-        return {
-          ...entry,
-          status: nextStatus,
-          publishedAt: nextStatus === "published" ? new Date().toISOString() : null,
-          updatedAt: new Date().toISOString(),
-        };
-      }),
+    const savedTournament = await saveTournamentToSupabase(tournamentToSave);
+    const freshTournament =
+      (await loadTournamentFromSupabase<SavedTournament>(nextTournament.id)) ??
+      savedTournament;
+
+    setSavedTournaments((current) =>
+      current.map((entry) => (entry.id === freshTournament.id ? freshTournament : entry)),
     );
   };
 
@@ -11260,7 +11472,7 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
     wizardContentRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [wizardStep]);
 
-  const saveTournament = () => {
+  const saveTournament = async () => {
     if (!canCreateTournament) return;
     const existingTournament = editingTournamentId
       ? savedTournaments.find((entry) => entry.id === editingTournamentId) ?? null
@@ -11282,6 +11494,17 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
       startTime: config.startTime,
       endTime: config.endTime,
       teams: config.teams,
+      mealItems: existingTournament?.mealItems ?? [],
+      shareSettings: existingTournament?.shareSettings ?? {
+        tournamentPublished: false,
+        coachAccessEnabled: false,
+        parentAccessEnabled: false,
+        coachToken: buildId(),
+        parentToken: buildId(),
+        votesEnabled: false,
+        coachTeamSubmissions: {},
+        coachMealSubmissions: {},
+      },
       fieldCount: config.fieldCount,
       matchDuration: config.matchDuration,
       penaltyShooters: config.penaltyShooters,
@@ -11312,6 +11535,15 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
         entry.id === editingTournamentId ? nextTournament : entry,
       );
     });
+
+    try {
+      await saveTournamentToSupabase({
+        ...nextTournament,
+        teamId,
+      });
+    } catch (error) {
+      console.error("Erreur sauvegarde tournoi Supabase:", error);
+    }
 
     resetWizard();
   };
@@ -11379,7 +11611,11 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
             </div>
           </div>
 
-          {savedTournaments.length === 0 ? (
+          {tournamentsLoading && savedTournaments.length === 0 ? (
+            <div className="rounded-[28px] border border-white/10 bg-black/20 p-6 text-sm text-slate-400">
+              Chargement des tournois...
+            </div>
+          ) : savedTournaments.length === 0 ? (
             <div className="rounded-[28px] border border-white/10 bg-black/20 p-6 text-sm text-slate-400">
               Aucun tournoi enregistré pour l’instant.
             </div>
@@ -11390,13 +11626,39 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
                   key={tournament.id}
                   tournament={tournament}
                   onView={() => setSelectedTournamentId(tournament.id)}
-                  onEdit={() => editSavedTournament(tournament)}
+                  onManage={() => {
+                    if (tournament.mode === "manual") {
+                      router.push(
+                        `/tournament/manual-builder?teamId=${encodeURIComponent(
+                          teamId,
+                        )}&returnTo=${encodeURIComponent(`/app/teams/${teamId}/matches?tab=tournament`)}&manageTournamentId=${encodeURIComponent(tournament.id)}`,
+                      );
+                      return;
+                    }
+
+                    editSavedTournament(tournament);
+                  }}
+                  onManageTeams={() => {
+                    if (tournament.mode === "manual") {
+                      router.push(
+                        `/tournament/manual-builder?teamId=${encodeURIComponent(
+                          teamId,
+                        )}&returnTo=${encodeURIComponent(
+                          `/app/teams/${teamId}/matches?tab=tournament`,
+                        )}&manageTournamentId=${encodeURIComponent(
+                          tournament.id,
+                        )}&controlTab=teams&teamsSubTab=teams`,
+                      );
+                      return;
+                    }
+
+                    editSavedTournament(tournament);
+                  }}
                   onDelete={() => {
                     if (window.confirm(`Supprimer ${tournament.name} ?`)) {
                       deleteSavedTournament(tournament.id);
                     }
                   }}
-                  onTogglePublish={() => togglePublishedTournament(tournament.id)}
                 />
               ))}
             </div>
@@ -11505,7 +11767,11 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
                           showModeContent={false}
                           onOpenManualBuilder={() => {
                             resetWizard();
-                            router.push("/tournament/manual-builder");
+                            router.push(
+                              `/tournament/manual-builder?teamId=${encodeURIComponent(
+                                teamId,
+                              )}&returnTo=${encodeURIComponent(`/app/teams/${teamId}/matches?tab=tournament`)}`,
+                            );
                           }}
                           onModeChange={(nextMode) => {
                             setMode(nextMode);
@@ -11557,7 +11823,11 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
                       showModeCards={false}
                       onOpenManualBuilder={() => {
                         resetWizard();
-                        router.push("/tournament/manual-builder");
+                        router.push(
+                          `/tournament/manual-builder?teamId=${encodeURIComponent(
+                            teamId,
+                          )}&returnTo=${encodeURIComponent(`/app/teams/${teamId}/matches?tab=tournament`)}`,
+                        );
                       }}
                       onModeChange={(nextMode) => {
                         setMode(nextMode);
@@ -12495,11 +12765,15 @@ export default function TournamentTab({ teamId }: TournamentTabProps) {
 
       {selectedTournament ? (
         <TournamentWorkspace
-          key={selectedTournament.id}
+          key={`${selectedTournament.id}:${TOURNAMENT_WORKSPACE_RENDER_VERSION}`}
           tournament={selectedTournament}
           groups={selectedTournamentGroups}
           structurePreview={selectedTournamentStructurePreview}
-          onClose={() => setSelectedTournamentId(null)}
+          structurePreviewByDivision={selectedTournamentStructurePreviewByDivision}
+          onClose={() => {
+            setSelectedTournamentId(null);
+            router.replace(pathname);
+          }}
           onEditStructure={() => editSavedTournament(selectedTournament)}
           onDelete={() => {
             if (window.confirm(`Supprimer ${selectedTournament.name} ?`)) {

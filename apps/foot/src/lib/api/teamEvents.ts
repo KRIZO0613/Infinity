@@ -269,85 +269,36 @@ async function syncMatchRows(
 ) {
   if (matchesByEventId.length === 0) return;
 
-  const { data, error } = await supabase
+  const fullPayload = matchesByEventId.map((match) => ({
+    event_id: match.eventId,
+    opponent_name: match.opponentName,
+    scheduled_at: match.scheduledAt,
+    competition: match.competition,
+    location: match.location ?? null,
+    home_away: match.homeAway,
+    goals_for: match.goalsFor,
+    goals_against: match.goalsAgainst,
+    result: match.result,
+  }));
+
+  const { error: upsertError } = await supabase
     .from("matches")
-    .select("event_id")
-    .in(
-      "event_id",
-      matchesByEventId.map((match) => match.eventId),
+    .upsert(fullPayload, { onConflict: "event_id" });
+
+  if (!upsertError) return;
+  if (!isMatchesSchemaMismatch(upsertError)) throw upsertError;
+
+  const { error: fallbackUpsertError } = await supabase
+    .from("matches")
+    .upsert(
+      matchesByEventId.map((match) => ({
+        event_id: match.eventId,
+        opponent_name: match.opponentName,
+      })),
+      { onConflict: "event_id" },
     );
 
-  if (error) throw error;
-
-  const existingIds = new Set((data ?? []).map((row) => row.event_id));
-  const missingMatches = matchesByEventId.filter(
-    (match) => !existingIds.has(match.eventId),
-  );
-  const existingMatches = matchesByEventId.filter((match) =>
-    existingIds.has(match.eventId),
-  );
-
-  if (missingMatches.length > 0) {
-    const fullInsertPayload = missingMatches.map((match) => ({
-      event_id: match.eventId,
-      opponent_name: match.opponentName,
-      scheduled_at: match.scheduledAt,
-      competition: match.competition,
-      location: match.location ?? null,
-      home_away: match.homeAway,
-      goals_for: match.goalsFor,
-      goals_against: match.goalsAgainst,
-      result: match.result,
-    }));
-
-    const { error: insertError } = await supabase
-      .from("matches")
-      .insert(fullInsertPayload);
-
-    if (insertError) {
-      if (!isMatchesSchemaMismatch(insertError)) throw insertError;
-
-      const { error: fallbackInsertError } = await supabase
-        .from("matches")
-        .insert(
-          missingMatches.map((match) => ({
-            event_id: match.eventId,
-            opponent_name: match.opponentName,
-          })),
-        );
-
-      if (fallbackInsertError) throw fallbackInsertError;
-    }
-  }
-
-  for (const match of existingMatches) {
-    const { error: updateError } = await supabase
-      .from("matches")
-      .update({
-        opponent_name: match.opponentName,
-        scheduled_at: match.scheduledAt,
-        competition: match.competition,
-        location: match.location ?? null,
-        home_away: match.homeAway,
-        goals_for: match.goalsFor,
-        goals_against: match.goalsAgainst,
-        result: match.result,
-      })
-      .eq("event_id", match.eventId);
-
-    if (updateError) {
-      if (!isMatchesSchemaMismatch(updateError)) throw updateError;
-
-      const { error: fallbackUpdateError } = await supabase
-        .from("matches")
-        .update({
-          opponent_name: match.opponentName,
-        })
-        .eq("event_id", match.eventId);
-
-      if (fallbackUpdateError) throw fallbackUpdateError;
-    }
-  }
+  if (fallbackUpsertError) throw fallbackUpsertError;
 }
 
 async function syncLinkedMatchesToTeamEvents(

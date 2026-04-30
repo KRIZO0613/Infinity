@@ -12,7 +12,7 @@ import type {
 type PreviewSectionTone = "main" | "secondary" | "placement";
 
 const getMatchCode = (matchId: string) => {
-  const directCode = matchId.match(/(16E\d+|8E\d+|QF\d+|SF\d+|F\d+)$/i);
+  const directCode = matchId.match(/(16E\d+|8E\d+|QF\d+|SF\d+|F\d+|CL\d+[A-Z0-9]*F\d+|CF\d+)$/i);
   if (directCode) return directCode[1].toUpperCase();
 
   const standardMatch = matchId.match(/-match-(\d+)$/i);
@@ -20,6 +20,12 @@ const getMatchCode = (matchId: string) => {
 
   const playInMatch = matchId.match(/-play-in-(\d+)$/i);
   if (playInMatch) return `B${playInMatch[1]}`;
+
+  const placementFinalMatch = matchId.match(/(CL\d+[A-Z0-9]*)-final$/i);
+  if (placementFinalMatch) return `${placementFinalMatch[1].toUpperCase()}F1`;
+
+  const secondaryFinalMatch = matchId.match(/^secondary-final$/i);
+  if (secondaryFinalMatch) return "CF1";
 
   const finalMatch = matchId.match(/-final$/i);
   if (finalMatch) return "F1";
@@ -35,6 +41,12 @@ const getRoundCodeLabel = (code: string, tone: PreviewSectionTone) => {
   }
   if (normalizedCode.startsWith("SF")) {
     return tone === "secondary" ? "Demi-finale consolante" : "Demi-finale";
+  }
+  if (normalizedCode.startsWith("CL")) {
+    return "Match de classement";
+  }
+  if (normalizedCode.startsWith("CF")) {
+    return "Finale consolante";
   }
   if (normalizedCode.startsWith("F")) {
     return tone === "secondary" ? "Finale consolante" : "Finale";
@@ -109,7 +121,7 @@ const extractMatchReferenceCode = (value: string) => {
     .replace(/^secondary-/i, "")
     .replace(/^CONS\.\s*/i, "");
 
-  const directCode = normalized.match(/(16E\d+|8E\d+|QF\d+|SF\d+|F\d+)$/i);
+  const directCode = normalized.match(/(16E\d+|8E\d+|QF\d+|SF\d+|F\d+|CL\d+[A-Z0-9]*F\d+|CF\d+)$/i);
   return directCode ? directCode[1].toUpperCase() : null;
 };
 
@@ -159,10 +171,12 @@ function GroupCard({
   group,
   focused,
   onClick,
+  showStats = true,
 }: {
   group: TournamentPreviewGroup;
   focused?: boolean;
   onClick?: () => void;
+  showStats?: boolean;
 }) {
   return (
     <button
@@ -184,14 +198,16 @@ function GroupCard({
 
       <div className="mt-4 overflow-hidden rounded-[18px] border border-white/8 bg-[#0b0d14]/90">
         <table className="w-full table-fixed">
-          <thead className="border-b border-white/6">
-            <tr className="text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
-              <th className="px-3 py-2.5 font-medium">Equipe</th>
-              <th className="w-12 px-2 py-2.5 text-center font-medium">MJ</th>
-              <th className="w-12 px-2 py-2.5 text-center font-medium">Diff</th>
-              <th className="w-12 px-2 py-2.5 text-center font-medium">Pts</th>
-            </tr>
-          </thead>
+          {showStats ? (
+            <thead className="border-b border-white/6">
+              <tr className="text-left text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                <th className="px-3 py-2.5 font-medium">Equipe</th>
+                <th className="w-12 px-2 py-2.5 text-center font-medium">MJ</th>
+                <th className="w-12 px-2 py-2.5 text-center font-medium">Diff</th>
+                <th className="w-12 px-2 py-2.5 text-center font-medium">Pts</th>
+              </tr>
+            </thead>
+          ) : null}
           <tbody>
             {group.standings.map((row) => (
               <tr
@@ -213,11 +229,15 @@ function GroupCard({
                     <span className="text-sm font-medium leading-5 text-white">{row.team}</span>
                   </div>
                 </td>
-                <td className="px-2 py-3 text-center text-sm text-slate-400">{row.played}</td>
-                <td className="px-2 py-3 text-center text-sm text-slate-400">{row.diff}</td>
-                <td className="px-2 py-3 text-center text-sm font-semibold text-white">
-                  {row.points}
-                </td>
+                {showStats ? (
+                  <>
+                    <td className="px-2 py-3 text-center text-sm text-slate-400">{row.played}</td>
+                    <td className="px-2 py-3 text-center text-sm text-slate-400">{row.diff}</td>
+                    <td className="px-2 py-3 text-center text-sm font-semibold text-white">
+                      {row.points}
+                    </td>
+                  </>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -355,6 +375,10 @@ function BracketSection({
   roundKeyPrefix,
   tone = "main",
   highlightedSeed,
+  onQualificationClick,
+  onBracketClick,
+  qualificationActive,
+  bracketActive,
 }: {
   title: string;
   description: string;
@@ -364,6 +388,10 @@ function BracketSection({
   roundKeyPrefix?: string;
   tone?: PreviewSectionTone;
   highlightedSeed?: string | null;
+  onQualificationClick?: () => void;
+  onBracketClick?: () => void;
+  qualificationActive?: boolean;
+  bracketActive?: boolean;
 }) {
   const highlightedMatchIds = useMemo(
     () => buildHighlightedMatchIds(rounds, highlightedSeed ?? null),
@@ -383,14 +411,79 @@ function BracketSection({
             : "border-white/8 bg-black/15 opacity-85",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">{title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">{title}</p>
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+              {rounds.length} tours
+            </span>
+          </div>
           <p className="mt-1 text-sm text-slate-300">{description}</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
-          {rounds.length} tours
-        </span>
+        <div className="flex flex-col items-end gap-2">
+          <div className="rounded-full border border-white/[0.06] bg-black/20 p-1 shadow-[0_14px_30px_rgba(0,0,0,0.18)]">
+            <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={onQualificationClick}
+              className={[
+                "flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-full text-center transition duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                qualificationActive
+                  ? "border border-violet-300/18 bg-violet-500/20 text-violet-50 shadow-[0_0_18px_rgba(124,58,237,0.24)]"
+                  : "bg-white/[0.03] text-slate-200 hover:bg-white/[0.06] active:bg-white/[0.08]",
+              ].join(" ")}
+            >
+              <span className="inline-flex leading-none">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 16 16"
+                  className="h-6 w-6"
+                  fill="none"
+                >
+                  <path d="M2.5 13h11" stroke="rgba(255,255,255,0.28)" strokeWidth="1.2" strokeLinecap="round" />
+                  <rect x="3.2" y="7.4" width="2.2" height="4.1" rx="0.8" fill="#FACC15" />
+                  <rect x="6.9" y="4.8" width="2.2" height="6.7" rx="0.8" fill="#60A5FA" />
+                  <rect x="10.6" y="6.2" width="2.2" height="5.3" rx="0.8" fill="#A78BFA" />
+                </svg>
+              </span>
+              <span className="text-[7px] font-semibold uppercase tracking-[0.14em] text-white/35">
+                Qualif
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onBracketClick}
+              className={[
+                "flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-full text-center transition duration-200 hover:scale-[1.02] active:scale-[0.98]",
+                bracketActive
+                  ? "border border-violet-300/18 bg-violet-500/20 text-violet-50 shadow-[0_0_18px_rgba(124,58,237,0.24)]"
+                  : "bg-white/[0.03] text-slate-200 hover:bg-white/[0.06] active:bg-white/[0.08]",
+              ].join(" ")}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                className="h-4 w-4 text-violet-300"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="1.5" y="2" width="4" height="3" rx="1" />
+                <rect x="1.5" y="11" width="4" height="3" rx="1" />
+                <rect x="10.5" y="6.5" width="4" height="3" rx="1" />
+                <path d="M5.5 3.5h2.5v4h2.5" />
+                <path d="M5.5 12.5h2.5v-4h2.5" />
+              </svg>
+              <span className="text-[7px] font-semibold uppercase tracking-[0.14em] text-white/35">
+                Bracket
+              </span>
+            </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {errorMessage ? (
@@ -419,7 +512,7 @@ function BracketSection({
 
 function PlacementSectionCard({ section }: { section: TournamentPreviewPlacementSection }) {
   return (
-    <div className="rounded-[24px] border border-white/8 bg-black/20 p-4">
+    <div className="rounded-[24px] bg-[rgba(255,255,255,0.02)] p-4 shadow-[0_18px_40px_rgba(0,0,0,0.28)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -427,7 +520,7 @@ function PlacementSectionCard({ section }: { section: TournamentPreviewPlacement
           </p>
           <p className="mt-1 text-sm text-slate-300">{section.description}</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+        <span className="rounded-full bg-[#11151F] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75 shadow-[0_8px_16px_rgba(0,0,0,0.18)]">
           {section.rounds.reduce((total, round) => total + round.matches.length, 0)} matchs
         </span>
       </div>
@@ -442,16 +535,16 @@ function PlacementSectionCard({ section }: { section: TournamentPreviewPlacement
               {round.matches.map((match) => (
                 <div
                   key={match.id}
-                  className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3"
+                  className="rounded-[20px] bg-[#0E111A] px-4 py-3 shadow-[0_18px_36px_rgba(0,0,0,0.34)]"
                 >
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">
                     {formatMatchLabel(match.label, match.id, "placement")}
                   </p>
                   <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
                     <p className="text-right text-sm font-semibold leading-5 text-white">
                       {formatParticipantLabel(match.homeTeam)}
                     </p>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    <span className="rounded-full bg-[#141925] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/45 shadow-[0_8px_18px_rgba(0,0,0,0.22)]">
                       VS
                     </span>
                     <p className="text-sm font-semibold leading-5 text-white">
@@ -476,6 +569,11 @@ export function TournamentPreview({
   showHeader = true,
   showPlacementMatches = true,
   highlightedSeed,
+  onQualificationClick,
+  onBracketClick,
+  qualificationActive = false,
+  bracketActive = false,
+  layout = "stacked",
 }: {
   data: TournamentPreviewData;
   focusedGroupId?: string | null;
@@ -484,6 +582,11 @@ export function TournamentPreview({
   showHeader?: boolean;
   showPlacementMatches?: boolean;
   highlightedSeed?: string | null;
+  onQualificationClick?: () => void;
+  onBracketClick?: () => void;
+  qualificationActive?: boolean;
+  bracketActive?: boolean;
+  layout?: "stacked" | "split";
 }) {
   const effectiveHighlightedSeed = highlightedSeed ?? null;
   const orderedGroups =
@@ -494,81 +597,53 @@ export function TournamentPreview({
         ]
       : data.groups;
 
-  return (
-    <div className="flex min-h-0 flex-col gap-5">
-      {showHeader ? (
-        <section className="rounded-[30px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(139,92,246,0.14),transparent_55%),rgba(255,255,255,0.03)] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.3)] backdrop-blur-2xl">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.26em] text-slate-500">Preview</p>
-              <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-white">
-                {data.name}
-              </h2>
-              <p className="mt-2 text-sm text-slate-400">
-                {[
-                  data.date || "Date libre",
-                  `${data.teamsCount} equipes`,
-                  `${data.groupsCount} groupes`,
-                  data.qualificationLabel,
-                  data.bracketLabel,
-                ].join(" • ")}
-              </p>
-            </div>
+  const groupsSection = showGroups ? (
+    <section className="rounded-[30px] bg-[rgba(255,255,255,0.02)] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">Poules</p>
+          <p className="mt-1 text-sm text-white/70">
+            Lecture instantanee des groupes et du classement.
+          </p>
+        </div>
+        <span className="rounded-full bg-[#11151F] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_22px_rgba(0,0,0,0.22)]">
+          ⭐ = equipe qualifiee
+        </span>
+      </div>
 
-            <div className="flex flex-wrap gap-2">
-              <span className="rounded-full border border-violet-300/20 bg-violet-500/12 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-100">
-                {data.bracketLabel}
-              </span>
-              <span
-                className={[
-                  "rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
-                  data.placementMatches
-                    ? "border border-emerald-300/25 bg-emerald-500/12 text-emerald-100"
-                    : "border border-white/10 bg-white/5 text-slate-400",
-                ].join(" ")}
-              >
-                {data.placementMatches ? "Classement on" : "Classement off"}
-              </span>
-            </div>
-          </div>
-        </section>
-      ) : null}
+      <div
+        className={[
+          "mt-5 grid gap-4",
+          layout === "split" ? "max-h-[70vh] overflow-y-auto pr-1" : "xl:grid-cols-2 2xl:grid-cols-3",
+        ].join(" ")}
+      >
+        {orderedGroups.map((group) => (
+          <GroupCard
+            key={group.id}
+            group={group}
+            focused={focusedGroupId === group.id}
+            onClick={onGroupSelect ? () => onGroupSelect(group.id) : undefined}
+            showStats={layout !== "split"}
+          />
+        ))}
+      </div>
+    </section>
+  ) : null;
 
-      {showGroups ? (
-        <section className="rounded-[30px] border border-white/10 bg-white/[0.03] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Poules</p>
-              <p className="mt-1 text-sm text-slate-300">
-                Lecture instantanee des groupes et du classement.
-              </p>
-            </div>
-            <span className="rounded-full border border-amber-300/20 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">
-              ⭐ = equipe qualifiee
-            </span>
-          </div>
-
-          <div className="mt-5 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-            {orderedGroups.map((group) => (
-              <GroupCard
-                key={group.id}
-                group={group}
-                focused={focusedGroupId === group.id}
-                onClick={onGroupSelect ? () => onGroupSelect(group.id) : undefined}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
+  const finalsContent = (
+    <>
       <BracketSection
         title="Phase finale principale"
-        description="Arbre principal lisible avec connexions visuelles."
+        description=""
         rounds={data.bracket}
         errorMessage={data.bracketError}
         roundKeyPrefix="main"
         tone="main"
         highlightedSeed={effectiveHighlightedSeed}
+        onQualificationClick={onQualificationClick}
+        onBracketClick={onBracketClick}
+        qualificationActive={qualificationActive}
+        bracketActive={bracketActive}
       />
 
       {data.phaseType === "double" ? (
@@ -588,17 +663,17 @@ export function TournamentPreview({
       data.placementMatches &&
       data.classementSections &&
       data.classementSections.length > 0 ? (
-        <section className="rounded-[30px] border border-white/10 bg-white/[0.03] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+        <section className="rounded-[30px] bg-[rgba(255,255,255,0.02)] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.24)]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.24em] text-slate-500">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">
                 Matchs de classement
               </p>
-              <p className="mt-1 text-sm text-slate-300">
+              <p className="mt-1 text-sm text-white/70">
                 Tableau secondaire affiche sous la phase finale principale.
               </p>
             </div>
-            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+            <span className="rounded-full bg-[#11151F] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75 shadow-[0_10px_22px_rgba(0,0,0,0.22)]">
               {data.classementSections.reduce(
                 (total, section) =>
                   total + section.rounds.reduce((sectionTotal, round) => sectionTotal + round.matches.length, 0),
@@ -615,10 +690,64 @@ export function TournamentPreview({
           </div>
         </section>
       ) : null}
+    </>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-col gap-5">
+      {showHeader ? (
+        <section className="rounded-[30px] bg-[rgba(255,255,255,0.02)] p-5 shadow-[0_24px_60px_rgba(0,0,0,0.3)]">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.26em] text-white/50">Preview</p>
+              <h2 className="mt-2 text-[28px] font-semibold tracking-[-0.04em] text-white">
+                {data.name}
+              </h2>
+              <p className="mt-2 text-sm text-white/70">
+                {[
+                  data.date || "Date libre",
+                  `${data.teamsCount} equipes`,
+                  `${data.groupsCount} groupes`,
+                  data.qualificationLabel,
+                  data.bracketLabel,
+                ].join(" • ")}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-full bg-[#11151F] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-100 shadow-[0_10px_22px_rgba(0,0,0,0.22)]">
+                {data.bracketLabel}
+              </span>
+              <span
+                className={[
+                  "rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]",
+                  data.placementMatches
+                    ? "bg-[#11151F] text-white/85 shadow-[0_10px_22px_rgba(0,0,0,0.22)]"
+                    : "bg-[#11151F] text-white/50 shadow-[0_10px_22px_rgba(0,0,0,0.22)]",
+                ].join(" ")}
+              >
+                {data.placementMatches ? "Classement on" : "Classement off"}
+              </span>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {layout === "split" && showGroups ? (
+        <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+          <div className="min-h-0 xl:sticky xl:top-0 xl:self-start">{groupsSection}</div>
+          <div className="space-y-5">{finalsContent}</div>
+        </div>
+      ) : (
+        <>
+          {groupsSection}
+          {finalsContent}
+        </>
+      )}
 
       {!showGroups ? (
         <div className="flex justify-end">
-          <span className="rounded-full border border-amber-300/20 bg-amber-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-100">
+          <span className="rounded-full bg-[#11151F] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_22px_rgba(0,0,0,0.22)]">
             ⭐ = equipe qualifiee
           </span>
         </div>

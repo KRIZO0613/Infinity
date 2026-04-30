@@ -17,11 +17,22 @@ export type TournamentPreviewGroup = {
   standings: TournamentPreviewStandingRow[];
 };
 
+export type TournamentPreviewSlot = {
+  type: "winner" | "loser" | "seed";
+  sourceMatchId: string | null;
+  groupId: string | null;
+  rank: number | null;
+  label: string;
+  seedIndex?: number | null;
+};
+
 export type TournamentPreviewMatch = {
   id: string;
   label: string;
   homeTeam: string;
   awayTeam: string;
+  homeSlot?: TournamentPreviewSlot;
+  awaySlot?: TournamentPreviewSlot;
 };
 
 export type TournamentPreviewRound = {
@@ -44,6 +55,7 @@ export type TournamentPreviewData = {
   groupsCount: number;
   phaseType: "simple" | "double";
   qualificationLabel: string;
+  qualificationEntries?: string[];
   bracketLabel: string;
   bracketError?: string;
   secondaryBracketLabel?: string;
